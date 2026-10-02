@@ -17,6 +17,9 @@ export default tseslint.config(
       },
       globals: { ...globals.node },
     },
+    rules: {
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
+    },
   },
   {
     files: ['apps/configurator/**/*.{ts,tsx}'],
