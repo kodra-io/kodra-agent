@@ -54,7 +54,7 @@ export default defineManifest({
           'Pull requests: write',
         ],
       },
-      probe: 'github.get-authenticated-user',
+      probe: 'github.read-repos',
     },
   ],
   tools: {},

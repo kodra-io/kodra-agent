@@ -33,7 +33,7 @@ export default defineManifest({
         'في Grafana، افتح Administration ثم Users and access ثم Service accounts، وأضف حساب خدمة بدور Viewer، ثم أنشئ له رمزا.',
       ),
       minimumScopes: { 'read-only': ['Viewer role'] },
-      probe: 'grafana.get-current-user',
+      probe: 'grafana.get-current-org',
     },
   ],
   tools: {},

@@ -29,6 +29,7 @@ export default defineManifest({
     },
   ],
   secrets: [],
+  healthProbe: 'docker.ping',
   tools: {},
   runtime: null,
   permissionsSummary: {

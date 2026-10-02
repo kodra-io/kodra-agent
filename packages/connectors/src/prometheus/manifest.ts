@@ -61,6 +61,7 @@ export default defineManifest({
       probe: 'prometheus.query-up',
     },
   ],
+  healthProbe: 'prometheus.query-up',
   tools: {},
   runtime: null,
   permissionsSummary: {

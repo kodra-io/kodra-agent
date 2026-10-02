@@ -146,7 +146,7 @@ export const azureOpenai = defineManifest({
         'انسخ مفتاحا من مورد Azure OpenAI، من قسم Keys and Endpoint.',
       ),
       minimumScopes: {},
-      probe: 'azure-openai.get-deployment',
+      probe: 'azure-openai.list-models',
     },
   ],
   tools: {},
@@ -185,6 +185,7 @@ export const bedrock = defineManifest({
     },
   ],
   secrets: [],
+  healthProbe: 'bedrock.get-caller-identity',
   tools: {},
   runtime: null,
   permissionsSummary: {
@@ -219,6 +220,7 @@ export const ollama = defineManifest({
     },
   ],
   secrets: [],
+  healthProbe: 'ollama.list-models',
   tools: {},
   runtime: null,
   permissionsSummary: {

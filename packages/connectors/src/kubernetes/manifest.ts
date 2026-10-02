@@ -63,6 +63,7 @@ export default defineManifest({
       probe: 'kubernetes.list-pods',
     },
   ],
+  healthProbe: 'kubernetes.list-pods',
   tools: {},
   runtime: null,
   permissionsSummary: {
