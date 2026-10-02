@@ -1,30 +1,61 @@
 import { describe, expect, it } from 'vitest';
 import pkg from '../package.json' with { type: 'json' };
-import { runCli } from './cli.ts';
+import { main } from './cli.ts';
+import { testContext } from './test-helpers.ts';
+
+async function run(argv: string[]) {
+  const t = testContext();
+  const code = await main(argv, t.ctx);
+  return { code, stdout: t.term.stdout.join('\n'), stderr: t.term.stderr.join('\n') };
+}
 
 describe('kodra-agent CLI', () => {
-  it.each([['--version'], ['-v']])('prints the package version for %s', (flag) => {
-    expect(runCli([flag])).toEqual({ exitCode: 0, stdout: pkg.version, stderr: '' });
+  it.each([['--version'], ['-v']])('prints the package version for %s', async (flag) => {
+    expect(await run([flag])).toEqual({ code: 0, stdout: pkg.version, stderr: '' });
   });
 
-  it.each([[[]], [['--help']], [['-h']]])('prints help for %j', (argv) => {
-    const result = runCli(argv);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Usage: kodra-agent <command>');
-    for (const cmd of ['init', 'doctor', 'run', 'chat', 'ship']) {
-      expect(result.stdout).toContain(cmd);
+  it.each([[[]], [['--help']], [['-h']]])('prints help for %j', async (argv) => {
+    const result = await run(argv);
+    expect(result.code).toBe(0);
+    for (const word of [
+      'Usage: kodra-agent <command>',
+      'init',
+      'doctor',
+      '--non-interactive',
+      '--dry-run',
+      '--json',
+    ]) {
+      expect(result.stdout).toContain(word);
     }
   });
 
-  it('says a planned command is not implemented yet', () => {
-    const result = runCli(['doctor']);
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("'doctor' is not implemented yet");
+  it.each(['run', 'chat', 'ship'])('says %s is not implemented yet', async (cmd) => {
+    expect(await run([cmd])).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: `'${cmd}' is not implemented yet. Run 'kodra-agent --help'.`,
+    });
   });
 
-  it('rejects an unknown command', () => {
-    const result = runCli(['deploy-everything']);
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("Unknown command 'deploy-everything'");
+  it('rejects an unknown command and unknown options', async () => {
+    expect((await run(['deploy-everything'])).code).toBe(2);
+    const bad = await run(['doctor', '--frobnicate']);
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toContain("Unknown option '--frobnicate'");
+  });
+
+  it('validates --target', async () => {
+    expect(await run(['init', '--target', 'swarm'])).toEqual({
+      code: 2,
+      stdout: '',
+      stderr: '--target must be compose or kubernetes.',
+    });
+  });
+
+  it('reports a missing config file', async () => {
+    const result = await run(['doctor', '--config', 'does-not-exist.yaml']);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('FAIL');
+    expect(result.stdout).toContain('Pass --config or set KODRA_AGENT_CONFIG');
   });
 });
