@@ -6,7 +6,8 @@
   --color-primary-deep: #26407f;
   --color-primary-tint: #eef1f8;
   --color-ink: #172554;
-  --color-ink-secondary: #6b7785;
+  /* Brand text-secondary is #6b7785, which is under 4.5:1 on surface and tint (WCAG AA). */
+  --color-ink-secondary: #5f6b78;
   --color-surface: #fafbfc;
   --color-line: #e4e8ee;
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
@@ -19,6 +20,21 @@ body {
 
 h1,
 h2,
-h3 {
+h3,
+h4 {
   @apply font-heading;
+}
+
+/* Arabic text uses the self-hosted font; its unicode-range keeps Latin text on the stack above. */
+:lang(ar) body,
+:lang(ar) h1,
+:lang(ar) h2,
+:lang(ar) h3,
+:lang(ar) h4 {
+  font-family: 'Noto Sans Arabic', var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }

@@ -6,5 +6,6 @@ export default defineProject({
   test: {
     name: 'configurator',
     environment: 'jsdom',
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 });
