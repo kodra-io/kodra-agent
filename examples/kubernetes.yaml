@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=../schema/kodra-agent.schema.json
+# Kubernetes target on EKS: GitLab with GitLab CI, in-cluster access, Grafana, AWS, Bedrock.
+apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: platform-agent
+spec:
+  target: kubernetes
+  model:
+    provider: bedrock
+    name: '<model-id>'
+    region: eu-central-1
+  connectors:
+    gitlab:
+      enabled: true
+      access: read-write-approved
+      config:
+        url: https://gitlab.com
+        projects: ['acme/platform/api', 'acme/platform/web']
+      secrets:
+        token: ${env:GITLAB_TOKEN}
+    gitlab-ci:
+      enabled: true
+      access: read-only
+    kubernetes:
+      enabled: true
+      access: read-only
+      config:
+        namespaces: ['api', 'web']
+    prometheus:
+      enabled: true
+      config:
+        url: http://prometheus.monitoring:9090
+        alertmanagerUrl: http://alertmanager.monitoring:9093
+    grafana:
+      enabled: true
+      config:
+        url: http://grafana.monitoring:3000
+      secrets:
+        serviceAccountToken: ${env:GRAFANA_TOKEN}
+    aws:
+      enabled: true
+      config:
+        region: eu-central-1
+    slack:
+      enabled: true
+      config:
+        channel: '#platform-ops'
+      secrets:
+        botToken: ${env:SLACK_BOT_TOKEN}
+        appToken: ${env:SLACK_APP_TOKEN}
+  policy:
+    approvals:
+      approvers: ['@omar', 'U0123ABCD']
+      expiresAfterMinutes: 30

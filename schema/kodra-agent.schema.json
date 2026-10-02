@@ -1,0 +1,822 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/kodra-io/kodra-agent/main/schema/kodra-agent.schema.json",
+  "title": "kodra-agent.yaml",
+  "description": "Kodra AI Agent configuration, kodra.io/v1alpha1.",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "kodra.io/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Agent"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]{0,51}[a-z0-9])?$"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "compose",
+            "kubernetes"
+          ]
+        },
+        "model": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "anthropic"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "apiKey": {
+                  "type": "string",
+                  "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                  "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                },
+                "baseUrl": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "apiKey"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "openai"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "apiKey": {
+                  "type": "string",
+                  "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                  "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                },
+                "baseUrl": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "apiKey"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "azure-openai"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "apiKey": {
+                  "type": "string",
+                  "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                  "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                },
+                "endpoint": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "deployment": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "apiKey",
+                "endpoint",
+                "deployment"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "bedrock"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "region": {
+                  "type": "string",
+                  "pattern": "^[a-z]{2}(-gov)?-[a-z]+-\\d$"
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "region"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "ollama"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "baseUrl": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "baseUrl"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "connectors": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "github": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "read-write-approved"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "repos": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$"
+                      },
+                      "description": "Repositories the agent may use."
+                    }
+                  },
+                  "required": [
+                    "repos"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "GitHub token the agent uses for the repos above. Usually ${env:GITHUB_TOKEN}."
+                    }
+                  },
+                  "required": [
+                    "token"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled",
+                "config",
+                "secrets"
+              ],
+              "additionalProperties": false,
+              "title": "GitHub",
+              "description": "Read repositories, issues, and pull requests. With write access, open branches and pull requests."
+            },
+            "gitlab": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "read-write-approved"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "default": "https://gitlab.com",
+                      "description": "GitLab address. Change it for self-managed GitLab.",
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "projects": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9._-]+(\\/[A-Za-z0-9._-]+)+$"
+                      },
+                      "description": "Projects the agent may use."
+                    }
+                  },
+                  "required": [
+                    "projects"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "GitLab token the agent uses for the projects above. Usually ${env:GITLAB_TOKEN}."
+                    }
+                  },
+                  "required": [
+                    "token"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled",
+                "config",
+                "secrets"
+              ],
+              "additionalProperties": false,
+              "title": "GitLab",
+              "description": "Read projects, issues, and merge requests. With write access, open branches and merge requests."
+            },
+            "docker": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "read-write-approved"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "socketPath": {
+                      "default": "/var/run/docker.sock",
+                      "description": "Path to the Docker socket.",
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^\\/.+$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Docker",
+              "description": "Inspect images and containers. With write access, build images for the ship flow."
+            },
+            "kubernetes": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "read-write-approved"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "namespaces": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+                      },
+                      "description": "Namespaces the agent may access. Nothing outside them."
+                    }
+                  },
+                  "required": [
+                    "namespaces"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "kubeconfig": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "Kubeconfig for the cluster. Not needed when the agent runs inside the cluster with its own service account. Usually ${env:KODRA_KUBECONFIG}."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled",
+                "config"
+              ],
+              "additionalProperties": false,
+              "title": "Kubernetes",
+              "description": "Inspect workloads in EKS, AKS, GKE, or on-prem clusters. With write access, restart or scale deployments."
+            },
+            "github-actions": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "read-write-approved"
+                  ]
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "GitHub Actions",
+              "description": "Read workflow runs and logs. With write access, propose pipeline changes through pull requests."
+            },
+            "gitlab-ci": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "read-write-approved"
+                  ]
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "GitLab CI",
+              "description": "Read pipelines and job logs. With write access, propose pipeline changes through merge requests."
+            },
+            "jenkins": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Jenkins",
+              "description": "Read Jenkins jobs and build logs."
+            },
+            "azure-devops": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Azure DevOps",
+              "description": "Read Azure Pipelines runs and logs."
+            },
+            "bitbucket": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Bitbucket",
+              "description": "Read Bitbucket Pipelines runs and logs."
+            },
+            "prometheus": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Prometheus address."
+                    },
+                    "alertmanagerUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Alertmanager address. Leave empty to read alerts from Prometheus."
+                    },
+                    "pollIntervalSeconds": {
+                      "default": 60,
+                      "description": "How often to check for firing alerts, in seconds.",
+                      "type": "integer",
+                      "minimum": 15,
+                      "maximum": 3600
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "bearerToken": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "Bearer token, only if your Prometheus requires one. Usually ${env:PROMETHEUS_TOKEN}."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled",
+                "config"
+              ],
+              "additionalProperties": false,
+              "title": "Prometheus",
+              "description": "Query metrics and watch firing alerts. Read-only."
+            },
+            "grafana": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Grafana address."
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "serviceAccountToken": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "Grafana service account token. Usually ${env:GRAFANA_TOKEN}."
+                    }
+                  },
+                  "required": [
+                    "serviceAccountToken"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled",
+                "config",
+                "secrets"
+              ],
+              "additionalProperties": false,
+              "title": "Grafana",
+              "description": "Read dashboards, and logs from Loki through Grafana. Read-only."
+            },
+            "aws": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "region": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-\\d$",
+                      "description": "AWS region."
+                    }
+                  },
+                  "required": [
+                    "region"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "accessKeyId": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "AWS access key id. Usually ${env:AWS_ACCESS_KEY_ID}."
+                    },
+                    "secretAccessKey": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "AWS secret access key. Usually ${env:AWS_SECRET_ACCESS_KEY}."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled",
+                "config"
+              ],
+              "additionalProperties": false,
+              "title": "AWS",
+              "description": "Read ECR images, EKS clusters, and CloudWatch metrics and logs. Read-only."
+            },
+            "azure": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Microsoft Azure",
+              "description": "Read Azure resources, AKS, and Azure Monitor."
+            },
+            "gcp": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Google Cloud",
+              "description": "Read Google Cloud resources, GKE, and Cloud Monitoring."
+            },
+            "slack": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^#[a-z0-9][a-z0-9_-]{0,79}$",
+                      "description": "Channel for alerts, summaries, and approvals."
+                    }
+                  },
+                  "required": [
+                    "channel"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "botToken": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "Slack bot token. Starts with xoxb-. Usually ${env:SLACK_BOT_TOKEN}."
+                    },
+                    "appToken": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "Slack app-level token for Socket Mode. Starts with xapp-. Usually ${env:SLACK_APP_TOKEN}."
+                    }
+                  },
+                  "required": [
+                    "botToken",
+                    "appToken"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled",
+                "config",
+                "secrets"
+              ],
+              "additionalProperties": false,
+              "title": "Slack",
+              "description": "Talk to the agent and approve its actions in Slack. Uses Socket Mode, so no public endpoint is needed."
+            },
+            "teams": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Microsoft Teams",
+              "description": "Talk to the agent and approve its actions in Teams."
+            }
+          },
+          "additionalProperties": false
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "approvals": {
+              "type": "object",
+              "properties": {
+                "required": {
+                  "default": true,
+                  "type": "boolean",
+                  "const": true
+                },
+                "approvers": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(@[A-Za-z0-9][A-Za-z0-9._-]{0,79}|[UW][A-Z0-9]{2,})$"
+                  }
+                },
+                "expiresAfterMinutes": {
+                  "default": 15,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1440
+                }
+              },
+              "required": [
+                "approvers"
+              ],
+              "additionalProperties": false,
+              "description": "Who approves write actions, and how long a request stays valid."
+            },
+            "destructiveActions": {
+              "default": "deny",
+              "type": "string",
+              "enum": [
+                "deny",
+                "require-approval"
+              ]
+            }
+          },
+          "required": [
+            "approvals"
+          ],
+          "additionalProperties": false,
+          "description": "Approval and safety policy."
+        },
+        "audit": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "path": {
+              "default": "/var/lib/kodra-agent/audit.jsonl",
+              "type": "string",
+              "pattern": "^\\/[^\\0]*$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "telemetry": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "target",
+        "model",
+        "policy"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false
+}

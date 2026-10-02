@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=../schema/kodra-agent.schema.json
+# The example from SPEC section 5: Docker Compose, GitHub, Kubernetes, Prometheus, Slack.
+apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: payments-team-agent
+spec:
+  target: compose
+  model:
+    provider: anthropic
+    name: '<model-id>'
+    apiKey: ${env:ANTHROPIC_API_KEY}
+  connectors:
+    github:
+      enabled: true
+      access: read-write-approved
+      config:
+        repos: ['acme/payments-api']
+      secrets:
+        token: ${env:GITHUB_TOKEN}
+    kubernetes:
+      enabled: true
+      access: read-only
+      config:
+        namespaces: ['payments']
+      secrets:
+        kubeconfig: ${file:/secrets/kubeconfig}
+    prometheus:
+      enabled: true
+      access: read-only
+      config:
+        url: http://prometheus.monitoring:9090
+        pollIntervalSeconds: 60
+    slack:
+      enabled: true
+      config:
+        channel: '#payments-ops'
+      secrets:
+        botToken: ${env:SLACK_BOT_TOKEN}
+        appToken: ${env:SLACK_APP_TOKEN}
+  policy:
+    approvals:
+      required: true
+      approvers: ['@omar']
+      expiresAfterMinutes: 15
+    destructiveActions: deny
+  audit:
+    path: /var/lib/kodra-agent/audit.jsonl
+  telemetry:
+    enabled: false
