@@ -44,6 +44,7 @@ export default defineManifest({
       defaultRef: 'file',
       defaultFilePath: '/secrets/kubeconfig',
       required: false,
+      defaultFor: ['compose'],
       description: t(
         'Kubeconfig for the cluster. Not needed when the agent runs inside the cluster with its own service account.',
         'ملف kubeconfig للعنقود. لا حاجة إليه عندما يعمل الوكيل داخل العنقود بحساب الخدمة الخاص به.',

@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit && pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "schema:export": "pnpm --filter @kodra-agent/connectors schema:export"
+    "schema:export": "pnpm --filter @kodra-agent/connectors schema:export",
+    "test:e2e": "pnpm --filter @kodra-agent/configurator test:e2e"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

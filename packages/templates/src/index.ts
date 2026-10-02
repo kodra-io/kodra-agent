@@ -1,2 +1,3 @@
-/** Template ids land in M2 (bundle) and M6 (ship flow). */
-export const templateIds: readonly string[] = [];
+export * from './bundle.ts';
+export * from './config.ts';
+export * from './draft.ts';
