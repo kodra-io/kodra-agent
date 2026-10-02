@@ -47,6 +47,7 @@ pnpm format:check                             # Prettier; `pnpm format` to fix
 pnpm typecheck                                # root + every package
 pnpm test                                     # Vitest, all projects
 pnpm build                                    # configurator -> apps/configurator/dist
+pnpm schema:export                            # regenerate schema/kodra-agent.schema.json (a test fails if stale)
 pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
 ```
 
@@ -63,7 +64,9 @@ pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
 apps/configurator     static "Create your agent" site
 apps/agent            runtime and CLI: init, doctor, run, chat, ship
 packages/schema       kodra-agent.yaml schema, types, secret-reference parser
-packages/connectors   connector manifests, registry, dependency rules
+packages/connectors   connector manifests (src/<id>/manifest.ts, models.ts, coming-soon.ts), registry, parseAgentConfig
+schema                generated JSON Schema for kodra-agent.yaml (committed)
+examples              example kodra-agent.yaml files (validated by tests)
 packages/templates    bundle templates and ship-flow templates
 charts/kodra-agent    Helm chart
 docker                agent Dockerfile

@@ -13,6 +13,7 @@
     "cli": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/bin.ts"
   },
   "dependencies": {
-    "@kodra-agent/schema": "workspace:*"
+    "@kodra-agent/schema": "workspace:*",
+    "@kodra-agent/connectors": "workspace:*"
   }
 }

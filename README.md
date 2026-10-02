@@ -27,6 +27,8 @@ apps/agent            runtime and CLI: init, doctor, run, chat, ship
 packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests, registry, dependency rules
 packages/templates    bundle templates and ship-flow templates
+schema                JSON Schema for kodra-agent.yaml, for editor validation
+examples              example kodra-agent.yaml files
 ```
 
 ## Development

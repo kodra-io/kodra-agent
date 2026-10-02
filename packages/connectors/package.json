@@ -9,7 +9,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "schema:export": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/export-json-schema.ts"
   },
   "dependencies": {
     "@kodra-agent/schema": "workspace:*"

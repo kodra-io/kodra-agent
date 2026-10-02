@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../schema/kodra-agent.schema.json
+# Fully local: Ollama on your own network, no model API key, no Slack (use `kodra-agent chat`).
+apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: local-agent
+spec:
+  target: compose
+  model:
+    provider: ollama
+    name: '<model-id>'
+    baseUrl: http://ollama:11434
+  connectors:
+    kubernetes:
+      enabled: true
+      config:
+        namespaces: ['default']
+      secrets:
+        kubeconfig: ${file:/secrets/kubeconfig}
+    prometheus:
+      enabled: true
+      config:
+        url: http://prometheus:9090
+  policy:
+    approvals:
+      approvers: ['@ops']

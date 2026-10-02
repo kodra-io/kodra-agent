@@ -16,7 +16,8 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit && pnpm -r typecheck",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "schema:export": "pnpm --filter @kodra-agent/connectors schema:export"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
