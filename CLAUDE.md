@@ -50,6 +50,8 @@ pnpm test:e2e                                 # Playwright on the production bui
 pnpm build                                    # configurator -> apps/configurator/dist
 pnpm schema:export                            # regenerate schema/kodra-agent.schema.json (a test fails if stale)
 pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
+pnpm --filter @kodra-agent/agent cli doctor --config ../../examples/ollama-local.yaml
+pnpm --filter @kodra-agent/agent cli init --config ../../examples/kubernetes.yaml --dry-run
 ```
 
 - pnpm enforces a minimum release age: a just-published version fails install. Pin the
@@ -58,6 +60,9 @@ pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
   (`erasableSyntaxOnly`: no enums, namespaces, or parameter properties).
 - The configurator CSP (`default-src 'none'`, `connect-src 'none'`) is injected at build only; e2e runs against `vite preview` so it is enforced. Every e2e test fails on any off-origin request or console error.
 - Brand text-secondary `#6B7785` fails WCAG AA on surface/tint, so the UI uses `#5F6B78`.
+- Agent output goes through `Context.term`/`Context.log`, which redact. Never write to `process.stdout`/`console` directly, and register every secret with the `Redactor` as soon as it is read. `src/canary.test.ts` fails if any secret reaches output, logs, or the audit log.
+- Probe endpoints were checked against provider docs (Oct 2026): GitHub `GET /repos/{repo}` (fine-grained tokens), GitLab `/api/v4/projects/:path`, Slack `auth.test` + `apps.connections.open`, Anthropic `/v1/models`, Azure `{endpoint}/openai/v1/models` with `api-key`, Grafana `/api/org/` (service account tokens cannot use `/api/user`).
+- On Windows, `/var/lib/...` audit paths resolve to the current drive (for example `E:\var\lib`); doctor runs locally write there.
 - CI pins actions by commit SHA and runs the gitleaks binary (the gitleaks Action needs a
   license key for org repos).
 
