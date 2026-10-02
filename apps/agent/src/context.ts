@@ -1,5 +1,9 @@
+import type { ModelConfig } from '@kodra-agent/schema';
+import type { LanguageModel } from 'ai';
+import type { Limits } from './agent.ts';
 import type { Logger, Prompter, Terminal } from './io.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
+import type { HostOptions } from './mcp/host.ts';
 import type { ProbeContext } from './probes.ts';
 import type { Redactor } from './redactor.ts';
 
@@ -16,6 +20,11 @@ export interface Context {
   platform: NodeJS.Platform;
   probeTimeoutMs: number;
   endpoints?: ProbeContext['endpoints'];
+  /** Builds the model; tests pass a mock. */
+  modelFactory?: (model: ModelConfig, secrets: Readonly<Record<string, string>>) => LanguageModel;
+  /** Starts MCP servers; tests run fake ones. */
+  launcher?: HostOptions['launcher'];
+  limits?: Limits;
 }
 
 export const AGENT_NAMESPACE = 'kodra-agent';

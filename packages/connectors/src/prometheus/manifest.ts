@@ -62,8 +62,31 @@ export default defineManifest({
     },
   ],
   healthProbe: 'prometheus.query-up',
-  tools: {},
-  runtime: null,
+  tools: {
+    execute_query: 'read',
+    execute_range_query: 'read',
+    get_metric_metadata: 'read',
+    get_targets: 'read',
+    health_check: 'read',
+    list_metrics: 'read',
+  },
+  runtime: {
+    type: 'mcp-stdio',
+    // Runs with uvx. M7 installs it from a locked environment; see docs/connectors/prometheus.md.
+    source: {
+      kind: 'pypi',
+      package: 'prometheus-mcp-server',
+      version: '1.6.2',
+      command: 'prometheus-mcp-server',
+    },
+    args: [],
+    env: {
+      PROMETHEUS_URL: { setting: 'url' },
+      PROMETHEUS_TOKEN: { secret: 'bearerToken' },
+      PROMETHEUS_DISABLE_LINKS: { value: 'True' },
+      PROMETHEUS_MCP_SERVER_TRANSPORT: { value: 'stdio' },
+    },
+  },
   permissionsSummary: {
     'read-only': [
       t(

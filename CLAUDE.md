@@ -52,6 +52,9 @@ pnpm schema:export                            # regenerate schema/kodra-agent.sc
 pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
 pnpm --filter @kodra-agent/agent cli doctor --config ../../examples/ollama-local.yaml
 pnpm --filter @kodra-agent/agent cli init --config ../../examples/kubernetes.yaml --dry-run
+pnpm mcp:fetch                                # download pinned MCP server binaries (SHA-256 verified) to .cache/mcp
+pnpm test:kind                                # kind cluster + crashloop, real Kubernetes MCP server (needs Docker, kind, kubectl)
+pnpm test:kind --demo                         # same cluster, interactive chat with a real model (ANTHROPIC_API_KEY, KODRA_DEMO_MODEL)
 ```
 
 - pnpm enforces a minimum release age: a just-published version fails install. Pin the
@@ -63,6 +66,8 @@ pnpm --filter @kodra-agent/agent cli init --config ../../examples/kubernetes.yam
 - Agent output goes through `Context.term`/`Context.log`, which redact. Never write to `process.stdout`/`console` directly, and register every secret with the `Redactor` as soon as it is read. `src/canary.test.ts` fails if any secret reaches output, logs, or the audit log.
 - Probe endpoints were checked against provider docs (Oct 2026): GitHub `GET /repos/{repo}` (fine-grained tokens), GitLab `/api/v4/projects/:path`, Slack `auth.test` + `apps.connections.open`, Anthropic `/v1/models`, Azure `{endpoint}/openai/v1/models` with `api-key`, Grafana `/api/org/` (service account tokens cannot use `/api/user`).
 - On Windows, `/var/lib/...` audit paths resolve to the current drive (for example `E:\var\lib`); doctor runs locally write there.
+- MCP servers: each connector manifest pins its server (binary SHA-256 or PyPI version), lists every tool with a risk, and declares args/env. The host starts each server in an empty private temp folder (some servers load `.env` from cwd) with a minimal env plus only that connector's secrets; secrets go in env or 0600 files, never argv. Classify tools from `listTools` on the real binary (`scripts/list-tools.ts`) and document the decision in `docs/connectors/<id>.md`.
+- AI SDK v7: `generateText({ instructions, messages, tools, stopWhen: stepCountIs(n) })`, `dynamicTool` + `jsonSchema`, accumulated messages are `result.responseMessages`; tests use `MockLanguageModelV4` from `ai/test`.
 - CI pins actions by commit SHA and runs the gitleaks binary (the gitleaks Action needs a
   license key for org repos).
 

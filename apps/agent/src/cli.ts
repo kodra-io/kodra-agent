@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { SCHEMA_API_VERSION } from '@kodra-agent/schema';
 import pkg from '../package.json' with { type: 'json' };
+import { chat } from './commands/chat.ts';
 import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
 import { configPath } from './config.ts';
@@ -12,7 +13,7 @@ const COMMANDS = [
   ['init', 'Ask for the secrets your config needs, check them, and store them locally'],
   ['doctor', 'Check the config, secrets, connector access, and audit log'],
   ['run', 'Start the agent service (not implemented yet)'],
-  ['chat', 'Chat with the agent in this terminal (not implemented yet)'],
+  ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
   ['ship <repo>', 'Build, containerize, package, and open a PR (not implemented yet)'],
 ] as const;
 
@@ -39,6 +40,9 @@ export function helpText(): string {
     '',
     'doctor options:',
     '  --json                         Print the results as JSON',
+    '',
+    'chat options:',
+    '  --message <text>               Ask one question, print the answer, and exit',
   ].join('\n');
 }
 
@@ -49,6 +53,7 @@ const OPTIONS = {
   'non-interactive': { type: 'boolean' },
   'dry-run': { type: 'boolean' },
   json: { type: 'boolean' },
+  message: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;
@@ -97,8 +102,9 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
     }
     case 'doctor':
       return doctor({ configPath: config, json: values.json ?? false }, ctx);
-    case 'run':
     case 'chat':
+      return chat({ configPath: config, message: values.message }, ctx);
+    case 'run':
     case 'ship':
       ctx.term.err(`'${command}' is not implemented yet. Run 'kodra-agent --help'.`);
       return 1;

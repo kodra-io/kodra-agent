@@ -116,11 +116,84 @@ const requirement = z.strictObject({
 });
 export type Requirement = z.infer<typeof requirement>;
 
+/** Platforms the pinned MCP server binaries are fetched for. */
+export const PLATFORMS = ['linux-x64', 'linux-arm64', 'darwin-arm64', 'win32-x64'] as const;
+export type Platform = (typeof PLATFORMS)[number];
+
+const releaseAsset = z.strictObject({
+  file: z.string().min(1),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  archive: z.enum(['none', 'tar.gz', 'zip']),
+  /** The executable's name inside the archive (or the file itself when archive is none). */
+  binary: z.string().min(1),
+});
+
+/** Where a server comes from, pinned by version (and by checksum for binaries). */
+const serverSource = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('github-release'),
+    repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
+    version: z.string().min(1),
+    assets: z.partialRecord(z.enum(PLATFORMS), releaseAsset),
+  }),
+  z.strictObject({
+    kind: z.literal('pypi'),
+    package: z.string().min(1),
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    command: z.string().min(1),
+  }),
+]);
+export type ServerSource = z.infer<typeof serverSource>;
+
+/**
+ * A value filled in when the server starts. Secrets go only into the environment or a
+ * temporary 0600 file, never into command-line arguments (visible to other processes).
+ */
+const valueSource = z.union([
+  z.strictObject({ value: z.string() }),
+  z.strictObject({ setting: z.string().regex(KEY) }),
+  z.strictObject({ secret: z.string().regex(KEY) }),
+  z.strictObject({ secretFile: z.string().regex(KEY) }),
+]);
+export type ValueSource = z.infer<typeof valueSource>;
+const argPart = z.union([z.string(), valueSource]);
+
+/** Argument checks the policy engine runs before a tool call (golden rules 4 and 6). */
+const toolGuard = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('arg-in-setting'),
+    /** Tool argument, like `namespace`. */
+    arg: z.string().min(1),
+    /** List setting it must be one of, like `namespaces`. */
+    setting: z.string().regex(KEY),
+    /** When true, a call without the argument is blocked too. */
+    required: z.boolean(),
+  }),
+]);
+export type ToolGuard = z.infer<typeof toolGuard>;
+
 const runtime = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('mcp-stdio'), command: z.string(), args: z.array(z.string()) }),
+  z.strictObject({
+    type: z.literal('mcp-stdio'),
+    source: serverSource,
+    args: z.array(argPart),
+    /** Extra arguments per access level, like a read-only flag. */
+    accessArgs: z.partialRecord(z.enum(ACCESS_LEVELS), z.array(z.string())).optional(),
+    /** Arguments added only when an optional secret is set. */
+    secretArgs: z
+      .array(z.strictObject({ secret: z.string().regex(KEY), args: z.array(argPart) }))
+      .optional(),
+    /** The server's whole environment, besides a minimal PATH. Missing secrets are left out. */
+    env: z.record(z.string().regex(ENV_VAR), valueSource),
+    /** Non-secret variables passed through from the agent when set, like KUBERNETES_SERVICE_HOST. */
+    inheritEnv: z.array(z.string().regex(ENV_VAR)).optional(),
+    /** A config file written to a private temp folder and passed as `arg <path>`. */
+    configFile: z.strictObject({ arg: z.string().min(1), content: z.string() }).optional(),
+  }),
   z.strictObject({ type: z.literal('mcp-container'), image: z.string() }),
   z.strictObject({ type: z.literal('builtin'), module: z.string() }),
 ]);
+export type McpStdioRuntime = Extract<z.infer<typeof runtime>, { type: 'mcp-stdio' }>;
 
 export const manifestSchema = z
   .strictObject({
@@ -141,6 +214,8 @@ export const manifestSchema = z
     healthProbe: z.string().regex(PROBE).optional(),
     /** Every tool the runtime exposes. Tools missing here are blocked (SPEC section 6). */
     tools: z.record(z.string(), z.enum(TOOL_RISKS)),
+    /** Argument checks per tool, enforced by the policy engine. */
+    guards: z.record(z.string(), z.array(toolGuard)).optional(),
     /** null until the MCP server is chosen and documented (M4). */
     runtime: runtime.nullable(),
     permissionsSummary: z.strictObject({

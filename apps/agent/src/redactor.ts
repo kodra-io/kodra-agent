@@ -57,14 +57,28 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** `token: abc`, `password = "abc"`, `client-key-data: …` lines inside a structured secret. */
+const CREDENTIAL_FIELD =
+  /^\s*[\w.-]*(?:token|password|passwd|secret|key|credential|auth|data)[\w.-]*\s*[:=]\s*["']?([^\s"']{8,})["']?\s*$/gim;
+
 export class Redactor {
   private readonly forms = new Set<string>();
   private matcher: RegExp | null = null;
 
-  /** Registers a secret value. Every later redact() call masks it in all its forms. */
+  /**
+   * Registers a secret value. Every later redact() call masks it in all its forms. For
+   * structured secrets like a kubeconfig, the credential fields inside are registered too,
+   * so a token is masked even when it shows up on its own.
+   */
   add(value: string): void {
     const trimmed = value.trim();
-    for (const candidate of new Set([value, trimmed])) {
+    const candidates = new Set([value, trimmed]);
+    if (value.includes('\n')) {
+      for (const match of value.matchAll(CREDENTIAL_FIELD)) {
+        if (match[1]) candidates.add(match[1]);
+      }
+    }
+    for (const candidate of candidates) {
       if (candidate.length < MIN_SECRET_LENGTH) continue;
       for (const form of variants(candidate)) this.forms.add(form);
     }
