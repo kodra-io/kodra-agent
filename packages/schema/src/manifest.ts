@@ -93,6 +93,8 @@ const secretSpec = z.strictObject({
   defaultRef: z.enum(['env', 'file']),
   defaultFilePath: z.string().startsWith('/').optional(),
   required: z.boolean(),
+  /** For optional secrets: deployment targets where the configurator includes it by default. */
+  defaultFor: z.array(z.enum(['compose', 'kubernetes'])).optional(),
   description: localizedText,
   howToCreate: localizedText,
   minimumScopes: scopesByAccess,
