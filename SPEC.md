@@ -130,6 +130,17 @@ Rules:
 - `apiVersion` is versioned. The agent refuses an unknown major version and says why.
 - Model ids are free text with suggestions in the configurator. Do not hardcode a model list: names change too often.
 - Ollama takes a `baseUrl` instead of an API key, which makes air-gapped setups possible.
+- Model fields per provider (confirmed for M1):
+
+  | Provider | Fields besides `provider` and `name` |
+  |---|---|
+  | `anthropic`, `openai` | `apiKey`, optional `baseUrl` |
+  | `azure-openai` | `apiKey`, `endpoint`, `deployment` |
+  | `bedrock` | `region`. Credentials come from the standard AWS sources (env, IRSA, profile) |
+  | `ollama` | `baseUrl` |
+- `policy.approvals.required` can only be `true` in `v1alpha1`. `destructiveActions` is `deny` (default) or `require-approval`. Approvers are Slack handles (`@omar`) or Slack user ids (`U0123ABCD`).
+- `policy`, `audit`, and `telemetry` have defaults. Each connector's `config` and `secrets` are validated against its manifest.
+- The JSON Schema for editors is committed at `schema/kodra-agent.schema.json` (regenerate with `pnpm schema:export`). Examples live in `examples/`.
 
 ---
 
