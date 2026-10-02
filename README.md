@@ -42,6 +42,7 @@ pnpm dev            # configurator at http://localhost:5174/agent/
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:e2e       # browser tests (Playwright, Chromium)
 pnpm build
 pnpm --filter @kodra-agent/agent cli --help
 ```

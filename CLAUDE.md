@@ -46,6 +46,7 @@ pnpm lint                                     # ESLint (type-checked rules)
 pnpm format:check                             # Prettier; `pnpm format` to fix
 pnpm typecheck                                # root + every package
 pnpm test                                     # Vitest, all projects
+pnpm test:e2e                                 # Playwright on the production build (first run: pnpm --filter @kodra-agent/configurator exec playwright install chromium)
 pnpm build                                    # configurator -> apps/configurator/dist
 pnpm schema:export                            # regenerate schema/kodra-agent.schema.json (a test fails if stale)
 pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
@@ -55,6 +56,8 @@ pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
   previous version rather than adding a `minimumReleaseAgeExclude`.
 - Relative imports use the `.ts`/`.tsx` extension, so Node can run the source directly
   (`erasableSyntaxOnly`: no enums, namespaces, or parameter properties).
+- The configurator CSP (`default-src 'none'`, `connect-src 'none'`) is injected at build only; e2e runs against `vite preview` so it is enforced. Every e2e test fails on any off-origin request or console error.
+- Brand text-secondary `#6B7785` fails WCAG AA on surface/tint, so the UI uses `#5F6B78`.
 - CI pins actions by commit SHA and runs the gitleaks binary (the gitleaks Action needs a
   license key for org repos).
 
@@ -67,7 +70,7 @@ packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests (src/<id>/manifest.ts, models.ts, coming-soon.ts), registry, parseAgentConfig
 schema                generated JSON Schema for kodra-agent.yaml (committed)
 examples              example kodra-agent.yaml files (validated by tests)
-packages/templates    bundle templates and ship-flow templates
+packages/templates    configurator draft, validation, and bundle generation (later: ship-flow templates)
 charts/kodra-agent    Helm chart
 docker                agent Dockerfile
 docs                  connector docs, security model
