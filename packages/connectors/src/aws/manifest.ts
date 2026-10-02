@@ -59,6 +59,7 @@ export default defineManifest({
       probe: 'aws.get-caller-identity',
     },
   ],
+  healthProbe: 'aws.get-caller-identity',
   tools: {},
   runtime: null,
   permissionsSummary: {

@@ -13,7 +13,11 @@
     "cli": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/bin.ts"
   },
   "dependencies": {
+    "@inquirer/password": "5.2.2",
+    "@kodra-agent/connectors": "workspace:*",
     "@kodra-agent/schema": "workspace:*",
-    "@kodra-agent/connectors": "workspace:*"
+    "@kubernetes/client-node": "2.0.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
   }
 }

@@ -59,7 +59,7 @@ export default defineManifest({
         'read-only': ['read_api', 'read_repository'],
         'read-write-approved': ['api'],
       },
-      probe: 'gitlab.get-current-user',
+      probe: 'gitlab.read-projects',
     },
   ],
   tools: {},

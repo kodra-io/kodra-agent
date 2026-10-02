@@ -134,6 +134,11 @@ export const manifestSchema = z
     requires: z.array(requirement),
     configFields: z.array(configField),
     secrets: z.array(secretSpec),
+    /**
+     * Read-only connectivity check `doctor` runs even when the connector has no secret,
+     * like pinging Prometheus or the Docker socket.
+     */
+    healthProbe: z.string().regex(PROBE).optional(),
     /** Every tool the runtime exposes. Tools missing here are blocked (SPEC section 6). */
     tools: z.record(z.string(), z.enum(TOOL_RISKS)),
     /** null until the MCP server is chosen and documented (M4). */

@@ -139,6 +139,13 @@ describe('kubernetes bundle', () => {
     expect(quickstartCommands(draft)).not.toContain('kubectl apply -f rbac.yaml');
   });
 
+  it('quickstart runs init from the pinned image, so no local CLI is needed', () => {
+    expect(quickstartCommands(kubernetesDraft())).toContain(
+      'docker run --rm -it -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.0 init --target kubernetes --namespace kodra-agent',
+    );
+    expect(file(generateBundle(kubernetesDraft()), 'README.md')).toContain('Add `--dry-run`');
+  });
+
   it('quickstart installs the pinned chart into the agent namespace', () => {
     expect(quickstartCommands(kubernetesDraft()).at(-1)).toBe(
       'helm install platform-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.0 --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml',

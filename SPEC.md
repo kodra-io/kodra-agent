@@ -246,9 +246,10 @@ kodra-agent-<name>/
 
 - `kodra-agent init`: reads `kodra-agent.yaml`, works out the required secrets from the enabled connectors, prompts with masked input, runs each connector's validation probe, and stores the values.
   - Compose: writes `.env` with file mode `0600`.
-  - Kubernetes: creates a Secret, or prints the manifest with `--dry-run`.
+  - Kubernetes: creates a Secret, or prints the manifest with `--dry-run`. The dry-run manifest has placeholders, never values (golden rule 1), plus the equivalent `kubectl create secret` command. The bundle runs `init` from the agent image, so no local CLI is needed.
+  - File secrets on compose (like a kubeconfig) are copied into `./secrets/` with mode `0600`; the bundle mounts that folder read-only at `/secrets`.
   - Never echoes a value. `--non-interactive` reads from the existing environment (for CI).
-- `kodra-agent doctor`: validates the config, resolves secret references without printing them, checks connectivity and permissions per connector, and prints a pass/fail table with fix hints.
+- `kodra-agent doctor`: validates the config, resolves secret references without printing them, checks connectivity and permissions per connector, and prints a pass/fail table with fix hints (`--json` for machine output). It also checks that the audit log is writable and that `.env` is owner-only. Checks are the read-only probes named in each manifest: one per secret, plus an optional `healthProbe` for connectors without secrets. AWS and Bedrock checks arrive with the AWS SDK in M4.
 - `kodra-agent run`: starts the service. Loads the config, starts enabled connectors only, starts the chat surfaces and the monitoring loop, and serves `/healthz` and `/readyz`.
 - `kodra-agent chat`: local terminal chat, useful without Slack.
 - `kodra-agent ship <repo>`: the build-to-ship flow in section 9.

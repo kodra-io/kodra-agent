@@ -69,7 +69,8 @@ export function quickstartCommands(draft: AgentDraft): string[] {
   return [
     `kubectl create namespace ${AGENT_NAMESPACE}`,
     ...(hasRbac ? ['kubectl apply -f rbac.yaml'] : []),
-    `kodra-agent init --target kubernetes --namespace ${AGENT_NAMESPACE}`,
+    // Runs init from the image, so nobody needs the CLI installed locally.
+    `docker run --rm -it -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ${AGENT_IMAGE}:${AGENT_VERSION} init --target kubernetes --namespace ${AGENT_NAMESPACE}`,
     `helm install ${name} ${AGENT_CHART} --version ${AGENT_VERSION} --namespace ${AGENT_NAMESPACE} -f values.yaml --set-file config=kodra-agent.yaml`,
   ];
 }
@@ -270,7 +271,13 @@ function readme(draft: AgentDraft): string {
     '',
     draft.target === 'compose'
       ? '`init` asks for each secret with hidden input, checks it, and writes `.env` (owner-only). Never commit `.env`.'
-      : '`init` asks for each secret with hidden input, checks it, and stores it in a Kubernetes Secret.',
+      : [
+          '`init` asks for each secret with hidden input, checks it, and stores it in a Kubernetes Secret.',
+          '',
+          'If your kubeconfig runs a login helper (common on EKS and GKE), the container cannot run it.',
+          'Add `--dry-run` to the `init` command instead: it prints the Secret with placeholders and the',
+          '`kubectl create secret` command to fill it in yourself.',
+        ].join('\n'),
     '',
     '## What this agent can do',
     '',
