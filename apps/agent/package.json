@@ -1,0 +1,18 @@
+{
+  "name": "@kodra-agent/agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Kodra AI Agent runtime and CLI",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "kodra-agent": "./src/bin.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "cli": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/bin.ts"
+  },
+  "dependencies": {
+    "@kodra-agent/schema": "workspace:*"
+  }
+}

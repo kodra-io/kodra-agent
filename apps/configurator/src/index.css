@@ -1,0 +1,24 @@
+@import 'tailwindcss';
+
+/* Brand tokens (SPEC section 7). One accent color only. */
+@theme {
+  --color-primary: #3250a0;
+  --color-primary-deep: #26407f;
+  --color-primary-tint: #eef1f8;
+  --color-ink: #172554;
+  --color-ink-secondary: #6b7785;
+  --color-surface: #fafbfc;
+  --color-line: #e4e8ee;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-heading: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+}
+
+body {
+  @apply bg-surface text-ink font-sans antialiased;
+}
+
+h1,
+h2,
+h3 {
+  @apply font-heading;
+}

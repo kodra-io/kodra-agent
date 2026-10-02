@@ -1,0 +1,17 @@
+{
+  "name": "@kodra-agent/connectors",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Connector manifests, registry, and dependency rules",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kodra-agent/schema": "workspace:*"
+  }
+}

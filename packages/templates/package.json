@@ -1,0 +1,14 @@
+{
+  "name": "@kodra-agent/templates",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Bundle templates and ship-flow templates",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
