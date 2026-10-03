@@ -5,7 +5,7 @@ import { arch, platform } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Manifest, McpStdioRuntime, Platform } from '@kodra-agent/schema';
+import type { McpStdioRuntime, Platform } from '@kodra-agent/schema';
 
 const run = promisify(execFile);
 
@@ -30,17 +30,18 @@ export function currentPlatform(): Platform | null {
 }
 
 /** The executable a github-release server runs from, whether or not it is installed yet. */
-export function binaryPath(
-  manifest: Manifest,
-  runtime: McpStdioRuntime,
-  cacheDir: string,
-): string | null {
+export function binaryPath(runtime: McpStdioRuntime, cacheDir: string): string | null {
   const source = runtime.source;
   if (source.kind !== 'github-release') return null;
   const target = currentPlatform();
   const asset = target ? source.assets[target] : undefined;
   if (!asset) return null;
-  return join(cacheDir, manifest.id, source.version, asset.binary);
+  return join(releaseDir(cacheDir, source.repo, source.version), asset.binary);
+}
+
+/** One folder per release, so connectors sharing a server (GitHub, GitHub Actions) share it. */
+function releaseDir(cacheDir: string, repo: string, version: string): string {
+  return join(cacheDir, repo.replace('/', '__'), version);
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -61,12 +62,10 @@ export type FetchResult =
  * Windows 10+ and macOS).
  */
 export async function fetchServer(
-  manifest: Manifest,
+  runtime: McpStdioRuntime,
   cacheDir: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<FetchResult> {
-  const runtime = manifest.runtime;
-  if (runtime?.type !== 'mcp-stdio') return { status: 'skipped', reason: 'no MCP server' };
   const source = runtime.source;
   if (source.kind !== 'github-release')
     return { status: 'skipped', reason: `runs with ${source.kind}` };
@@ -75,7 +74,7 @@ export async function fetchServer(
   if (!target || !asset)
     return { status: 'skipped', reason: `no build for ${platform()}-${arch()}` };
 
-  const dir = join(cacheDir, manifest.id, source.version);
+  const dir = releaseDir(cacheDir, source.repo, source.version);
   const exe = join(dir, asset.binary);
   if (await exists(exe)) return { status: 'present', path: exe };
 

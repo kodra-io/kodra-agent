@@ -10,6 +10,7 @@ import type { Context } from '../context.ts';
 import { parseEnvFile } from '../env-file.ts';
 import { createModel } from '../llm.ts';
 import { ConnectorHost, type ConnectorInput } from '../mcp/host.ts';
+import { lookupDefaultBranches } from '../default-branches.ts';
 import { resolveAll } from '../secrets.ts';
 
 export interface ChatOptions {
@@ -60,6 +61,39 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
     for (const m of missing) ctx.term.err(`Missing ${m}`);
     ctx.term.err('Run `kodra-agent init`, then `kodra-agent doctor`.');
     return 1;
+  }
+
+  // A connector may use another's token and settings only if it requires that connector
+  // (GitHub Actions uses GitHub's). Default branches are looked up once, read-only.
+  const byId = new Map(inputs.map((i) => [i.component.id, i]));
+  for (const input of inputs) {
+    const required = input.component.manifest.requires.flatMap((r) =>
+      r.anyOf.flatMap((alt) => ('connector' in alt ? [alt.connector] : [])),
+    );
+    const sharedSecrets: Record<string, Readonly<Record<string, string>>> = {};
+    const sharedSettings: Record<string, Readonly<Record<string, unknown>>> = {};
+    for (const id of required) {
+      const other = byId.get(id);
+      if (!other) continue;
+      sharedSecrets[id] = other.secrets;
+      sharedSettings[id] = other.component.settings;
+    }
+    if (required.length > 0) Object.assign(input, { sharedSecrets, sharedSettings });
+    if (input.component.manifest.defaultBranchLookup) {
+      const branches = await lookupDefaultBranches(input.component, input.secrets['token'], {
+        fetch: ctx.fetch,
+        timeoutMs: ctx.probeTimeoutMs,
+        githubApi: ctx.endpoints?.github,
+      });
+      for (const [repo, branch] of branches) {
+        if (branch === null) {
+          ctx.term.err(
+            `Could not look up the default branch of ${repo}; changes to it are blocked.`,
+          );
+        }
+      }
+      input.defaultBranches = branches;
+    }
   }
 
   const audit = new AuditLog(config.spec.audit.path, ctx.redactor);

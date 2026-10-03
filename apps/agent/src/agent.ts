@@ -116,6 +116,8 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
           guards: hosted.guards,
           args,
           settings: hosted.settings,
+          ...(hosted.defaultBranches ? { defaultBranches: hosted.defaultBranches } : {}),
+          ...(hosted.sharedSettings ? { sharedSettings: hosted.sharedSettings } : {}),
         });
 
         if (decision.kind === 'block') {

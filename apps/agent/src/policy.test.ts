@@ -98,7 +98,9 @@ describe('policy engine', () => {
     });
 
     it('lets an optional argument be absent', () => {
-      const optional: ToolGuard[] = [{ ...guards[0]!, required: false }]; // eslint-disable-line @typescript-eslint/no-non-null-assertion
+      const optional: ToolGuard[] = [
+        { kind: 'arg-in-setting', arg: 'namespace', setting: 'namespaces', required: false },
+      ];
       expect(
         kind(
           decide({
@@ -126,6 +128,120 @@ describe('policy engine', () => {
           }),
         ),
       ).toMatch(/^block: namespace must be one of/);
+    });
+  });
+
+  describe('repo-in-setting guard', () => {
+    const github: ToolGuard[] = [
+      { kind: 'repo-in-setting', ownerArg: 'owner', repoArg: 'repo', setting: 'repos' },
+    ];
+    const gitlab: ToolGuard[] = [
+      { kind: 'repo-in-setting', repoArg: 'project_id', setting: 'projects' },
+    ];
+    const read = (guards: ToolGuard[], args: Record<string, unknown>, extra = {}) =>
+      kind(
+        decide({
+          ...base,
+          risk: 'read',
+          access: 'read-only',
+          guards,
+          args,
+          settings: { repos: ['acme/api'], projects: ['acme/platform/api'] },
+          ...extra,
+        }),
+      );
+
+    it('allows a configured repo, ignoring case', () => {
+      expect(read(github, { owner: 'Acme', repo: 'API' })).toBe('allow');
+      expect(read(gitlab, { project_id: 'acme/platform/api' })).toBe('allow');
+    });
+
+    it.each([
+      [{ owner: 'acme', repo: 'other' }],
+      [{ owner: 'evil', repo: 'api' }],
+      [{ repo: 'api' }],
+      [{ owner: 'acme' }],
+      [{ owner: 'acme', repo: ['api'] }],
+    ])('blocks %j', (args) => {
+      expect(read(github, args)).toBe(
+        'block: the repository must be one of the configured repos: acme/api',
+      );
+    });
+
+    it('blocks a numeric GitLab project id, so the model must use the path', () => {
+      expect(read(gitlab, { project_id: 42 })).toMatch(/^block: the repository must be one of/);
+    });
+
+    it('reads the setting from a required connector with `from`', () => {
+      const fromGithub: ToolGuard[] = [
+        {
+          kind: 'repo-in-setting',
+          ownerArg: 'owner',
+          repoArg: 'repo',
+          setting: 'repos',
+          from: 'github',
+        },
+      ];
+      const shared = { sharedSettings: { github: { repos: ['acme/web'] } } };
+      expect(read(fromGithub, { owner: 'acme', repo: 'web' }, shared)).toBe('allow');
+      // Its own settings do not count, and without the shared settings nothing is allowed.
+      expect(read(fromGithub, { owner: 'acme', repo: 'api' }, shared)).toMatch(/^block/);
+      expect(read(fromGithub, { owner: 'acme', repo: 'web' })).toMatch(/^block/);
+    });
+  });
+
+  describe('not-default-branch guard (golden rule 6)', () => {
+    const guards: ToolGuard[] = [
+      { kind: 'not-default-branch', branchArg: 'branch', ownerArg: 'owner', repoArg: 'repo' },
+    ];
+    const write = (args: Record<string, unknown>, defaults?: Map<string, string | null>) =>
+      kind(
+        decide({
+          ...base,
+          risk: 'write',
+          access: 'read-write-approved',
+          guards,
+          args,
+          settings: {},
+          ...(defaults ? { defaultBranches: defaults } : {}),
+        }),
+      );
+    const known = new Map<string, string | null>([['acme/api', 'main']]);
+
+    it('allows a feature branch, which then still needs approval', () => {
+      expect(write({ owner: 'acme', repo: 'api', branch: 'fix/crash' }, known)).toBe('approve');
+    });
+
+    it.each(['main', 'MAIN', ' main ', 'refs/heads/main'])(
+      'blocks the default branch written as %j',
+      (branch) => {
+        expect(write({ owner: 'acme', repo: 'api', branch }, known)).toMatch(
+          /is the default branch of acme\/api/,
+        );
+      },
+    );
+
+    it('blocks a missing branch, which would mean the default branch', () => {
+      expect(write({ owner: 'acme', repo: 'api' }, known)).toBe(
+        'block: branch is required: changes never go to the default branch',
+      );
+      expect(write({ owner: 'acme', repo: 'api', branch: '' }, known)).toMatch(
+        /^block: branch is required/,
+      );
+    });
+
+    it('blocks when the default branch is unknown or its lookup failed', () => {
+      expect(write({ owner: 'acme', repo: 'api', branch: 'x' })).toBe(
+        'block: the default branch of acme/api is unknown, so changes to it are blocked',
+      );
+      const failed = new Map<string, string | null>([['acme/api', null]]);
+      expect(write({ owner: 'acme', repo: 'api', branch: 'x' }, failed)).toMatch(/is unknown/);
+    });
+
+    it('treats a renamed default like any other name', () => {
+      const trunk = new Map<string, string | null>([['acme/api', 'trunk']]);
+      expect(write({ owner: 'acme', repo: 'api', branch: 'main' }, trunk)).toBe('approve');
+      expect(write({ owner: 'acme', repo: 'api', branch: 'trunk' }, trunk)).toMatch(/^block/);
     });
   });
 });

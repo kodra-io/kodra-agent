@@ -635,7 +635,7 @@
               ],
               "additionalProperties": false,
               "title": "AWS",
-              "description": "Read ECR images, EKS clusters, and CloudWatch metrics and logs. Read-only."
+              "description": "Read EKS clusters and CloudWatch metrics, logs, and alarms. Read-only."
             },
             "azure": {
               "type": "object",
