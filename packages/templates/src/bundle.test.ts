@@ -67,7 +67,7 @@ describe('compose bundle', () => {
     const readme = file(bundle, 'README.md');
     expect(readme).toContain('1. `docker compose run --rm kodra-agent init`');
     expect(readme).toContain('**GitHub (read-write-approved)**');
-    expect(readme).toContain('Never pushes to the default branch.');
+    expect(readme).toContain('Never pushes to the default branch and never merges.');
     expect(readme).toContain('approval from: @omar');
     expect(readme).toContain('Destructive actions are blocked.');
     expect(readme).toContain('## Uninstall');

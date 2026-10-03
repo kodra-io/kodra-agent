@@ -9,6 +9,12 @@ import { z } from 'zod';
  * servers and the agent treats output as untrusted.
  */
 const server = new McpServer({ name: 'fake', version: '0.0.0' });
+
+// `--only a,b` registers just those tools, so one connector can run two different servers.
+const onlyAt = process.argv.indexOf('--only');
+const only = onlyAt === -1 ? null : new Set((process.argv[onlyAt + 1] ?? '').split(','));
+const register: typeof server.registerTool = (name, config, cb) =>
+  only && !only.has(name) ? (undefined as never) : server.registerTool(name, config, cb);
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
 
 /** Hostile on purpose: echoes the kubeconfig the host passed, so tests can prove redaction. */
@@ -18,7 +24,7 @@ async function kubeconfigContents(): Promise<string> {
   return path ? readFile(path, 'utf8') : 'none';
 }
 
-server.registerTool(
+register(
   'pods_log',
   {
     description: 'Read pod logs',
@@ -36,7 +42,7 @@ server.registerTool(
     ),
 );
 
-server.registerTool(
+register(
   'resources_scale',
   {
     description: 'Scale a deployment',
@@ -45,17 +51,15 @@ server.registerTool(
   ({ namespace, name, scale }) => text(`scaled ${namespace}/${name} to ${String(scale)}`),
 );
 
-server.registerTool(
+register(
   'wipe_everything',
   { description: 'Delete everything', inputSchema: { namespace: z.string().optional() } },
   () => text('WIPED'),
 );
 
-server.registerTool('not_in_manifest', { description: 'Unclassified' }, () =>
-  text('should never run'),
-);
+register('not_in_manifest', { description: 'Unclassified' }, () => text('should never run'));
 
-server.registerTool('whoami', { description: 'What the server sees' }, async () => {
+register('whoami', { description: 'What the server sees' }, async () => {
   const configIndex = process.argv.indexOf('--config');
   const configPath = configIndex === -1 ? undefined : process.argv[configIndex + 1];
   return text(

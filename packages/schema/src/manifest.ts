@@ -142,6 +142,13 @@ const serverSource = z.discriminatedUnion('kind', [
     version: z.string().regex(/^\d+\.\d+\.\d+$/),
     command: z.string().min(1),
   }),
+  z.strictObject({
+    kind: z.literal('npm'),
+    package: z.string().regex(/^(@[a-z0-9-]+\/)?[a-z0-9._-]+$/),
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    /** The package's bin name to run. */
+    command: z.string().min(1),
+  }),
 ]);
 export type ServerSource = z.infer<typeof serverSource>;
 
@@ -151,8 +158,18 @@ export type ServerSource = z.infer<typeof serverSource>;
  */
 const valueSource = z.union([
   z.strictObject({ value: z.string() }),
-  z.strictObject({ setting: z.string().regex(KEY) }),
-  z.strictObject({ secret: z.string().regex(KEY) }),
+  /** A config setting; `suffix` is appended, like `/api/v4` after a GitLab URL. */
+  z.strictObject({
+    setting: z.string().regex(KEY),
+    suffix: z.string().optional(),
+    /** Read it from a connector this manifest `requires`. */
+    from: z.string().regex(ID).optional(),
+  }),
+  /**
+   * A secret value. With `from`, another connector's secret; allowed only for a connector
+   * this manifest `requires` (GitHub Actions uses the GitHub token).
+   */
+  z.strictObject({ secret: z.string().regex(KEY), from: z.string().regex(ID).optional() }),
   z.strictObject({ secretFile: z.string().regex(KEY) }),
 ]);
 export type ValueSource = z.infer<typeof valueSource>;
@@ -169,31 +186,55 @@ const toolGuard = z.discriminatedUnion('kind', [
     /** When true, a call without the argument is blocked too. */
     required: z.boolean(),
   }),
+  z.strictObject({
+    kind: z.literal('repo-in-setting'),
+    /** Owner argument, like `owner`; omit when the repo argument holds the full path. */
+    ownerArg: z.string().min(1).optional(),
+    /** Repo argument, like `repo` or `project_id`. */
+    repoArg: z.string().min(1),
+    /** List setting of `owner/repo` (or `group/project`) entries. */
+    setting: z.string().regex(KEY),
+    /** Read the setting from a connector this manifest `requires` (GitHub Actions uses GitHub's repos). */
+    from: z.string().regex(ID).optional(),
+  }),
+  z.strictObject({
+    kind: z.literal('not-default-branch'),
+    /** Branch argument, like `branch`. A missing branch means the default branch: blocked. */
+    branchArg: z.string().min(1),
+    ownerArg: z.string().min(1).optional(),
+    repoArg: z.string().min(1),
+  }),
 ]);
 export type ToolGuard = z.infer<typeof toolGuard>;
 
-const runtime = z.discriminatedUnion('type', [
-  z.strictObject({
-    type: z.literal('mcp-stdio'),
-    source: serverSource,
-    args: z.array(argPart),
-    /** Extra arguments per access level, like a read-only flag. */
-    accessArgs: z.partialRecord(z.enum(ACCESS_LEVELS), z.array(z.string())).optional(),
-    /** Arguments added only when an optional secret is set. */
-    secretArgs: z
-      .array(z.strictObject({ secret: z.string().regex(KEY), args: z.array(argPart) }))
-      .optional(),
-    /** The server's whole environment, besides a minimal PATH. Missing secrets are left out. */
-    env: z.record(z.string().regex(ENV_VAR), valueSource),
-    /** Non-secret variables passed through from the agent when set, like KUBERNETES_SERVICE_HOST. */
-    inheritEnv: z.array(z.string().regex(ENV_VAR)).optional(),
-    /** A config file written to a private temp folder and passed as `arg <path>`. */
-    configFile: z.strictObject({ arg: z.string().min(1), content: z.string() }).optional(),
-  }),
+const stdioRuntime = z.strictObject({
+  type: z.literal('mcp-stdio'),
+  /** Names the server when a connector runs several (like `eks` and `cloudwatch`). */
+  name: z.string().regex(ID).optional(),
+  source: serverSource,
+  args: z.array(argPart),
+  /** Extra arguments per access level, like a read-only flag. */
+  accessArgs: z.partialRecord(z.enum(ACCESS_LEVELS), z.array(z.string())).optional(),
+  /** Arguments added only when an optional secret is set. */
+  secretArgs: z
+    .array(z.strictObject({ secret: z.string().regex(KEY), args: z.array(argPart) }))
+    .optional(),
+  /** The server's whole environment, besides a minimal PATH. Missing secrets are left out. */
+  env: z.record(z.string().regex(ENV_VAR), valueSource),
+  /** Non-secret variables passed through from the agent when set, like KUBERNETES_SERVICE_HOST. */
+  inheritEnv: z.array(z.string().regex(ENV_VAR)).optional(),
+  /** A config file written to a private temp folder and passed as `arg <path>`. */
+  configFile: z.strictObject({ arg: z.string().min(1), content: z.string() }).optional(),
+});
+export type McpStdioRuntime = z.infer<typeof stdioRuntime>;
+
+const runtime = z.union([
+  stdioRuntime,
+  /** Several servers for one connector; their tool names must not overlap. */
+  z.array(stdioRuntime).min(2),
   z.strictObject({ type: z.literal('mcp-container'), image: z.string() }),
   z.strictObject({ type: z.literal('builtin'), module: z.string() }),
 ]);
-export type McpStdioRuntime = Extract<z.infer<typeof runtime>, { type: 'mcp-stdio' }>;
 
 export const manifestSchema = z
   .strictObject({
@@ -214,8 +255,15 @@ export const manifestSchema = z
     healthProbe: z.string().regex(PROBE).optional(),
     /** Every tool the runtime exposes. Tools missing here are blocked (SPEC section 6). */
     tools: z.record(z.string(), z.enum(TOOL_RISKS)),
+    /**
+     * Tools a server offers that the host never exposes, for servers without their own
+     * tool filter. Documented per connector in docs/connectors/<id>.md.
+     */
+    hiddenTools: z.array(z.string()).optional(),
     /** Argument checks per tool, enforced by the policy engine. */
     guards: z.record(z.string(), z.array(toolGuard)).optional(),
+    /** How the agent finds each configured repo's default branch, for not-default-branch guards. */
+    defaultBranchLookup: z.enum(['github', 'gitlab']).optional(),
     /** null until the MCP server is chosen and documented (M4). */
     runtime: runtime.nullable(),
     permissionsSummary: z.strictObject({
@@ -253,4 +301,12 @@ export type Manifest = z.infer<typeof manifestSchema>;
 /** Identity helper that type-checks a manifest literal. */
 export function defineManifest(manifest: Manifest): Manifest {
   return manifest;
+}
+
+/** The stdio MCP servers a manifest runs: none, one, or several. */
+export function stdioRuntimes(manifest: Pick<Manifest, 'runtime'>): McpStdioRuntime[] {
+  const runtime = manifest.runtime;
+  if (runtime === null) return [];
+  if (Array.isArray(runtime)) return runtime;
+  return runtime.type === 'mcp-stdio' ? [runtime] : [];
 }

@@ -180,7 +180,7 @@ Write a custom server only where nothing suitable exists.
 | Deploy | Kubernetes (EKS, AKS, GKE, on-prem) | Yes | read-only | Namespace-scoped RBAC is generated for the user |
 | CI/CD | GitHub Actions, GitLab CI | Yes | read-only | Read runs and logs. Writes = propose pipeline files via PR |
 | Monitoring | Prometheus, Grafana (incl. Loki via Grafana) | Yes | read-only | |
-| Cloud | AWS | Yes | read-only | ECR, EKS, CloudWatch reads |
+| Cloud | AWS | Yes | read-only | EKS and CloudWatch reads (ECR waits for a narrower MCP server; see docs/connectors/aws.md) |
 | Cloud | Azure, GCP | Coming soon | | |
 | Chat | Slack | Yes | n/a | Socket Mode, so no inbound public endpoint is needed |
 | Chat | Microsoft Teams | Coming soon | | Needs a bot endpoint, phase 2 |

@@ -6,12 +6,13 @@ import {
   getDefaultEnvironment,
   StdioClientTransport,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
-import type {
-  AccessLevel,
-  Manifest,
-  McpStdioRuntime,
-  ToolGuard,
-  ValueSource,
+import {
+  stdioRuntimes,
+  type AccessLevel,
+  type Manifest,
+  type McpStdioRuntime,
+  type ToolGuard,
+  type ValueSource,
 } from '@kodra-agent/schema';
 import type { AuditLog } from '../audit.ts';
 import type { Component } from '../config.ts';
@@ -32,6 +33,12 @@ export interface HostedTool {
   guards: readonly ToolGuard[];
   access: AccessLevel | undefined;
   settings: Record<string, unknown>;
+  /** Default branch per repo, for not-default-branch guards. */
+  defaultBranches?: ReadonlyMap<string, string | null>;
+  /** Settings of required connectors, for guards with `from`. */
+  sharedSettings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /** Index into the host's running servers. */
+  server: number;
 }
 
 export interface ToolCallResult {
@@ -59,10 +66,19 @@ export interface ConnectorInput {
   access: AccessLevel | undefined;
   /** Resolved secret values for this connector only, keyed by manifest secret key. */
   secrets: Readonly<Record<string, string>>;
+  /**
+   * Secrets of other connectors, by connector id. Only those this manifest `requires` are
+   * ever read (GitHub Actions uses the GitHub token).
+   */
+  sharedSecrets?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** Settings of other connectors, by connector id (only required ones are passed on). */
+  sharedSettings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  defaultBranches?: ReadonlyMap<string, string | null>;
 }
 
 interface Running {
   connector: string;
+  label: string;
   client: Client;
   dir: string;
 }
@@ -78,6 +94,13 @@ function settingValue(value: unknown): string | undefined {
   return JSON.stringify(value);
 }
 
+/** Whether a manifest lists a connector in `requires`, the only way to share its values. */
+function requires(manifest: Manifest, connector: string): boolean {
+  return manifest.requires.some((r) =>
+    r.anyOf.some((alt) => 'connector' in alt && alt.connector === connector),
+  );
+}
+
 /** The default launcher: a pinned, checksum-verified binary, or uvx at a pinned version. */
 export function defaultLauncher(env: Readonly<Record<string, string | undefined>>) {
   return (manifest: Manifest, runtime: McpStdioRuntime): Launch => {
@@ -88,7 +111,13 @@ export function defaultLauncher(env: Readonly<Record<string, string | undefined>
         args: ['--from', `${source.package}==${source.version}`, source.command],
       };
     }
-    const path = binaryPath(manifest, runtime, mcpCacheDir(env));
+    if (source.kind === 'npm') {
+      return {
+        command: 'npx',
+        args: ['--yes', '--package', `${source.package}@${source.version}`, '--', source.command],
+      };
+    }
+    const path = binaryPath(runtime, mcpCacheDir(env));
     if (!path) throw new Error(`no ${manifest.displayName} server build for this platform`);
     return { command: path, args: [] };
   };
@@ -112,9 +141,9 @@ export class ConnectorHost {
     const host = new ConnectorHost(opts);
     try {
       for (const input of inputs) {
-        const runtime = input.component.manifest.runtime;
-        if (runtime?.type !== 'mcp-stdio') continue;
-        await host.startOne(input, runtime);
+        for (const runtime of stdioRuntimes(input.component.manifest)) {
+          await host.startOne(input, runtime);
+        }
       }
     } catch (error) {
       await host.close();
@@ -141,8 +170,25 @@ export class ConnectorHost {
     const secretFiles = new Map<string, string>();
     const resolve = async (source: ValueSource): Promise<string | undefined> => {
       if ('value' in source) return source.value;
-      if ('setting' in source) return settingValue(component.settings[source.setting]);
-      if ('secret' in source) return secrets[source.secret];
+      if ('setting' in source) {
+        let raw: unknown = component.settings[source.setting];
+        if (source.from !== undefined) {
+          raw = requires(manifest, source.from)
+            ? input.sharedSettings?.[source.from]?.[source.setting]
+            : undefined;
+        }
+        const value = settingValue(raw);
+        return value === undefined
+          ? undefined
+          : `${value.replace(/\/+$/, '')}${source.suffix ?? ''}`;
+      }
+      if ('secret' in source) {
+        if (source.from === undefined) return secrets[source.secret];
+        // Defense in depth: the registry test also enforces this for every manifest.
+        return requires(manifest, source.from)
+          ? input.sharedSecrets?.[source.from]?.[source.secret]
+          : undefined;
+      }
       const value = secrets[source.secretFile];
       if (value === undefined) return undefined;
       const existing = secretFiles.get(source.secretFile);
@@ -214,10 +260,12 @@ export class ConnectorHost {
         )}`,
       );
     }
-    this.running.push({ connector: manifest.id, client, dir });
+    const label = `${manifest.id}${runtime.name ? `/${runtime.name}` : ''}`;
+    const serverIndex = this.running.push({ connector: manifest.id, label, client, dir }) - 1;
 
     const { tools } = await client.listTools(undefined, { timeout: this.opts.timeoutMs ?? 30_000 });
     for (const tool of tools) {
+      if (manifest.hiddenTools?.includes(tool.name)) continue;
       const risk = manifest.tools[tool.name];
       if (risk === undefined) {
         // Unclassified tools are never shown to the model (SPEC section 6).
@@ -235,6 +283,11 @@ export class ConnectorHost {
         continue;
       }
       const name = `${manifest.id}${SEP}${tool.name}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+      if (this.toolsByName.has(name)) {
+        throw new Error(
+          `${label} offers ${tool.name}, which another ${manifest.displayName} server already offers`,
+        );
+      }
       this.toolsByName.set(name, {
         name,
         connector: manifest.id,
@@ -245,6 +298,9 @@ export class ConnectorHost {
         guards: manifest.guards?.[tool.name] ?? [],
         access,
         settings: component.settings,
+        ...(input.defaultBranches ? { defaultBranches: input.defaultBranches } : {}),
+        ...(input.sharedSettings ? { sharedSettings: input.sharedSettings } : {}),
+        server: serverIndex,
       });
     }
   }
@@ -256,7 +312,7 @@ export class ConnectorHost {
     signal?: AbortSignal,
   ): Promise<ToolCallResult> {
     const tool = this.toolsByName.get(name);
-    const server = tool && this.running.find((r) => r.connector === tool.connector);
+    const server = tool ? this.running[tool.server] : undefined;
     if (!tool || !server) return { isError: true, text: `unknown tool ${name}` };
     const result = await server.client.callTool({ name: tool.tool, arguments: args }, undefined, {
       timeout: this.opts.timeoutMs ?? 60_000,

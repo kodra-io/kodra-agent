@@ -12,6 +12,13 @@ export interface PolicyInput {
   guards: readonly ToolGuard[];
   args: Readonly<Record<string, unknown>>;
   settings: Readonly<Record<string, unknown>>;
+  /** Settings of connectors this one requires, for guards with `from`. */
+  sharedSettings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /**
+   * Default branch per repo (lowercase `owner/repo` or `group/project`), looked up at
+   * startup. null means the lookup failed, which blocks writes to that repo.
+   */
+  defaultBranches?: ReadonlyMap<string, string | null>;
 }
 
 /**
@@ -25,7 +32,7 @@ export function decide(input: PolicyInput): Decision {
     return { kind: 'block', reason: 'this tool has no risk classification' };
   }
   for (const guard of input.guards) {
-    const problem = checkGuard(guard, input.args, input.settings);
+    const problem = checkGuard(guard, input);
     if (problem) return { kind: 'block', reason: problem };
   }
   switch (input.risk) {
@@ -45,19 +52,64 @@ export function decide(input: PolicyInput): Decision {
   }
 }
 
-function checkGuard(
-  guard: ToolGuard,
+const isBlank = (v: unknown) => v === undefined || v === null || v === '';
+
+function listSetting(settings: Readonly<Record<string, unknown>>, key: string): string[] {
+  const value = settings[key];
+  return Array.isArray(value) ? value.map((v) => String(v)) : [];
+}
+
+/** `owner/repo` from the tool's arguments, or null when it is missing or not a string. */
+function repoFrom(
   args: Readonly<Record<string, unknown>>,
-  settings: Readonly<Record<string, unknown>>,
+  repoArg: string,
+  ownerArg?: string,
 ): string | null {
-  // The only guard kind so far; M4b adds a default-branch guard for GitHub and GitLab.
-  const value = args[guard.arg];
-  if (value === undefined || value === null || value === '') {
-    return guard.required ? `${guard.arg} is required` : null;
+  const repo = args[repoArg];
+  if (typeof repo !== 'string' || repo === '') return null;
+  if (!ownerArg) return repo;
+  const owner = args[ownerArg];
+  return typeof owner === 'string' && owner !== '' ? `${owner}/${repo}` : null;
+}
+
+function checkGuard(guard: ToolGuard, input: PolicyInput): string | null {
+  const { args, settings } = input;
+  switch (guard.kind) {
+    case 'arg-in-setting': {
+      const value = args[guard.arg];
+      if (isBlank(value)) return guard.required ? `${guard.arg} is required` : null;
+      const list = listSetting(settings, guard.setting);
+      return typeof value === 'string' && list.includes(value)
+        ? null
+        : `${guard.arg} must be one of the configured ${guard.setting}: ${list.join(', ') || 'none'}`;
+    }
+    case 'repo-in-setting': {
+      const repo = repoFrom(args, guard.repoArg, guard.ownerArg);
+      const source = guard.from ? (input.sharedSettings?.[guard.from] ?? {}) : settings;
+      const list = listSetting(source, guard.setting);
+      if (repo && list.some((r) => r.toLowerCase() === repo.toLowerCase())) return null;
+      return `the repository must be one of the configured ${guard.setting}: ${list.join(', ') || 'none'}`;
+    }
+    case 'not-default-branch': {
+      // Golden rule 6: never push to a default branch. A missing branch means the default.
+      const branch = args[guard.branchArg];
+      if (typeof branch !== 'string' || branch.trim() === '') {
+        return `${guard.branchArg} is required: changes never go to the default branch`;
+      }
+      const repo = repoFrom(args, guard.repoArg, guard.ownerArg);
+      if (!repo) return 'the repository is required';
+      const defaultBranch = input.defaultBranches?.get(repo.toLowerCase());
+      if (defaultBranch === undefined || defaultBranch === null) {
+        return `the default branch of ${repo} is unknown, so changes to it are blocked`;
+      }
+      const normalize = (b: string) =>
+        b
+          .trim()
+          .replace(/^refs\/heads\//, '')
+          .toLowerCase();
+      return normalize(branch) === normalize(defaultBranch)
+        ? `${branch} is the default branch of ${repo}; changes go through a pull request on another branch`
+        : null;
+    }
   }
-  const allowed = settings[guard.setting];
-  const list = Array.isArray(allowed) ? allowed.map((v) => String(v)) : [];
-  return typeof value === 'string' && list.includes(value)
-    ? null
-    : `${guard.arg} must be one of the configured ${guard.setting}: ${list.join(', ') || 'none'}`;
 }

@@ -1,4 +1,10 @@
-import { manifestSchema, modelSchema, PLATFORMS, type Manifest } from '@kodra-agent/schema';
+import {
+  manifestSchema,
+  modelSchema,
+  PLATFORMS,
+  stdioRuntimes,
+  type Manifest,
+} from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
 import { connectors, getConnector, getModelProvider, modelProviders } from './index.ts';
 
@@ -93,52 +99,97 @@ describe('connector registry', () => {
       const settings = manifest.configFields.map((f) => f.key);
       for (const [tool, guards] of Object.entries(manifest.guards ?? {})) {
         expect(manifest.tools[tool], `${manifest.id}.${tool}`).toBeDefined();
-        for (const guard of guards)
-          expect(settings, `${manifest.id}.${tool}`).toContain(guard.setting);
+        for (const guard of guards) {
+          if (guard.kind === 'repo-in-setting' && guard.from) {
+            // A shared setting must come from a connector this one requires.
+            const required = manifest.requires.flatMap((r) =>
+              r.anyOf.flatMap((alt) => ('connector' in alt ? [alt.connector] : [])),
+            );
+            expect(required, `${manifest.id}.${tool}`).toContain(guard.from);
+            expect(
+              getConnector(guard.from)?.configFields.map((f) => f.key),
+              `${manifest.id}.${tool}`,
+            ).toContain(guard.setting);
+          } else if ('setting' in guard) {
+            expect(settings, `${manifest.id}.${tool}`).toContain(guard.setting);
+          }
+          if (guard.kind === 'not-default-branch') {
+            expect(manifest.defaultBranchLookup, `${manifest.id}.${tool}`).toBeDefined();
+          }
+        }
       }
     }
   });
 
   it('starts servers only with secrets and settings the manifest declares', () => {
     for (const manifest of all) {
-      const runtime = manifest.runtime;
-      if (runtime?.type !== 'mcp-stdio') continue;
       const secrets = manifest.secrets.map((s) => s.key);
       const settings = manifest.configFields.map((f) => f.key);
-      const sources = [
-        ...Object.values(runtime.env),
-        ...runtime.args.filter((a) => typeof a !== 'string'),
-        ...(runtime.secretArgs ?? []).flatMap((s) => s.args.filter((a) => typeof a !== 'string')),
-      ];
-      for (const s of runtime.secretArgs ?? []) expect(secrets, manifest.id).toContain(s.secret);
-      for (const source of sources) {
-        if ('secret' in source) expect(secrets, manifest.id).toContain(source.secret);
-        if ('secretFile' in source) expect(secrets, manifest.id).toContain(source.secretFile);
-        if ('setting' in source) expect(settings, manifest.id).toContain(source.setting);
+      const required = manifest.requires.flatMap((r) =>
+        r.anyOf.flatMap((alt) => ('connector' in alt ? [alt.connector] : [])),
+      );
+      for (const runtime of stdioRuntimes(manifest)) {
+        const sources = [
+          ...Object.values(runtime.env),
+          ...runtime.args.filter((a) => typeof a !== 'string'),
+          ...(runtime.secretArgs ?? []).flatMap((s) => s.args.filter((a) => typeof a !== 'string')),
+        ];
+        for (const s of runtime.secretArgs ?? []) expect(secrets, manifest.id).toContain(s.secret);
+        for (const source of sources) {
+          if ('secret' in source && source.from !== undefined) {
+            // A shared secret must come from a connector this one requires.
+            expect(required, manifest.id).toContain(source.from);
+            expect(
+              getConnector(source.from)?.secrets.map((x) => x.key),
+              manifest.id,
+            ).toContain(source.secret);
+          } else if ('secret' in source) {
+            expect(secrets, manifest.id).toContain(source.secret);
+          }
+          if ('secretFile' in source) expect(secrets, manifest.id).toContain(source.secretFile);
+          if ('setting' in source && source.from !== undefined) {
+            expect(required, manifest.id).toContain(source.from);
+            expect(
+              getConnector(source.from)?.configFields.map((f) => f.key),
+              manifest.id,
+            ).toContain(source.setting);
+          } else if ('setting' in source) {
+            expect(settings, manifest.id).toContain(source.setting);
+          }
+        }
       }
     }
   });
 
   it('never puts a secret value on a command line', () => {
     for (const manifest of all) {
-      const runtime = manifest.runtime;
-      if (runtime?.type !== 'mcp-stdio') continue;
-      const argSources = [
-        ...runtime.args,
-        ...(runtime.secretArgs ?? []).flatMap((s) => s.args),
-      ].filter((a) => typeof a !== 'string');
-      expect(
-        argSources.some((a) => 'secret' in a),
-        manifest.id,
-      ).toBe(false);
+      for (const runtime of stdioRuntimes(manifest)) {
+        const argSources = [
+          ...runtime.args,
+          ...(runtime.secretArgs ?? []).flatMap((s) => s.args),
+        ].filter((a) => typeof a !== 'string');
+        expect(
+          argSources.some((a) => 'secret' in a),
+          manifest.id,
+        ).toBe(false);
+      }
     }
   });
 
-  it('pins binary servers for every supported platform', () => {
+  it('pins binary servers for every supported platform and names multiple servers', () => {
     for (const manifest of all) {
-      const runtime = manifest.runtime;
-      if (runtime?.type !== 'mcp-stdio' || runtime.source.kind !== 'github-release') continue;
-      expect(Object.keys(runtime.source.assets).sort(), manifest.id).toEqual([...PLATFORMS].sort());
+      const runtimes = stdioRuntimes(manifest);
+      if (runtimes.length > 1) {
+        const names = runtimes.map((r) => r.name);
+        expect(names.every(Boolean), manifest.id).toBe(true);
+        expect(new Set(names).size, manifest.id).toBe(names.length);
+      }
+      for (const runtime of runtimes) {
+        if (runtime.source.kind !== 'github-release') continue;
+        expect(Object.keys(runtime.source.assets).sort(), manifest.id).toEqual(
+          [...PLATFORMS].sort(),
+        );
+      }
     }
   });
 
