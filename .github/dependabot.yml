@@ -4,10 +4,22 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # pnpm refuses packages younger than its minimum release age; wait for them to settle.
+    cooldown:
+      default-days: 3
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint supports TypeScript below 6.1. Lift this once it supports 7.
+      - dependency-name: typescript
+        versions: ['>=6.1.0']
+      # Node types track the Node LTS in .nvmrc (24), not the newest Node release.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
