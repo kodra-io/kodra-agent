@@ -60,6 +60,112 @@ const posix = (p: string) => (process.platform === 'win32' ? p.slice(2).replaceA
  * `pnpm test:kind --demo`: the same cluster, then an interactive chat with a real model.
  * Needs ANTHROPIC_API_KEY and KODRA_DEMO_MODEL (a model id from the Anthropic docs).
  */
+/**
+ * `pnpm demo:slack`: the M5 done criteria with a real Slack workspace. A local Alertmanager
+ * reports one firing test alert about the crashlooping pod; `kodra-agent run` investigates
+ * it and posts to Slack, where you can ask for a scale and approve it with the button.
+ * Needs ANTHROPIC_API_KEY, KODRA_DEMO_MODEL, SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
+ * KODRA_SLACK_CHANNEL (like #kodra-test), and KODRA_DEMO_APPROVER (your Slack user id).
+ */
+async function demoSlack(): Promise<number> {
+  const need = [
+    'ANTHROPIC_API_KEY',
+    'KODRA_DEMO_MODEL',
+    'SLACK_BOT_TOKEN',
+    'SLACK_APP_TOKEN',
+    'KODRA_SLACK_CHANNEL',
+    'KODRA_DEMO_APPROVER',
+  ];
+  const missing = need.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(`Set ${missing.join(', ')} to run the Slack demo.`);
+    return 1;
+  }
+  const { createServer } = await import('node:http');
+  const alert = {
+    fingerprint: 'demo-crashloop',
+    labels: {
+      alertname: 'KubePodCrashLooping',
+      severity: 'critical',
+      namespace: 'payments',
+      deployment: 'crashloop',
+    },
+    annotations: { summary: 'Deployment payments/crashloop keeps restarting (test alert)' },
+    startsAt: new Date().toISOString(),
+  };
+  const alertmanager = createServer((req, res) => {
+    res.writeHead(req.url?.startsWith('/api/v2/alerts') ? 200 : 404, {
+      'content-type': 'application/json',
+    });
+    res.end(req.url?.startsWith('/api/v2/alerts') ? JSON.stringify([alert]) : '{}');
+  });
+  await new Promise<void>((r) => alertmanager.listen(0, '127.0.0.1', r));
+  const address = alertmanager.address();
+  const amUrl = `http://127.0.0.1:${String(typeof address === 'object' && address ? address.port : 0)}`;
+
+  const config = join(dir, 'kodra-agent.yaml');
+  writeFileSync(
+    config,
+    `apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: slack-demo
+spec:
+  target: compose
+  model:
+    provider: anthropic
+    name: '${process.env['KODRA_DEMO_MODEL'] ?? ''}'
+    apiKey: \${env:ANTHROPIC_API_KEY}
+  connectors:
+    kubernetes:
+      enabled: true
+      access: read-write-approved
+      config:
+        namespaces: [payments]
+      secrets:
+        kubeconfig: '\${file:${posix(kubeconfig)}}'
+    prometheus:
+      enabled: true
+      config:
+        url: http://127.0.0.1:1
+        alertmanagerUrl: ${amUrl}
+        pollIntervalSeconds: 15
+    slack:
+      enabled: true
+      config:
+        channel: '${process.env['KODRA_SLACK_CHANNEL'] ?? ''}'
+      secrets:
+        botToken: \${env:SLACK_BOT_TOKEN}
+        appToken: \${env:SLACK_APP_TOKEN}
+  policy:
+    approvals:
+      approvers: ['${process.env['KODRA_DEMO_APPROVER'] ?? ''}']
+  audit:
+    path: ${posix(join(dir, 'audit.jsonl'))}
+`,
+  );
+  console.log('Watch your Slack channel: the test alert is investigated within a few seconds.');
+  console.log(
+    'Then mention the app: "@app scale the crashloop deployment in payments to 2", and click Approve.',
+  );
+  console.log('Press Ctrl+C to stop.');
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--experimental-strip-types',
+      '--disable-warning=ExperimentalWarning',
+      'src/bin.ts',
+      'run',
+      '--config',
+      config,
+    ],
+    { stdio: 'inherit', env: { ...process.env, KODRA_AGENT_HEALTH_PORT: '0' } },
+  );
+  alertmanager.close();
+  console.log(`Audit log: ${join(dir, 'audit.jsonl')}`);
+  return result.status ?? 1;
+}
+
 function demo(): number {
   const model = process.env['KODRA_DEMO_MODEL'];
   if (!process.env['ANTHROPIC_API_KEY'] || !model) {
@@ -136,7 +242,9 @@ try {
     spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},3000)']);
   }
 
-  if (process.argv.includes('--demo')) {
+  if (process.argv.includes('--demo-slack')) {
+    code = await demoSlack();
+  } else if (process.argv.includes('--demo')) {
     code = demo();
   } else {
     const result = spawnSync('pnpm', ['exec', 'vitest', 'run', 'src/kind.e2e.test.ts'], {

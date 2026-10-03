@@ -4,6 +4,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { chat } from './commands/chat.ts';
 import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
+import { run } from './commands/run.ts';
 import { configPath } from './config.ts';
 import type { Context } from './context.ts';
 
@@ -12,7 +13,7 @@ export const VERSION: string = pkg.version;
 const COMMANDS = [
   ['init', 'Ask for the secrets your config needs, check them, and store them locally'],
   ['doctor', 'Check the config, secrets, connector access, and audit log'],
-  ['run', 'Start the agent service (not implemented yet)'],
+  ['run', 'Start the service: Slack, alert monitoring, and health checks'],
   ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
   ['ship <repo>', 'Build, containerize, package, and open a PR (not implemented yet)'],
 ] as const;
@@ -105,6 +106,7 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
     case 'chat':
       return chat({ configPath: config, message: values.message }, ctx);
     case 'run':
+      return run({ configPath: config }, ctx);
     case 'ship':
       ctx.term.err(`'${command}' is not implemented yet. Run 'kodra-agent --help'.`);
       return 1;

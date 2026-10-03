@@ -16,8 +16,32 @@ describe('compose bundle', () => {
       '.env.example',
       '.gitignore',
       'docker-compose.yml',
+      'slack-app-manifest.yaml',
       'README.md',
     ]);
+  });
+
+  it('slack-app-manifest.yaml sets Socket Mode, buttons, events, and the connector scopes', () => {
+    const manifest = parse(file(bundle, 'slack-app-manifest.yaml')) as {
+      oauth_config: { scopes: { bot: string[] } };
+      settings: {
+        socket_mode_enabled: boolean;
+        interactivity: { is_enabled: boolean };
+        event_subscriptions: { bot_events: string[] };
+      };
+    };
+    expect(manifest.settings.socket_mode_enabled).toBe(true);
+    expect(manifest.settings.interactivity.is_enabled).toBe(true);
+    expect(manifest.settings.event_subscriptions.bot_events).toEqual(['app_mention', 'message.im']);
+    expect(manifest.oauth_config.scopes.bot).toEqual([
+      'app_mentions:read',
+      'chat:write',
+      'im:history',
+      'im:read',
+      'im:write',
+      'users:read',
+    ]);
+    expect(file(bundle, 'README.md')).toContain('From an app manifest');
   });
 
   it('.env.example has variable names and comments only, never values', () => {

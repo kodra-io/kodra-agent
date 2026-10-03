@@ -802,6 +802,32 @@
             }
           },
           "additionalProperties": false
+        },
+        "monitoring": {
+          "description": "Limits for alert investigations.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "maxConcurrent": {
+              "default": 2,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "maxPerHour": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "cooldownMinutes": {
+              "default": 60,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1440
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "cli": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/bin.ts",
     "mcp:fetch": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/fetch-mcp.ts",
-    "test:kind": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/kind-test.ts"
+    "test:kind": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/kind-test.ts",
+    "demo:slack": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/kind-test.ts --demo-slack"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "5.0.104",
@@ -27,6 +28,7 @@
     "@kodra-agent/schema": "workspace:*",
     "@kubernetes/client-node": "2.0.0",
     "@modelcontextprotocol/sdk": "1.31.0",
+    "@slack/bolt": "5.1.0",
     "ai": "7.0.126",
     "yaml": "2.9.1",
     "zod": "4.6.5"

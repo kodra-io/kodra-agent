@@ -11,7 +11,7 @@ import { newApprovalRequest, type ApprovalChannel } from './approvals.ts';
 import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
-import { decide } from './policy.ts';
+import { decide, type Decision } from './policy.ts';
 import type { Redactor } from './redactor.ts';
 
 /** Guardrails for every task (golden rules 4, 5, and 6). */
@@ -49,6 +49,8 @@ export interface AgentDeps {
   policy: { destructiveActions: 'deny' | 'require-approval'; expiresAfterMinutes: number };
   limits?: Limits;
   actor?: string;
+  /** Investigations: every tool that is not a read is blocked, whatever the access level. */
+  readOnly?: boolean;
 }
 
 /**
@@ -109,16 +111,22 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
           risk: hosted.risk,
         } as const;
 
-        const decision = decide({
-          risk: hosted.risk,
-          access: hosted.access,
-          destructiveActions: deps.policy.destructiveActions,
-          guards: hosted.guards,
-          args,
-          settings: hosted.settings,
-          ...(hosted.defaultBranches ? { defaultBranches: hosted.defaultBranches } : {}),
-          ...(hosted.sharedSettings ? { sharedSettings: hosted.sharedSettings } : {}),
-        });
+        const decision: Decision =
+          deps.readOnly && hosted.risk !== 'read'
+            ? {
+                kind: 'block',
+                reason: 'investigations are read-only; ask in Slack to make a change',
+              }
+            : decide({
+                risk: hosted.risk,
+                access: hosted.access,
+                destructiveActions: deps.policy.destructiveActions,
+                guards: hosted.guards,
+                args,
+                settings: hosted.settings,
+                ...(hosted.defaultBranches ? { defaultBranches: hosted.defaultBranches } : {}),
+                ...(hosted.sharedSettings ? { sharedSettings: hosted.sharedSettings } : {}),
+              });
 
         if (decision.kind === 'block') {
           deps.term.out(`  [blocked] ${source}: ${decision.reason}`);

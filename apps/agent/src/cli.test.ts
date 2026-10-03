@@ -29,7 +29,7 @@ describe('kodra-agent CLI', () => {
     }
   });
 
-  it.each(['run', 'ship'])('says %s is not implemented yet', async (cmd) => {
+  it.each(['ship'])('says %s is not implemented yet', async (cmd) => {
     expect(await run([cmd])).toEqual({
       code: 1,
       stdout: '',

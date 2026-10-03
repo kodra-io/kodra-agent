@@ -128,6 +128,17 @@ export const policySchema = z
 const auditSchema = z.strictObject({ path: absolutePath.default(DEFAULT_AUDIT_PATH) }).prefault({});
 const telemetrySchema = z.strictObject({ enabled: z.boolean().default(false) }).prefault({});
 
+/** Alert investigations (M5): limits on cost and noise. */
+const monitoringSchema = z
+  .strictObject({
+    maxConcurrent: z.int().min(1).max(10).default(2),
+    maxPerHour: z.int().min(1).max(1000).default(10),
+    /** Minutes before the same alert is investigated again after it fires again. */
+    cooldownMinutes: z.int().min(1).max(1440).default(60),
+  })
+  .prefault({})
+  .meta({ description: 'Limits for alert investigations.' });
+
 function fieldSchema(field: ConfigField): z.ZodType {
   const description = field.description.en;
   switch (field.kind) {
@@ -247,6 +258,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         policy: policySchema,
         audit: auditSchema,
         telemetry: telemetrySchema,
+        monitoring: monitoringSchema,
       }),
     })
     .superRefine((config, ctx) => {
@@ -308,6 +320,7 @@ export interface AgentConfig {
     policy: z.infer<typeof policySchema>;
     audit: { path: string };
     telemetry: { enabled: boolean };
+    monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
   };
 }
 
