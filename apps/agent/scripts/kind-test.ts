@@ -40,7 +40,7 @@ spec:
       containers:
         - name: app
           image: busybox:1.37
-          command: ["sh", "-c", "echo 'Error: cannot connect to database at db:5432: connection refused'; sleep 2; exit 1"]
+          command: ["sh", "-c", "echo 'Error: cannot connect to database at db:5432: connection refused'; sleep 20; exit 1"]
 `;
 
 function sh(cmd: string, args: string[], input?: string): string {

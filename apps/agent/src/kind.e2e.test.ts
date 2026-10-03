@@ -72,17 +72,24 @@ function scriptedModel() {
       if (ask.includes('why')) {
         if (sinceUser === 0)
           return Promise.resolve(toolCall('kubernetes__pods_list_in_namespace', { namespace: NS }));
+        const pod = /crashloop-[a-z0-9]+-[a-z0-9]+/.exec(JSON.stringify(options.prompt))?.[0];
+        const errorLine = /Error: [^"\\]+/.exec(lastToolOutput(options))?.[0];
+        // Current logs first; if the container just restarted, the previous one's logs.
         if (sinceUser === 2) {
-          const pod = /crashloop-[a-z0-9]+-[a-z0-9]+/.exec(lastToolOutput(options))?.[0];
           return Promise.resolve(
             pod
-              ? toolCall('kubernetes__pods_log', { namespace: NS, name: pod, previous: true })
+              ? toolCall('kubernetes__pods_log', { namespace: NS, name: pod })
               : say('I could not find the crashlooping pod.'),
           );
         }
-        const logs = lastToolOutput(options);
-        const line = /Error: [^"\\]+/.exec(logs)?.[0] ?? 'no error line found';
-        return Promise.resolve(say(`The pod keeps crashing. Its last log line: ${line}`));
+        if (sinceUser === 4 && !errorLine && pod) {
+          return Promise.resolve(
+            toolCall('kubernetes__pods_log', { namespace: NS, name: pod, previous: true }),
+          );
+        }
+        return Promise.resolve(
+          say(`The pod keeps crashing. Its last log line: ${errorLine ?? 'no error line found'}`),
+        );
       }
       if (ask.includes('scale')) {
         if (sinceUser === 0) {
