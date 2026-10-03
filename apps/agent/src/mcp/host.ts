@@ -1,0 +1,282 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import {
+  getDefaultEnvironment,
+  StdioClientTransport,
+} from '@modelcontextprotocol/sdk/client/stdio.js';
+import type {
+  AccessLevel,
+  Manifest,
+  McpStdioRuntime,
+  ToolGuard,
+  ValueSource,
+} from '@kodra-agent/schema';
+import type { AuditLog } from '../audit.ts';
+import type { Component } from '../config.ts';
+import type { Logger } from '../io.ts';
+import type { Risk } from '../policy.ts';
+import type { Redactor } from '../redactor.ts';
+import { binaryPath, mcpCacheDir } from './fetch.ts';
+
+/** A tool the model may see: classified in its manifest and offered by its server. */
+export interface HostedTool {
+  /** `<connector>__<tool>`: unique across connectors and valid as a model tool name. */
+  name: string;
+  connector: string;
+  tool: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  risk: Risk;
+  guards: readonly ToolGuard[];
+  access: AccessLevel | undefined;
+  settings: Record<string, unknown>;
+}
+
+export interface ToolCallResult {
+  isError: boolean;
+  text: string;
+}
+
+export interface Launch {
+  command: string;
+  args: string[];
+}
+
+export interface HostOptions {
+  redactor: Redactor;
+  log: Logger;
+  audit?: AuditLog | undefined;
+  env?: Readonly<Record<string, string | undefined>>;
+  /** Overrides how a server is started (tests run fake servers). */
+  launcher?: (manifest: Manifest, runtime: McpStdioRuntime) => Launch;
+  timeoutMs?: number;
+}
+
+export interface ConnectorInput {
+  component: Component;
+  access: AccessLevel | undefined;
+  /** Resolved secret values for this connector only, keyed by manifest secret key. */
+  secrets: Readonly<Record<string, string>>;
+}
+
+interface Running {
+  connector: string;
+  client: Client;
+  dir: string;
+}
+
+const SEP = '__';
+
+function settingValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return value.map((v) => String(v)).join(',');
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+/** The default launcher: a pinned, checksum-verified binary, or uvx at a pinned version. */
+export function defaultLauncher(env: Readonly<Record<string, string | undefined>>) {
+  return (manifest: Manifest, runtime: McpStdioRuntime): Launch => {
+    const source = runtime.source;
+    if (source.kind === 'pypi') {
+      return {
+        command: 'uvx',
+        args: ['--from', `${source.package}==${source.version}`, source.command],
+      };
+    }
+    const path = binaryPath(manifest, runtime, mcpCacheDir(env));
+    if (!path) throw new Error(`no ${manifest.displayName} server build for this platform`);
+    return { command: path, args: [] };
+  };
+}
+
+/**
+ * Starts one MCP server per enabled connector and exposes only the tools its manifest
+ * classifies. Each server gets a private working folder (some servers load a .env from
+ * their working directory), a minimal environment, and only its own connector's secrets.
+ */
+export class ConnectorHost {
+  private readonly running: Running[] = [];
+  private readonly toolsByName = new Map<string, HostedTool>();
+  private readonly opts: HostOptions;
+
+  private constructor(opts: HostOptions) {
+    this.opts = opts;
+  }
+
+  static async start(inputs: readonly ConnectorInput[], opts: HostOptions): Promise<ConnectorHost> {
+    const host = new ConnectorHost(opts);
+    try {
+      for (const input of inputs) {
+        const runtime = input.component.manifest.runtime;
+        if (runtime?.type !== 'mcp-stdio') continue;
+        await host.startOne(input, runtime);
+      }
+    } catch (error) {
+      await host.close();
+      throw error;
+    }
+    return host;
+  }
+
+  tools(): HostedTool[] {
+    return [...this.toolsByName.values()];
+  }
+
+  get(name: string): HostedTool | undefined {
+    return this.toolsByName.get(name);
+  }
+
+  private async startOne(input: ConnectorInput, runtime: McpStdioRuntime): Promise<void> {
+    const { component, access, secrets } = input;
+    const manifest = component.manifest;
+    const env = this.opts.env ?? process.env;
+    const dir = await mkdtemp(join(tmpdir(), `kodra-mcp-${manifest.id}-`));
+
+    // Secret files are written owner-only into the private folder and never logged.
+    const secretFiles = new Map<string, string>();
+    const resolve = async (source: ValueSource): Promise<string | undefined> => {
+      if ('value' in source) return source.value;
+      if ('setting' in source) return settingValue(component.settings[source.setting]);
+      if ('secret' in source) return secrets[source.secret];
+      const value = secrets[source.secretFile];
+      if (value === undefined) return undefined;
+      const existing = secretFiles.get(source.secretFile);
+      if (existing) return existing;
+      const path = join(dir, `${source.secretFile}.secret`);
+      await writeFile(path, value, { mode: 0o600 });
+      secretFiles.set(source.secretFile, path);
+      return path;
+    };
+    const resolveArgs = async (parts: McpStdioRuntime['args']): Promise<string[]> => {
+      const out: string[] = [];
+      for (const part of parts) {
+        if (typeof part === 'string') out.push(part);
+        else {
+          const value = await resolve(part);
+          if (value !== undefined) out.push(value);
+        }
+      }
+      return out;
+    };
+
+    const launch = (this.opts.launcher ?? defaultLauncher(env))(manifest, runtime);
+    const args = [...launch.args, ...(await resolveArgs(runtime.args))];
+    if (access) args.push(...(runtime.accessArgs?.[access] ?? []));
+    for (const optional of runtime.secretArgs ?? []) {
+      if (secrets[optional.secret] !== undefined) args.push(...(await resolveArgs(optional.args)));
+    }
+    if (runtime.configFile) {
+      const path = join(dir, 'server-config');
+      await writeFile(path, runtime.configFile.content, { mode: 0o600 });
+      args.push(runtime.configFile.arg, path);
+    }
+
+    const childEnv: Record<string, string> = { ...getDefaultEnvironment() };
+    for (const name of runtime.inheritEnv ?? []) {
+      const value = env[name];
+      if (value !== undefined) childEnv[name] = value;
+    }
+    for (const [name, source] of Object.entries(runtime.env)) {
+      const value = await resolve(source);
+      if (value !== undefined) childEnv[name] = value;
+    }
+
+    const transport = new StdioClientTransport({
+      command: launch.command,
+      args,
+      env: childEnv,
+      cwd: dir,
+      stderr: 'pipe',
+    });
+    transport.stderr?.on('data', (chunk: Buffer) => {
+      const line = chunk.toString('utf8').trim().slice(0, 2000);
+      if (line)
+        this.opts.log.warn('connector stderr', {
+          connector: manifest.id,
+          line: this.opts.redactor.redact(line),
+        });
+    });
+    const client = new Client({ name: 'kodra-agent', version: '0.0.0' });
+    try {
+      await client.connect(transport, { timeout: this.opts.timeoutMs ?? 30_000 });
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true });
+      // No `cause`: the original error may carry an unredacted secret.
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error(
+        `could not start the ${manifest.displayName} connector: ${this.opts.redactor.redact(
+          error instanceof Error ? error.message : String(error),
+        )}`,
+      );
+    }
+    this.running.push({ connector: manifest.id, client, dir });
+
+    const { tools } = await client.listTools(undefined, { timeout: this.opts.timeoutMs ?? 30_000 });
+    for (const tool of tools) {
+      const risk = manifest.tools[tool.name];
+      if (risk === undefined) {
+        // Unclassified tools are never shown to the model (SPEC section 6).
+        await this.opts.audit
+          ?.append({
+            event: 'tool.call',
+            actor: 'agent',
+            connector: manifest.id,
+            tool: tool.name,
+            risk: 'unclassified',
+            decision: 'blocked',
+            detail: 'not classified in the manifest; hidden from the model',
+          })
+          .catch(() => undefined);
+        continue;
+      }
+      const name = `${manifest.id}${SEP}${tool.name}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+      this.toolsByName.set(name, {
+        name,
+        connector: manifest.id,
+        tool: tool.name,
+        description: tool.description ?? tool.name,
+        inputSchema: tool.inputSchema,
+        risk,
+        guards: manifest.guards?.[tool.name] ?? [],
+        access,
+        settings: component.settings,
+      });
+    }
+  }
+
+  /** Calls a tool on its server. The caller has already run the policy engine. */
+  async call(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<ToolCallResult> {
+    const tool = this.toolsByName.get(name);
+    const server = tool && this.running.find((r) => r.connector === tool.connector);
+    if (!tool || !server) return { isError: true, text: `unknown tool ${name}` };
+    const result = await server.client.callTool({ name: tool.tool, arguments: args }, undefined, {
+      timeout: this.opts.timeoutMs ?? 60_000,
+      ...(signal ? { signal } : {}),
+    });
+    const content = Array.isArray(result.content) ? result.content : [];
+    const text = content
+      .map((part: { type?: string; text?: string }) =>
+        part.type === 'text' && typeof part.text === 'string'
+          ? part.text
+          : `[${part.type ?? 'content'} omitted]`,
+      )
+      .join('\n');
+    return { isError: result.isError === true, text };
+  }
+
+  async close(): Promise<void> {
+    for (const server of this.running.splice(0)) {
+      await server.client.close().catch(() => undefined);
+      await rm(server.dir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+}

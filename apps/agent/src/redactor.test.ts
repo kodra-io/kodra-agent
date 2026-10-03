@@ -80,6 +80,18 @@ describe('Redactor', () => {
     expect(r.redact('  token: abcdefgh12345678')).toBe(`  token: ${REDACTED}`); // gitleaks:allow (fake)
   });
 
+  it('masks credentials inside a structured secret even when they appear alone', () => {
+    const r = new Redactor();
+    r.add(
+      'apiVersion: v1\nusers:\n- name: u\n  user:\n    token: lone-token-value-123\n    client-key-data: "QUJDREVGR0hJSktM"\n', // gitleaks:allow (fake)
+    );
+    expect(r.redact('found lone-token-value-123 and QUJDREVGR0hJSktM')).toBe(
+      `found ${REDACTED} and ${REDACTED}`,
+    );
+    // Ordinary fields are not treated as secrets.
+    expect(r.redact('apiVersion: v1, name: u')).toBe('apiVersion: v1, name: u');
+  });
+
   it('redactValue serializes objects first', () => {
     const r = new Redactor();
     r.add('hidden-value-xyz');

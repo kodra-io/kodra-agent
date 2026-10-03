@@ -1,4 +1,5 @@
 import { request as httpRequest } from 'node:http';
+import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import type { Component } from './config.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
 
@@ -18,7 +19,7 @@ export interface ProbeContext {
   kubernetes: KubernetesFactory;
   timeoutMs: number;
   /** Overrides for fixed public API hosts (tests point these at local fake servers). */
-  endpoints?: Partial<Record<'github' | 'slack' | 'anthropic' | 'openai', string>>;
+  endpoints?: Partial<Record<'github' | 'slack' | 'anthropic' | 'openai' | 'sts', string>>;
 }
 
 export type Probe = (ctx: ProbeContext) => Promise<ProbeResult>;
@@ -295,10 +296,64 @@ export const probes: Record<string, Probe> = {
     });
   },
 
-  // AWS checks need the AWS SDK, which arrives with the AWS connector in M4.
-  'aws.get-caller-identity': () => Promise.resolve(skip('checked from M4')),
-  'bedrock.get-caller-identity': () => Promise.resolve(skip('checked from M4')),
+  'aws.get-caller-identity': (ctx) => {
+    const region = str(ctx.component.settings['region']);
+    if (!region) return Promise.resolve(fail('no region configured'));
+    const id = ctx.secrets['accessKeyId'];
+    const key = ctx.secrets['secretAccessKey'];
+    return awsIdentity(
+      ctx,
+      region,
+      id && key ? { accessKeyId: id, secretAccessKey: key } : undefined,
+    );
+  },
+
+  'bedrock.get-caller-identity': (ctx) => {
+    const region = str(ctx.component.settings['region']);
+    return region
+      ? awsIdentity(ctx, region, undefined)
+      : Promise.resolve(fail('no region configured'));
+  },
 };
+
+/**
+ * STS GetCallerIdentity needs no IAM permission, so it only proves the credentials work.
+ * Without explicit keys the SDK's default chain is used (environment, IRSA, profile).
+ */
+async function awsIdentity(
+  ctx: ProbeContext,
+  region: string,
+  credentials: { accessKeyId: string; secretAccessKey: string } | undefined,
+): Promise<ProbeResult> {
+  const client = new STSClient({
+    region,
+    maxAttempts: 1,
+    ...(credentials ? { credentials } : {}),
+    ...(ctx.endpoints?.sts ? { endpoint: ctx.endpoints.sts } : {}),
+  });
+  try {
+    const out = await client.send(new GetCallerIdentityCommand({}), {
+      abortSignal: AbortSignal.timeout(ctx.timeoutMs),
+    });
+    return pass(`credentials work (account ${out.Account ?? 'unknown'})`);
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'CredentialsProviderError') {
+      return fail(
+        'no AWS credentials found',
+        'Set the AWS keys with `kodra-agent init`, or give the agent an IAM role (IRSA).',
+      );
+    }
+    return fail(
+      name === 'TimeoutError'
+        ? `no answer within ${String(ctx.timeoutMs / 1000)}s`
+        : `AWS says ${name || 'error'}`,
+      'Check the credentials and region.',
+    );
+  } finally {
+    client.destroy();
+  }
+}
 
 async function slackCall(
   ctx: ProbeContext,

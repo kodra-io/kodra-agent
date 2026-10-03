@@ -386,7 +386,7 @@
               ],
               "additionalProperties": false,
               "title": "Kubernetes",
-              "description": "Inspect workloads in EKS, AKS, GKE, or on-prem clusters. With write access, restart or scale deployments."
+              "description": "Inspect workloads in EKS, AKS, GKE, or on-prem clusters. With write access, scale deployments."
             },
             "github-actions": {
               "type": "object",

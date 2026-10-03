@@ -1,4 +1,4 @@
-import { manifestSchema, modelSchema, type Manifest } from '@kodra-agent/schema';
+import { manifestSchema, modelSchema, PLATFORMS, type Manifest } from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
 import { connectors, getConnector, getModelProvider, modelProviders } from './index.ts';
 
@@ -81,10 +81,64 @@ describe('connector registry', () => {
     }
   });
 
-  it('blocks every tool until an MCP server is chosen (M4)', () => {
+  it('has no tools without a server, and classifies tools when it has one', () => {
     for (const manifest of all) {
-      expect(manifest.runtime, manifest.id).toBeNull();
-      expect(manifest.tools, manifest.id).toEqual({});
+      if (manifest.runtime === null) expect(manifest.tools, manifest.id).toEqual({});
+      else expect(Object.keys(manifest.tools).length, manifest.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('only guards tools it classifies, with settings it has', () => {
+    for (const manifest of all) {
+      const settings = manifest.configFields.map((f) => f.key);
+      for (const [tool, guards] of Object.entries(manifest.guards ?? {})) {
+        expect(manifest.tools[tool], `${manifest.id}.${tool}`).toBeDefined();
+        for (const guard of guards)
+          expect(settings, `${manifest.id}.${tool}`).toContain(guard.setting);
+      }
+    }
+  });
+
+  it('starts servers only with secrets and settings the manifest declares', () => {
+    for (const manifest of all) {
+      const runtime = manifest.runtime;
+      if (runtime?.type !== 'mcp-stdio') continue;
+      const secrets = manifest.secrets.map((s) => s.key);
+      const settings = manifest.configFields.map((f) => f.key);
+      const sources = [
+        ...Object.values(runtime.env),
+        ...runtime.args.filter((a) => typeof a !== 'string'),
+        ...(runtime.secretArgs ?? []).flatMap((s) => s.args.filter((a) => typeof a !== 'string')),
+      ];
+      for (const s of runtime.secretArgs ?? []) expect(secrets, manifest.id).toContain(s.secret);
+      for (const source of sources) {
+        if ('secret' in source) expect(secrets, manifest.id).toContain(source.secret);
+        if ('secretFile' in source) expect(secrets, manifest.id).toContain(source.secretFile);
+        if ('setting' in source) expect(settings, manifest.id).toContain(source.setting);
+      }
+    }
+  });
+
+  it('never puts a secret value on a command line', () => {
+    for (const manifest of all) {
+      const runtime = manifest.runtime;
+      if (runtime?.type !== 'mcp-stdio') continue;
+      const argSources = [
+        ...runtime.args,
+        ...(runtime.secretArgs ?? []).flatMap((s) => s.args),
+      ].filter((a) => typeof a !== 'string');
+      expect(
+        argSources.some((a) => 'secret' in a),
+        manifest.id,
+      ).toBe(false);
+    }
+  });
+
+  it('pins binary servers for every supported platform', () => {
+    for (const manifest of all) {
+      const runtime = manifest.runtime;
+      if (runtime?.type !== 'mcp-stdio' || runtime.source.kind !== 'github-release') continue;
+      expect(Object.keys(runtime.source.assets).sort(), manifest.id).toEqual([...PLATFORMS].sort());
     }
   });
 
