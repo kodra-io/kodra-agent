@@ -55,6 +55,8 @@ pnpm --filter @kodra-agent/agent cli init --config ../../examples/kubernetes.yam
 pnpm mcp:fetch                                # download pinned MCP server binaries (SHA-256 verified) to .cache/mcp
 pnpm test:kind                                # kind cluster + crashloop, real Kubernetes MCP server (needs Docker, kind, kubectl)
 pnpm test:kind --demo                         # same cluster, interactive chat with a real model (ANTHROPIC_API_KEY, KODRA_DEMO_MODEL)
+pnpm demo:slack                               # same cluster + a local Alertmanager, kodra-agent run against your Slack test channel
+pnpm --filter @kodra-agent/agent cli run --config <file>   # the service: Slack, alert monitoring, /healthz and /readyz
 ```
 
 - pnpm enforces a minimum release age: a just-published version fails install. Pin the
@@ -68,6 +70,7 @@ pnpm test:kind --demo                         # same cluster, interactive chat w
 - On Windows, `/var/lib/...` audit paths resolve to the current drive (for example `E:\var\lib`); doctor runs locally write there.
 - MCP servers: each connector manifest pins its server (binary SHA-256 or PyPI version), lists every tool with a risk, and declares args/env. The host starts each server in an empty private temp folder (some servers load `.env` from cwd) with a minimal env plus only that connector's secrets; secrets go in env or 0600 files, never argv. Classify tools from `listTools` on the real binary (`scripts/list-tools.ts`) and document the decision in `docs/connectors/<id>.md`.
 - Manifest features beyond M4a: `runtime` can list several servers (named; tool names must not overlap); `{ secret|setting, from }` and guard `from` share another connector's values only if it is in `requires`; `hiddenTools` drops tools a server offers when it has no usable filter; guards `repo-in-setting` and `not-default-branch` (needs `defaultBranchLookup`). Server-side filters are best-effort (GitLab's deny regex silently fails open over 200 chars); the host's classification is the real gate. `KODRA_REAL_SERVERS=1` runs `src/real-servers.e2e.test.ts`, which fails if a pinned server offers an unclassified tool.
+- Slack (M5): Bolt sits behind `src/slack/api.ts`; logic is tested with `fakeSlack()`. Approvals check Slack user ids (`@name` resolved once via `users:read`). Investigations run with `readOnly: true`. `chat` and `run` share `startRuntime()`.
 - AI SDK v7: `generateText({ instructions, messages, tools, stopWhen: stepCountIs(n) })`, `dynamicTool` + `jsonSchema`, accumulated messages are `result.responseMessages`; tests use `MockLanguageModelV4` from `ai/test`.
 - CI pins actions by commit SHA and runs the gitleaks binary (the gitleaks Action needs a
   license key for org repos).

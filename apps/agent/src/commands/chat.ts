@@ -1,17 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { ModelMessage } from 'ai';
-import { runTurn, type AgentDeps } from '../agent.ts';
+import { runTurn } from '../agent.ts';
 import { cliApprovalChannel, type ApprovalChannel } from '../approvals.ts';
-import { AuditLog } from '../audit.ts';
-import { components, loadConfig, secretLabel } from '../config.ts';
 import type { Context } from '../context.ts';
-import { parseEnvFile } from '../env-file.ts';
-import { createModel } from '../llm.ts';
-import { ConnectorHost, type ConnectorInput } from '../mcp/host.ts';
-import { lookupDefaultBranches } from '../default-branches.ts';
-import { resolveAll } from '../secrets.ts';
+import { describeConnectors, startRuntime } from '../runtime.ts';
 
 export interface ChatOptions {
   configPath: string;
@@ -25,121 +17,19 @@ const refuseAll: ApprovalChannel = {
 };
 
 export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
-  const loaded = await loadConfig(opts.configPath);
-  if (!loaded.ok) {
-    for (const e of loaded.errors) ctx.term.err(e);
-    return 1;
-  }
-  const { config, dir } = loaded;
   if (opts.message === undefined && !ctx.prompter) {
     ctx.term.err('No terminal to chat on. Use --message "<question>" to ask one thing.');
     return 1;
   }
+  const runtime = await startRuntime(opts.configPath, ctx);
+  if (!runtime) return 1;
 
-  // Like doctor: inside the container compose already loads .env; outside it, read it too.
-  const dotenvText = await readFile(join(dir, '.env'), 'utf8').catch(() => '');
-  const env = { ...Object.fromEntries(parseEnvFile(dotenvText)), ...ctx.env };
-
-  const comps = components(config);
-  const inputs: ConnectorInput[] = [];
-  let modelSecrets: Record<string, string> = {};
-  const missing: string[] = [];
-  for (const comp of comps) {
-    const resolved = await resolveAll(comp.secrets, { env, redactor: ctx.redactor });
-    for (const gap of resolved.missing) {
-      if (gap.use.spec.required) missing.push(`${secretLabel(gap.use)}: ${gap.reason}`);
-    }
-    if (comp.manifest.category === 'model') {
-      modelSecrets = resolved.values;
-      continue;
-    }
-    const entry = config.spec.connectors[comp.id];
-    const access = comp.manifest.accessLevels.length > 0 ? entry?.access : undefined;
-    inputs.push({ component: comp, access, secrets: resolved.values });
-  }
-  if (missing.length > 0) {
-    for (const m of missing) ctx.term.err(`Missing ${m}`);
-    ctx.term.err('Run `kodra-agent init`, then `kodra-agent doctor`.');
-    return 1;
-  }
-
-  // A connector may use another's token and settings only if it requires that connector
-  // (GitHub Actions uses GitHub's). Default branches are looked up once, read-only.
-  const byId = new Map(inputs.map((i) => [i.component.id, i]));
-  for (const input of inputs) {
-    const required = input.component.manifest.requires.flatMap((r) =>
-      r.anyOf.flatMap((alt) => ('connector' in alt ? [alt.connector] : [])),
+  try {
+    const deps = runtime.deps(
+      ctx.prompter ? cliApprovalChannel(ctx.prompter, ctx.term) : refuseAll,
     );
-    const sharedSecrets: Record<string, Readonly<Record<string, string>>> = {};
-    const sharedSettings: Record<string, Readonly<Record<string, unknown>>> = {};
-    for (const id of required) {
-      const other = byId.get(id);
-      if (!other) continue;
-      sharedSecrets[id] = other.secrets;
-      sharedSettings[id] = other.component.settings;
-    }
-    if (required.length > 0) Object.assign(input, { sharedSecrets, sharedSettings });
-    if (input.component.manifest.defaultBranchLookup) {
-      const branches = await lookupDefaultBranches(input.component, input.secrets['token'], {
-        fetch: ctx.fetch,
-        timeoutMs: ctx.probeTimeoutMs,
-        githubApi: ctx.endpoints?.github,
-      });
-      for (const [repo, branch] of branches) {
-        if (branch === null) {
-          ctx.term.err(
-            `Could not look up the default branch of ${repo}; changes to it are blocked.`,
-          );
-        }
-      }
-      input.defaultBranches = branches;
-    }
-  }
-
-  const audit = new AuditLog(config.spec.audit.path, ctx.redactor);
-  let host: ConnectorHost;
-  try {
-    host = await ConnectorHost.start(inputs, {
-      redactor: ctx.redactor,
-      log: ctx.log,
-      audit,
-      env,
-      ...(ctx.launcher ? { launcher: ctx.launcher } : {}),
-    });
-  } catch (error) {
-    ctx.term.err(error instanceof Error ? error.message : 'Could not start the connectors.');
-    ctx.term.err('If a server binary is missing, run: pnpm mcp:fetch');
-    return 1;
-  }
-
-  try {
-    const model = (ctx.modelFactory ?? createModel)(config.spec.model, modelSecrets);
-    const deps: AgentDeps = {
-      model,
-      modelLabel: `${config.spec.model.provider}/${config.spec.model.name}`,
-      host,
-      approvals: ctx.prompter ? cliApprovalChannel(ctx.prompter, ctx.term) : refuseAll,
-      audit,
-      redactor: ctx.redactor,
-      term: ctx.term,
-      policy: {
-        destructiveActions: config.spec.policy.destructiveActions,
-        expiresAfterMinutes: config.spec.policy.approvals.expiresAfterMinutes,
-      },
-      ...(ctx.limits ? { limits: ctx.limits } : {}),
-      actor: 'agent',
-    };
-
-    const counts = new Map<string, number>();
-    for (const tool of host.tools())
-      counts.set(tool.connector, (counts.get(tool.connector) ?? 0) + 1);
     ctx.term.out(`Kodra AI Agent, model ${deps.modelLabel}.`);
-    for (const input of inputs) {
-      const n = counts.get(input.component.id) ?? 0;
-      ctx.term.out(
-        `  ${input.component.displayName}: ${input.access ?? 'on'}, ${String(n)} tool${n === 1 ? '' : 's'}`,
-      );
-    }
+    for (const line of describeConnectors(runtime)) ctx.term.out(`  ${line}`);
 
     let history: ModelMessage[] = [];
     const turn = async (text: string) => {
@@ -173,6 +63,6 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
     }
     return 0;
   } finally {
-    await host.close();
+    await runtime.close();
   }
 }
