@@ -1,4 +1,4 @@
-import { getModelProvider } from '@kodra-agent/connectors';
+import { getConnector, getModelProvider } from '@kodra-agent/connectors';
 import type { AccessLevel, LocalizedText, Manifest, SecretSpec } from '@kodra-agent/schema';
 import { configYaml, includedSecrets, secretRefFor } from './config.ts';
 import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
@@ -251,6 +251,41 @@ function summaryLines(manifest: Manifest, access: AccessLevel | undefined): Loca
   return [...(s.always ?? []), ...((access && s[access]) ?? [])];
 }
 
+/**
+ * A Slack app manifest: Socket Mode, buttons, mentions and DMs, and exactly the bot scopes
+ * the Slack connector manifest lists, so the two cannot drift apart.
+ */
+export function slackAppManifest(draft: AgentDraft): string | null {
+  if (draft.connectors['slack']?.enabled !== true) return null;
+  const bot = getConnector('slack')?.secrets.find((s) => s.key === 'botToken');
+  const scopes = bot?.minimumScopes.always ?? [];
+  const name = `Kodra AI Agent (${agentName(draft)})`.slice(0, 35);
+  return `# Create the app at https://api.slack.com/apps > Create New App > From an app manifest.
+display_information:
+  name: ${q(name)}
+  description: "Self-hosted DevOps agent. Asks an approver before any change."
+features:
+  bot_user:
+    display_name: ${q(agentName(draft).slice(0, 80))}
+    always_online: true
+  app_home:
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+oauth_config:
+  scopes:
+    bot:
+${scopes.map((s) => `      - ${q(s)}`).join('\n')}
+settings:
+  socket_mode_enabled: true
+  interactivity:
+    is_enabled: true
+  event_subscriptions:
+    bot_events:
+      - "app_mention"
+      - "message.im"
+`;
+}
+
 function readme(draft: AgentDraft): string {
   const name = agentName(draft);
   const provider = getModelProvider(draft.model.provider);
@@ -279,9 +314,19 @@ function readme(draft: AgentDraft): string {
           '`kubectl create secret` command to fill it in yourself.',
         ].join('\n'),
     '',
-    '## What this agent can do',
-    '',
   );
+  if (draft.connectors['slack']?.enabled === true) {
+    lines.push(
+      '### Slack app',
+      '',
+      'Before `init`: at api.slack.com/apps, choose **Create New App > From an app manifest**, paste',
+      '`slack-app-manifest.yaml`, and install the app. Then, under **Basic Information > App-Level',
+      'Tokens**, create a token with `connections:write`. `init` asks for both tokens. Invite the app',
+      'to your channel with `/invite @<app name>`.',
+      '',
+    );
+  }
+  lines.push('## What this agent can do', '');
   if (provider) {
     lines.push(`**Model: ${provider.displayName}**`, '');
     for (const t of summaryLines(provider, undefined)) lines.push(`- ${t.en}`);
@@ -359,6 +404,8 @@ export function generateBundle(draft: AgentDraft): Bundle {
     const rbac = rbacYaml(draft);
     if (rbac) files.push({ path: 'rbac.yaml', content: rbac });
   }
+  const slackManifest = slackAppManifest(draft);
+  if (slackManifest) files.push({ path: 'slack-app-manifest.yaml', content: slackManifest });
   files.push({ path: 'README.md', content: readme(draft) });
   return { root: `kodra-agent-${agentName(draft)}`, files };
 }

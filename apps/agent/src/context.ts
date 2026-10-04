@@ -5,6 +5,7 @@ import type { Logger, Prompter, Terminal } from './io.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
 import type { HostOptions } from './mcp/host.ts';
 import type { ProbeContext } from './probes.ts';
+import type { SlackConnection } from './slack/api.ts';
 import type { Redactor } from './redactor.ts';
 
 /** Everything a command touches outside its own logic, injectable for tests. */
@@ -25,6 +26,14 @@ export interface Context {
   /** Starts MCP servers; tests run fake ones. */
   launcher?: HostOptions['launcher'];
   limits?: Limits;
+  /** Connects to Slack; tests pass a fake. */
+  slackConnection?: (botToken: string, appToken: string) => SlackConnection;
+  /** Stops `run`; without it, SIGTERM and SIGINT do. */
+  stopSignal?: AbortSignal;
+  /** Port for /healthz and /readyz (0 picks a free port). */
+  healthPort?: number;
+  /** Called once `run` is ready, with the health server's port (tests). */
+  onReady?: (info: { healthPort: number }) => void;
 }
 
 export const AGENT_NAMESPACE = 'kodra-agent';

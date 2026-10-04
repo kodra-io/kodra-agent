@@ -139,7 +139,7 @@ Rules:
   | `bedrock` | `region`. Credentials come from the standard AWS sources (env, IRSA, profile) |
   | `ollama` | `baseUrl` |
 - `policy.approvals.required` can only be `true` in `v1alpha1`. `destructiveActions` is `deny` (default) or `require-approval`. Approvers are Slack handles (`@omar`) or Slack user ids (`U0123ABCD`).
-- `policy`, `audit`, and `telemetry` have defaults. Each connector's `config` and `secrets` are validated against its manifest.
+- `policy`, `audit`, `telemetry`, and `monitoring` (`maxConcurrent` 2, `maxPerHour` 10, `cooldownMinutes` 60) have defaults. Each connector's `config` and `secrets` are validated against its manifest.
 - The JSON Schema for editors is committed at `schema/kodra-agent.schema.json` (regenerate with `pnpm schema:export`). Examples live in `examples/`.
 
 ---

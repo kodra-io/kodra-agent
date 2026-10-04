@@ -20,7 +20,8 @@
     "schema:export": "pnpm --filter @kodra-agent/connectors schema:export",
     "test:e2e": "pnpm --filter @kodra-agent/configurator test:e2e",
     "mcp:fetch": "pnpm --filter @kodra-agent/agent mcp:fetch",
-    "test:kind": "pnpm --filter @kodra-agent/agent test:kind"
+    "test:kind": "pnpm --filter @kodra-agent/agent test:kind",
+    "demo:slack": "pnpm --filter @kodra-agent/agent demo:slack"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

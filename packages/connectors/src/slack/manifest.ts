@@ -34,11 +34,19 @@ export default defineManifest({
       required: true,
       description: t('Slack bot token. Starts with xoxb-.', 'رمز بوت Slack. يبدأ بـ xoxb-.'),
       howToCreate: t(
-        'Create a Slack app, turn on Socket Mode, add the bot scopes below, and install the app to your workspace. Copy the Bot User OAuth Token.',
-        'أنشئ تطبيق Slack، وفعّل Socket Mode، وأضف صلاحيات البوت أدناه، ثم ثبّت التطبيق في مساحة العمل. انسخ Bot User OAuth Token.',
+        'Create a Slack app from slack-app-manifest.yaml in the bundle (it turns on Socket Mode and sets the scopes below), then install it to your workspace. Copy the Bot User OAuth Token.',
+        'أنشئ تطبيق Slack من الملف slack-app-manifest.yaml في الحزمة (يفعّل Socket Mode ويضبط الصلاحيات أدناه)، ثم ثبّته في مساحة العمل. انسخ Bot User OAuth Token.',
       ),
       minimumScopes: {
-        always: ['app_mentions:read', 'chat:write', 'im:history', 'im:read', 'im:write'],
+        // users:read resolves @name approvers to user ids at startup.
+        always: [
+          'app_mentions:read',
+          'chat:write',
+          'im:history',
+          'im:read',
+          'im:write',
+          'users:read',
+        ],
       },
       probe: 'slack.auth-test',
     },

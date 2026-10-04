@@ -146,3 +146,56 @@ ${opts.connectors ?? '    {}'}
     path: ${opts.auditPath}
 `;
 }
+
+/** A Slack connection that records messages instead of talking to Slack. */
+export function fakeSlack(users: { id: string; name: string; displayName: string }[] = []) {
+  const posted: {
+    channel: string;
+    threadTs?: string | undefined;
+    text: string;
+    blocks?: unknown[] | undefined;
+    ts: string;
+  }[] = [];
+  const updated: { channel: string; ts: string; text: string; blocks?: unknown[] | undefined }[] =
+    [];
+  let handlers: import('./slack/api.ts').SlackHandlers | null = null;
+  let stopped = false;
+  let n = 0;
+  const api: import('./slack/api.ts').SlackApi = {
+    postMessage: (args) => {
+      const ts = `1700000000.${String(++n).padStart(6, '0')}`;
+      // Like Slack: a channel name resolves to the channel id.
+      const channel = args.channel.startsWith('#') ? 'C0CHANNEL' : args.channel;
+      posted.push({ ...args, channel, ts });
+      return Promise.resolve({ channel, ts });
+    },
+    updateMessage: (args) => {
+      updated.push(args);
+      return Promise.resolve();
+    },
+    listUsers: () => Promise.resolve(users),
+  };
+  return {
+    api,
+    posted,
+    updated,
+    get handlers() {
+      if (!handlers) throw new Error('slack not started');
+      return handlers;
+    },
+    get stopped() {
+      return stopped;
+    },
+    connection: (): import('./slack/api.ts').SlackConnection => ({
+      api,
+      start: (h) => {
+        handlers = h;
+        return Promise.resolve();
+      },
+      stop: () => {
+        stopped = true;
+        return Promise.resolve();
+      },
+    }),
+  };
+}
