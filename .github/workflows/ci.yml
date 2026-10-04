@@ -97,6 +97,34 @@ jobs:
         env:
           KODRA_REAL_SERVERS: '1'
 
+  ship:
+    name: Ship flow on the sample repos (Docker and Helm)
+    runs-on: ubuntu-latest
+    env:
+      HELM_VERSION: v4.3.0
+      HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Helm (checksum-verified)
+        run: |
+          archive="helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL -o "$archive" "https://get.helm.sh/${archive}"
+          echo "${HELM_SHA256}  ${archive}" | sha256sum --check
+          tar -xzf "$archive" linux-amd64/helm
+          sudo mv linux-amd64/helm /usr/local/bin/helm
+      # Builds and smoke-tests each sample with the real Docker, lints its chart with the
+      # real Helm, and opens the PR through the fake MCP server against a local git remote.
+      - name: Ship the four sample repos
+        run: pnpm --filter @kodra-agent/agent exec vitest run src/commands/ship.test.ts
+        env:
+          KODRA_SHIP_E2E: '1'
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

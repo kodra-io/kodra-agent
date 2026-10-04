@@ -26,6 +26,7 @@
     "@inquirer/password": "5.2.2",
     "@kodra-agent/connectors": "workspace:*",
     "@kodra-agent/schema": "workspace:*",
+    "@kodra-agent/templates": "workspace:*",
     "@kubernetes/client-node": "2.0.0",
     "@modelcontextprotocol/sdk": "1.31.0",
     "@slack/bolt": "5.1.0",
