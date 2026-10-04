@@ -3,7 +3,7 @@ import type { AccessLevel, LocalizedText, Manifest, SecretSpec } from '@kodra-ag
 import { configYaml, includedSecrets, secretRefFor } from './config.ts';
 import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
-/** Pinned until M7 publishes the image and chart; both must match these names. */
+/** The published image and chart. A test checks these against the chart and the agent version. */
 export const AGENT_IMAGE = 'ghcr.io/kodra-io/kodra-agent';
 export const AGENT_VERSION = '0.1.0';
 export const AGENT_CHART = 'oci://ghcr.io/kodra-io/charts/kodra-agent';
@@ -70,7 +70,8 @@ export function quickstartCommands(draft: AgentDraft): string[] {
     `kubectl create namespace ${AGENT_NAMESPACE}`,
     ...(hasRbac ? ['kubectl apply -f rbac.yaml'] : []),
     // Runs init from the image, so nobody needs the CLI installed locally.
-    `docker run --rm -it -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ${AGENT_IMAGE}:${AGENT_VERSION} init --target kubernetes --namespace ${AGENT_NAMESPACE}`,
+    // Runs as you, so it can read your kubeconfig (usually readable by its owner only).
+    `docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ${AGENT_IMAGE}:${AGENT_VERSION} init --target kubernetes --namespace ${AGENT_NAMESPACE}`,
     `helm install ${name} ${AGENT_CHART} --version ${AGENT_VERSION} --namespace ${AGENT_NAMESPACE} -f values.yaml --set-file config=kodra-agent.yaml`,
   ];
 }
@@ -142,6 +143,9 @@ services:
   kodra-agent:
     image: ${AGENT_IMAGE}:${AGENT_VERSION}
     command: ["run"]
+    # On Linux, the README has you set KODRA_AGENT_USER in .env to your own user, so the
+    # agent can write .env and read secrets/ in this folder.
+    user: "\${KODRA_AGENT_USER:-10001:10001}"
     working_dir: /etc/kodra-agent
     environment:
       KODRA_AGENT_CONFIG: ${CONFIG_PATH}
@@ -151,6 +155,7 @@ services:
     volumes:
 ${volumes.join('\n')}
     read_only: true
+    tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
@@ -298,6 +303,18 @@ function readme(draft: AgentDraft): string {
     '',
     '## Quickstart',
     '',
+    ...(draft.target === 'compose'
+      ? [
+          'On Linux, run this first, so the agent runs as you and can write `.env` in this folder:',
+          '',
+          '```sh',
+          'echo "KODRA_AGENT_USER=$(id -u):$(id -g)" >> .env',
+          '```',
+          '',
+          'Then, in this folder:',
+          '',
+        ]
+      : []),
   ];
   quickstartCommands(draft).forEach((cmd, i) => {
     lines.push(`${i + 1}. \`${cmd}\``);

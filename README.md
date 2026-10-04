@@ -27,8 +27,10 @@ apps/agent            runtime and CLI: init, doctor, run, chat, ship
 packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests, registry, dependency rules
 packages/templates    bundle templates and ship-flow templates
+charts/kodra-agent    Helm chart for the agent
+docker                agent image (Dockerfile, MCP server lockfiles)
 schema                JSON Schema for kodra-agent.yaml, for editor validation
-examples              example kodra-agent.yaml files
+examples              example kodra-agent.yaml files, and sample apps for the ship flow
 ```
 
 ## Development
@@ -46,6 +48,9 @@ pnpm test:e2e       # browser tests (Playwright, Chromium)
 pnpm build
 pnpm --filter @kodra-agent/agent cli --help
 ```
+
+The agent image, the Helm chart, and releases are described in
+[docs/packaging.md](docs/packaging.md); the ship flow in [docs/ship.md](docs/ship.md).
 
 ## License
 

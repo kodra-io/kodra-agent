@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { McpStdioRuntime, Platform } from '@kodra-agent/schema';
+import { npmFolder } from './preinstall.ts';
 
 const run = promisify(execFile);
 
@@ -37,6 +38,22 @@ export function binaryPath(runtime: McpStdioRuntime, cacheDir: string): string |
   const asset = target ? source.assets[target] : undefined;
   if (!asset) return null;
   return join(releaseDir(cacheDir, source.repo, source.version), asset.binary);
+}
+
+/**
+ * Where the agent image preinstalls a PyPI or npm server (from the lockfiles in docker/mcp),
+ * so it starts without downloading anything. Null for release binaries.
+ */
+export function preinstalledPath(runtime: McpStdioRuntime, cacheDir: string): string | null {
+  const source = runtime.source;
+  if (source.kind === 'pypi') {
+    return join(cacheDir, 'pypi', source.package, source.version, 'bin', source.command);
+  }
+  if (source.kind === 'npm') {
+    const bin = join('node_modules', '.bin', source.command);
+    return join(cacheDir, 'npm', npmFolder(source.package), source.version, bin);
+  }
+  return null;
 }
 
 /** One folder per release, so connectors sharing a server (GitHub, GitHub Actions) share it. */

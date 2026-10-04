@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,7 +20,7 @@ import type { Component } from '../config.ts';
 import type { Logger } from '../io.ts';
 import type { Risk } from '../policy.ts';
 import type { Redactor } from '../redactor.ts';
-import { binaryPath, mcpCacheDir } from './fetch.ts';
+import { binaryPath, mcpCacheDir, preinstalledPath } from './fetch.ts';
 
 /** A tool the model may see: classified in its manifest and offered by its server. */
 export interface HostedTool {
@@ -101,10 +102,15 @@ function requires(manifest: Manifest, connector: string): boolean {
   );
 }
 
-/** The default launcher: a pinned, checksum-verified binary, or uvx at a pinned version. */
+/**
+ * The default launcher: a pinned, checksum-verified binary; a server preinstalled in the
+ * agent image from a lockfile; or else uvx or npx at the pinned version.
+ */
 export function defaultLauncher(env: Readonly<Record<string, string | undefined>>) {
   return (manifest: Manifest, runtime: McpStdioRuntime): Launch => {
     const source = runtime.source;
+    const preinstalled = preinstalledPath(runtime, mcpCacheDir(env));
+    if (preinstalled && existsSync(preinstalled)) return { command: preinstalled, args: [] };
     if (source.kind === 'pypi') {
       return {
         command: 'uvx',
