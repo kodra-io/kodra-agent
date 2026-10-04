@@ -232,6 +232,9 @@ importers:
       '@kodra-agent/schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      '@kodra-agent/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
       '@kubernetes/client-node':
         specifier: 2.0.0
         version: 2.0.0

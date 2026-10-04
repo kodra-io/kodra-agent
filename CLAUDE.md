@@ -71,6 +71,7 @@ pnpm --filter @kodra-agent/agent cli run --config <file>   # the service: Slack,
 - MCP servers: each connector manifest pins its server (binary SHA-256 or PyPI version), lists every tool with a risk, and declares args/env. The host starts each server in an empty private temp folder (some servers load `.env` from cwd) with a minimal env plus only that connector's secrets; secrets go in env or 0600 files, never argv. Classify tools from `listTools` on the real binary (`scripts/list-tools.ts`) and document the decision in `docs/connectors/<id>.md`.
 - Manifest features beyond M4a: `runtime` can list several servers (named; tool names must not overlap); `{ secret|setting, from }` and guard `from` share another connector's values only if it is in `requires`; `hiddenTools` drops tools a server offers when it has no usable filter; guards `repo-in-setting` and `not-default-branch` (needs `defaultBranchLookup`). Server-side filters are best-effort (GitLab's deny regex silently fails open over 200 chars); the host's classification is the real gate. `KODRA_REAL_SERVERS=1` runs `src/real-servers.e2e.test.ts`, which fails if a pinned server offers an unclassified tool.
 - Slack (M5): Bolt sits behind `src/slack/api.ts`; logic is tested with `fakeSlack()`. Approvals check Slack user ids (`@name` resolved once via `users:read`). Investigations run with `readOnly: true`. `chat` and `run` share `startRuntime()`.
+- Ship (M6): `src/commands/ship.ts` runs git, docker, and helm through `Context.exec` (no shell; tests fake docker and helm, use real git against a local bare remote, and open the PR via the fake MCP server's `--record` tools). Git gets the token only as an `http.extraHeader` env var with the user's git config off. Push and PR are checked by `decide()` with the connector's `create_branch` and PR tool guards, then one approval covers both. Base images are pinned in `packages/templates/src/ship/images.ts`. `KODRA_SHIP_E2E=1` runs the real Docker and Helm test on `examples/ship`.
 - AI SDK v7: `generateText({ instructions, messages, tools, stopWhen: stepCountIs(n) })`, `dynamicTool` + `jsonSchema`, accumulated messages are `result.responseMessages`; tests use `MockLanguageModelV4` from `ai/test`.
 - CI pins actions by commit SHA and runs the gitleaks binary (the gitleaks Action needs a
   license key for org repos).
@@ -83,8 +84,8 @@ apps/agent            runtime and CLI: init, doctor, run, chat, ship
 packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests (src/<id>/manifest.ts, models.ts, coming-soon.ts), registry, parseAgentConfig
 schema                generated JSON Schema for kodra-agent.yaml (committed)
-examples              example kodra-agent.yaml files (validated by tests)
-packages/templates    configurator draft, validation, and bundle generation (later: ship-flow templates)
+examples              example kodra-agent.yaml files (validated by tests); examples/ship has one sample app per ship stack
+packages/templates    configurator draft, validation, bundle generation, and ship-flow templates (src/ship)
 charts/kodra-agent    Helm chart
 docker                agent Dockerfile
 docs                  connector docs, security model

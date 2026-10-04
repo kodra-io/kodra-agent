@@ -11,7 +11,7 @@ import { newApprovalRequest, type ApprovalChannel } from './approvals.ts';
 import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
-import { decide, type Decision } from './policy.ts';
+import { decide, type Decision, type PolicyInput } from './policy.ts';
 import type { Redactor } from './redactor.ts';
 
 /** Guardrails for every task (golden rules 4, 5, and 6). */
@@ -91,6 +91,24 @@ function schemaFor(tool: HostedTool): Record<string, unknown> {
   };
 }
 
+/** The policy engine's view of one call to a hosted tool. */
+export function policyInputFor(
+  hosted: HostedTool,
+  args: Readonly<Record<string, unknown>>,
+  destructiveActions: 'deny' | 'require-approval',
+): PolicyInput {
+  return {
+    risk: hosted.risk,
+    access: hosted.access,
+    destructiveActions,
+    guards: hosted.guards,
+    args,
+    settings: hosted.settings,
+    ...(hosted.defaultBranches ? { defaultBranches: hosted.defaultBranches } : {}),
+    ...(hosted.sharedSettings ? { sharedSettings: hosted.sharedSettings } : {}),
+  };
+}
+
 function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
   const actor = deps.actor ?? 'agent';
   const tools: Record<string, Tool> = {};
@@ -117,16 +135,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
                 kind: 'block',
                 reason: 'investigations are read-only; ask in Slack to make a change',
               }
-            : decide({
-                risk: hosted.risk,
-                access: hosted.access,
-                destructiveActions: deps.policy.destructiveActions,
-                guards: hosted.guards,
-                args,
-                settings: hosted.settings,
-                ...(hosted.defaultBranches ? { defaultBranches: hosted.defaultBranches } : {}),
-                ...(hosted.sharedSettings ? { sharedSettings: hosted.sharedSettings } : {}),
-              });
+            : decide(policyInputFor(hosted, args, deps.policy.destructiveActions));
 
         if (decision.kind === 'block') {
           deps.term.out(`  [blocked] ${source}: ${decision.reason}`);

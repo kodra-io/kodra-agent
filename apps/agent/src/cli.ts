@@ -5,6 +5,7 @@ import { chat } from './commands/chat.ts';
 import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
 import { run } from './commands/run.ts';
+import { ship } from './commands/ship.ts';
 import { configPath } from './config.ts';
 import type { Context } from './context.ts';
 
@@ -15,7 +16,7 @@ const COMMANDS = [
   ['doctor', 'Check the config, secrets, connector access, and audit log'],
   ['run', 'Start the service: Slack, alert monitoring, and health checks'],
   ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
-  ['ship <repo>', 'Build, containerize, package, and open a PR (not implemented yet)'],
+  ['ship <repo|dir>', 'Add a Dockerfile, CI, and Helm chart, verify them, and open a PR'],
 ] as const;
 
 export function helpText(): string {
@@ -55,6 +56,8 @@ const OPTIONS = {
   'dry-run': { type: 'boolean' },
   json: { type: 'boolean' },
   message: { type: 'string' },
+  branch: { type: 'string' },
+  'max-fixes': { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;
@@ -107,9 +110,19 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
       return chat({ configPath: config, message: values.message }, ctx);
     case 'run':
       return run({ configPath: config }, ctx);
-    case 'ship':
-      ctx.term.err(`'${command}' is not implemented yet. Run 'kodra-agent --help'.`);
-      return 1;
+    case 'ship': {
+      const target = positionals[1];
+      const maxFixes = Number(values['max-fixes'] ?? '2');
+      if (target === undefined) {
+        ctx.term.err('Usage: kodra-agent ship <owner/repo | group/project | folder>');
+        return 2;
+      }
+      if (!Number.isInteger(maxFixes) || maxFixes < 0 || maxFixes > 5) {
+        ctx.term.err('--max-fixes must be a whole number from 0 to 5.');
+        return 2;
+      }
+      return ship({ configPath: config, target, branch: values.branch, maxFixes }, ctx);
+    }
     default:
       ctx.term.err(`Unknown command '${command}'. Run 'kodra-agent --help'.`);
       return 2;

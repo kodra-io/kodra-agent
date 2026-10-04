@@ -5,6 +5,7 @@ import type { Logger, Prompter, Terminal } from './io.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
 import type { HostOptions } from './mcp/host.ts';
 import type { ProbeContext } from './probes.ts';
+import type { Exec } from './ship/exec.ts';
 import type { SlackConnection } from './slack/api.ts';
 import type { Redactor } from './redactor.ts';
 
@@ -34,6 +35,12 @@ export interface Context {
   healthPort?: number;
   /** Called once `run` is ready, with the health server's port (tests). */
   onReady?: (info: { healthPort: number }) => void;
+  /** Runs git, docker, and helm for `ship`; tests pass a fake. */
+  exec?: Exec;
+  /** Clone address for a repo (tests point it at a local bare repo). */
+  gitRemote?: (provider: 'github' | 'gitlab', repo: string) => string;
+  /** How long `ship` waits for the container to answer. */
+  shipSmokeTimeoutMs?: number;
 }
 
 export const AGENT_NAMESPACE = 'kodra-agent';

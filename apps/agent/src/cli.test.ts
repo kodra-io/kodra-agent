@@ -29,11 +29,11 @@ describe('kodra-agent CLI', () => {
     }
   });
 
-  it.each(['ship'])('says %s is not implemented yet', async (cmd) => {
-    expect(await run([cmd])).toEqual({
-      code: 1,
+  it('asks ship for a repo or folder', async () => {
+    expect(await run(['ship'])).toEqual({
+      code: 2,
       stdout: '',
-      stderr: `'${cmd}' is not implemented yet. Run 'kodra-agent --help'.`,
+      stderr: 'Usage: kodra-agent ship <owner/repo | group/project | folder>',
     });
   });
 
