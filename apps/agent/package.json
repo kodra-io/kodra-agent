@@ -1,6 +1,6 @@
 {
   "name": "@kodra-agent/agent",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Kodra AI Agent runtime and CLI",
   "license": "Apache-2.0",
@@ -13,6 +13,7 @@
     "cli": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/bin.ts",
     "mcp:fetch": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/fetch-mcp.ts",
     "test:kind": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/kind-test.ts",
+    "test:package": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/package-test.ts",
     "demo:slack": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/kind-test.ts --demo-slack"
   },
   "dependencies": {

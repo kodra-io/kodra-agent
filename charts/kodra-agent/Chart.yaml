@@ -1,0 +1,11 @@
+apiVersion: v2
+name: kodra-agent
+description: Kodra AI Agent, a self-hosted AI DevOps agent that asks for approval before any change.
+type: application
+version: 0.1.0
+appVersion: '0.1.0'
+home: https://github.com/kodra-io/kodra-agent
+sources:
+  - https://github.com/kodra-io/kodra-agent
+annotations:
+  artifacthub.io/license: Apache-2.0

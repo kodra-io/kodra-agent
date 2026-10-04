@@ -1,0 +1,8 @@
+{
+  "name": "kodra-agent-mcp-gitlab",
+  "private": true,
+  "description": "Pins the GitLab MCP server for the agent image (npm ci).",
+  "dependencies": {
+    "@zereight/mcp-gitlab": "2.1.68"
+  }
+}

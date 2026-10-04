@@ -70,6 +70,10 @@ describe('compose bundle', () => {
     expect(service['image']).toBe('ghcr.io/kodra-io/kodra-agent:0.1.0');
     expect(service['read_only']).toBe(true);
     expect(service['cap_drop']).toEqual(['ALL']);
+    // The root filesystem is read-only; MCP servers get private folders under /tmp.
+    expect(service['tmpfs']).toEqual(['/tmp']);
+    // Compose fills this from .env; the README sets it to the host user on Linux.
+    expect(service['user']).toBe('${KODRA_AGENT_USER:-10001:10001}');
     expect(service['volumes']).toContain('./secrets:/secrets:ro');
     expect(JSON.stringify(service['volumes'])).not.toContain('docker.sock');
   });
@@ -90,6 +94,7 @@ describe('compose bundle', () => {
   it('README has the quickstart, permissions, approvals, and uninstall', () => {
     const readme = file(bundle, 'README.md');
     expect(readme).toContain('1. `docker compose run --rm kodra-agent init`');
+    expect(readme).toContain('echo "KODRA_AGENT_USER=$(id -u):$(id -g)" >> .env');
     expect(readme).toContain('**GitHub (read-write-approved)**');
     expect(readme).toContain('Never pushes to the default branch and never merges.');
     expect(readme).toContain('approval from: @omar');
@@ -165,7 +170,7 @@ describe('kubernetes bundle', () => {
 
   it('quickstart runs init from the pinned image, so no local CLI is needed', () => {
     expect(quickstartCommands(kubernetesDraft())).toContain(
-      'docker run --rm -it -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.0 init --target kubernetes --namespace kodra-agent',
+      'docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.0 init --target kubernetes --namespace kodra-agent',
     );
     expect(file(generateBundle(kubernetesDraft()), 'README.md')).toContain('Add `--dry-run`');
   });

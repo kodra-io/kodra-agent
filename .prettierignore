@@ -4,3 +4,5 @@ coverage/
 SPEC.md
 CLAUDE.md
 schema/*.json
+charts/*/templates/
+docker/mcp/

@@ -1,0 +1,43 @@
+{{- if .Values.rbac.create }}
+{{- if not .Values.rbac.namespaces }}
+{{- fail "rbac.create needs at least one namespace in rbac.namespaces" }}
+{{- end }}
+{{- range .Values.rbac.namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kodra-agent.fullname" $ }}
+  namespace: {{ . }}
+  labels:
+    {{- include "kodra-agent.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  {{- if $.Values.rbac.write }}
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["patch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kodra-agent.fullname" $ }}
+  namespace: {{ . }}
+  labels:
+    {{- include "kodra-agent.labels" $ | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kodra-agent.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "kodra-agent.fullname" $ }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}

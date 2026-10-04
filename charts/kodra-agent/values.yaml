@@ -1,0 +1,74 @@
+# Kodra AI Agent. Install with the values.yaml from your bundle:
+#   helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.0 \
+#     --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml
+
+image:
+  repository: ghcr.io/kodra-io/kodra-agent
+  # Defaults to the chart's appVersion.
+  tag: ''
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# The contents of kodra-agent.yaml. Required: pass it with --set-file config=kodra-agent.yaml.
+config: ''
+
+# The Secret that `kodra-agent init --target kubernetes` creates. Its keys become environment
+# variables. Secret values never go in this file.
+existingSecret: ''
+
+# Secrets referenced as files in kodra-agent.yaml, mounted read-only from existingSecret.
+#   - key: kubeconfig
+#     mountPath: /secrets/kubeconfig
+fileSecrets: []
+
+serviceAccount:
+  create: true
+  # Defaults to the release name.
+  name: ''
+  annotations: {}
+  # The Kubernetes connector uses this token when the agent runs in the cluster.
+  automountToken: true
+
+# Namespace-scoped access for the Kubernetes connector. The bundle ships the same rules in
+# rbac.yaml for you to review and apply; turn this on to let the chart create them instead.
+rbac:
+  create: false
+  # Namespaces the agent may read (and change, with write: true).
+  namespaces: []
+  # Allows patching and scaling deployments. Every change still needs an approval in Slack.
+  write: false
+
+# The audit log (spec.audit.path in kodra-agent.yaml, /var/lib/kodra-agent by default).
+persistence:
+  enabled: false
+  existingClaim: ''
+  storageClass: ''
+  size: 1Gi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

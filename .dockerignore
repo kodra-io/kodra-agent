@@ -1,0 +1,18 @@
+# Only what the agent image needs: see docker/Dockerfile.
+**/node_modules
+**/dist
+**/coverage
+**/*.test.ts
+**/test-results
+.git
+.cache
+.github
+apps/configurator
+apps/agent/src/test-fixtures
+apps/agent/src/test-helpers.ts
+charts
+docs
+examples
+schema
+.env
+.env.*
