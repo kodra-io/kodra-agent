@@ -154,7 +154,13 @@ services:
         required: false
     volumes:
 ${volumes.join('\n')}
-    read_only: true
+${
+  socket
+    ? `    # The Docker socket's group: 0 on Docker Desktop; on Linux the README sets KODRA_DOCKER_GID.
+    group_add: ["\${KODRA_DOCKER_GID:-0}"]
+`
+    : ''
+}    read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
@@ -305,10 +311,15 @@ function readme(draft: AgentDraft): string {
     '',
     ...(draft.target === 'compose'
       ? [
-          'On Linux, run this first, so the agent runs as you and can write `.env` in this folder:',
+          dockerSocketPath(draft)
+            ? 'On Linux, run these first, so the agent runs as you, can write `.env` in this folder, and can use the Docker socket:'
+            : 'On Linux, run this first, so the agent runs as you and can write `.env` in this folder:',
           '',
           '```sh',
           'echo "KODRA_AGENT_USER=$(id -u):$(id -g)" >> .env',
+          ...(dockerSocketPath(draft)
+            ? ['echo "KODRA_DOCKER_GID=$(getent group docker | cut -d: -f3)" >> .env']
+            : []),
           '```',
           '',
           'Then, in this folder:',
@@ -387,6 +398,15 @@ function readme(draft: AgentDraft): string {
       'This bundle mounts the Docker socket because the Docker connector has build access.',
       'Access to the Docker socket is close to full control of this machine. Run this agent',
       'only on a machine meant for builds, and turn build access off if you do not need it.',
+      '',
+      '## Ship a service',
+      '',
+      'With build access, the agent can add a Dockerfile, CI, and a Helm chart to a repo, build and',
+      'test the image, and open a pull request after you approve:',
+      '',
+      '```sh',
+      'docker compose run --rm kodra-agent ship <owner/repo>',
+      '```',
     );
   }
   lines.push('', '## Uninstall', '');

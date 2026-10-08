@@ -19,8 +19,10 @@ docker build -f docker/Dockerfile -t ghcr.io/kodra-io/kodra-agent:dev .
   live in `docker/mcp`. A test fails if one is missing or pins a version other than the
   manifest's. The launcher prefers a preinstalled server, and falls back to `uvx` or `npx`
   outside the image.
-- **Tools for the ship flow:** git (Debian), the Docker CLI (`docker:29.8.2-cli`), and Helm
-  (`alpine/helm:4.3.0`), copied from pinned images.
+- **Tools for the ship flow:** git (Debian), the Docker CLI with its buildx plugin
+  (`docker:29.8.2-cli`), and Helm (`alpine/helm:4.3.0`), copied from pinned images. With the
+  Docker socket mounted, the bundle adds the socket's group: 0 on Docker Desktop, and the
+  `docker` group on Linux, which the bundle README has you set as `KODRA_DOCKER_GID` in `.env`.
 - **Runs as** `kodra` (uid 10001). Caches go to `/tmp`, so the root filesystem can be
   read-only. The health check calls `/healthz` on port 8080.
 - **Size:** about 1.7 GB unpacked. Most of it is the three Python server environments (the
@@ -60,7 +62,8 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.0 
 
 - `pnpm test:package` (CI job `package`) runs on a built image: every preinstalled server
   starts with no network and a read-only root filesystem, a generated compose bundle runs
-  `init --non-interactive` and `up` and answers `/healthz` and `/readyz`, and the chart
+  `init --non-interactive` and `up` and answers `/healthz` and `/readyz`, `ship` runs inside
+  the agent container on a sample app (build, smoke test, chart lint), and the chart
   installs on a throwaway kind cluster with the bundle's values and becomes ready.
 - `src/release.test.ts` keeps the CLI, bundle, and chart versions equal, checks that the chart
   accepts every value the bundle sets, and that the Dockerfile pins every image.

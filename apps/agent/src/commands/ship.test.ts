@@ -55,6 +55,8 @@ interface FakeTools {
   calls: { command: string; args: readonly string[]; opts: ExecOptions | undefined }[];
   /** Fails the next `docker build` calls with this log. */
   failBuilds: string[];
+  /** Where the faked app container answers. */
+  appUrl: string;
 }
 
 /** Real git; docker and helm are faked, with the container answering on a local server. */
@@ -87,6 +89,7 @@ async function fakeExec(): Promise<Exec & FakeTools> {
   }) as Exec & FakeTools;
   exec.calls = calls;
   exec.failBuilds = failBuilds;
+  exec.appUrl = app.url;
   return exec;
 }
 
@@ -99,6 +102,7 @@ function recording(real: Exec): Exec & FakeTools {
   }) as Exec & FakeTools;
   exec.calls = calls;
   exec.failBuilds = [];
+  exec.appUrl = '';
   return exec;
 }
 
@@ -125,6 +129,8 @@ async function setup(
     modelAnswers?: string[];
     /** Real docker and helm instead of fakes (end-to-end). */
     exec?: Exec;
+    /** Runs `ship` as if inside the agent container with this id. */
+    selfContainer?: string;
   } = {},
 ) {
   const dir = await tempDir();
@@ -163,6 +169,16 @@ async function setup(
     exec,
     gitRemote: () => bare,
     shipSmokeTimeoutMs: opts.exec ? 120_000 : 5000,
+    selfContainer: opts.selfContainer ?? null,
+    // In a container the app is reached by its container name; send that to the fake app.
+    fetch: (input, init) =>
+      globalThis.fetch(
+        String(input instanceof Request ? input.url : input).replace(
+          /^http:\/\/kodra-ship-[a-f0-9]{8}:\d+/,
+          exec.appUrl,
+        ),
+        init,
+      ),
   });
   const audit = async () =>
     (await readFile(auditPath, 'utf8'))
@@ -262,6 +278,28 @@ describe('kodra-agent ship', () => {
       const everything = [s.t.output(), await readFile(s.auditPath, 'utf8')].join('\n');
       expect(everything).not.toContain(TOKEN);
       expect(everything).not.toContain(Buffer.from(`x-access-token:${TOKEN}`).toString('base64'));
+    },
+  );
+
+  it(
+    'inside the agent container, tests the app over a private network it joins and leaves',
+    { timeout: 60_000 },
+    async () => {
+      const s = await setup({ selfContainer: 'agent-container' });
+      expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+      const docker = s.exec.calls.filter((c) => c.command === 'docker').map((c) => c.args);
+      const network = docker.find((a) => a[0] === 'network' && a[1] === 'create')?.[2] ?? '';
+      expect(network).toMatch(/^kodra-ship-[a-f0-9]{8}$/);
+      const run = docker.find((a) => a[0] === 'run') ?? [];
+      expect(run).toEqual(expect.arrayContaining(['--network', network, '--read-only']));
+      expect(run).not.toContain('-p');
+      expect(docker).toContainEqual(['network', 'connect', network, 'agent-container']);
+      // Cleanup, newest first: leave the network, remove the container, remove the network.
+      expect(docker.slice(-3)).toEqual([
+        ['network', 'disconnect', '--force', network, 'agent-container'],
+        ['rm', '-f', network],
+        ['network', 'rm', network],
+      ]);
     },
   );
 

@@ -41,6 +41,8 @@ export interface Context {
   gitRemote?: (provider: 'github' | 'gitlab', repo: string) => string;
   /** How long `ship` waits for the container to answer. */
   shipSmokeTimeoutMs?: number;
+  /** The agent's own container id (null on a host); detected when not set. */
+  selfContainer?: string | null;
 }
 
 export const AGENT_NAMESPACE = 'kodra-agent';

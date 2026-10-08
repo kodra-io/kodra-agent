@@ -351,7 +351,7 @@ function detectGo(files: RepoFiles, base: Base): DetectResult {
       healthPath,
       go: { pkg },
       notes: [
-        `Go, main package ${pkg}.`,
+        pkg === '.' ? 'Go, main package at the repo root.' : `Go, main package ${pkg}.`,
         declaredPort ? `Port ${String(port)}, from the source.` : 'Port 8080, a common default.',
         healthPath ? `Health checks use ${healthPath}.` : 'Health checks use a TCP check.',
       ],

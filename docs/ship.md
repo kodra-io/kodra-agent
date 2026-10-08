@@ -10,8 +10,15 @@ kodra-agent ship acme/payments-api --branch dev # start from dev and target it
 kodra-agent ship ./payments-api                 # a local folder: files are written, no PR
 ```
 
-It needs Docker and Helm where it runs, so run it on a workstation or a CI runner. It does not
-run inside the Kubernetes deployment, which never gets the Docker socket (SPEC section 9).
+It needs Docker and Helm where it runs. Three places work:
+
+- **A workstation or CI runner** with Docker and Helm installed.
+- **The agent container on Docker Compose**, when the Docker connector has build access (the
+  bundle then mounts the Docker socket): `docker compose run --rm kodra-agent ship <owner/repo>`.
+  The image has git, the Docker CLI with buildx, and Helm. The app under test runs next to the
+  agent, not inside it, so the agent joins a private network created for the test, reaches the
+  app by name, and removes the container and the network afterwards.
+- **Not the Kubernetes deployment**, which never gets the Docker socket (SPEC section 9).
 
 ## Steps
 

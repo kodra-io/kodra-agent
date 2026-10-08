@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { hostname } from 'node:os';
 import type { Exec } from './exec.ts';
 
 export type Check = { ok: true; detail: string } | { ok: false; detail: string; log: string };
@@ -33,44 +35,82 @@ export interface SmokeOptions {
   timeoutMs: number;
   pollMs?: number;
   fetch: typeof fetch;
+  /**
+   * The agent's own container, when `ship` runs inside one (with the Docker socket). Its
+   * 127.0.0.1 is not the host's, so the app container is reached on a private network instead.
+   */
+  selfContainer?: string | null;
+}
+
+/** This process's container id, if it runs in a Docker container; null on a host. */
+export function selfContainer(): string | null {
+  return existsSync('/.dockerenv') ? hostname() : null;
 }
 
 /**
  * Starts the container the way the chart runs it (read-only root filesystem, writable /tmp)
- * and waits for an HTTP answer below 500 on its port. Always removes the container.
+ * and waits for an HTTP answer below 500 on its port. Always removes what it created.
  */
 export async function smokeTest(exec: Exec, o: SmokeOptions): Promise<Check> {
-  const name = `kodra-ship-${randomUUID().slice(0, 8)}`;
+  const id = randomUUID().slice(0, 8);
+  const name = `kodra-ship-${id}`;
   const port = String(o.port);
-  const run = await exec(
-    'docker',
-    [
-      'run',
-      '-d',
-      '--name',
-      name,
-      '--read-only',
-      '--tmpfs',
-      '/tmp',
-      '-p',
-      `127.0.0.1::${port}`,
-      o.image,
-    ],
-    { timeoutMs: 60_000 },
-  );
-  if (run.code !== 0) {
-    return { ok: false, detail: 'the container did not start', log: tail(run.stderr) };
-  }
-  const path = o.healthPath ?? '/';
+  const self = o.selfContainer ?? null;
+  const network = `kodra-ship-${id}`;
+  const cleanup: string[][] = [];
+  const docker = (args: string[], timeoutMs = 30_000) => exec('docker', args, { timeoutMs });
+
   try {
-    const mapped = await exec('docker', ['port', name, `${port}/tcp`], { timeoutMs: 30_000 });
-    const address = mapped.stdout
-      .split('\n')
-      .map((l) => l.trim())
-      .find((l) => /^127\.0\.0\.1:\d+$/.test(l));
-    if (!address) {
-      return { ok: false, detail: `port ${port} is not published`, log: tail(mapped.stderr) };
+    let address: string;
+    if (self) {
+      const created = await docker(['network', 'create', network]);
+      if (created.code !== 0) {
+        return {
+          ok: false,
+          detail: 'could not create a network for the test',
+          log: tail(created.stderr),
+        };
+      }
+      cleanup.unshift(['network', 'rm', network]);
     }
+    const run = await docker(
+      [
+        'run',
+        '-d',
+        '--name',
+        name,
+        '--read-only',
+        '--tmpfs',
+        '/tmp',
+        ...(self ? ['--network', network] : ['-p', `127.0.0.1::${port}`]),
+        o.image,
+      ],
+      60_000,
+    );
+    if (run.code !== 0) {
+      return { ok: false, detail: 'the container did not start', log: tail(run.stderr) };
+    }
+    cleanup.unshift(['rm', '-f', name]);
+    if (self) {
+      const joined = await docker(['network', 'connect', network, self]);
+      if (joined.code !== 0) {
+        return { ok: false, detail: 'could not join the test network', log: tail(joined.stderr) };
+      }
+      cleanup.unshift(['network', 'disconnect', '--force', network, self]);
+      address = `${name}:${port}`;
+    } else {
+      const mapped = await docker(['port', name, `${port}/tcp`]);
+      const published = mapped.stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => /^127\.0\.0\.1:\d+$/.test(l));
+      if (!published) {
+        return { ok: false, detail: `port ${port} is not published`, log: tail(mapped.stderr) };
+      }
+      address = published;
+    }
+
+    const path = o.healthPath ?? '/';
     const deadline = Date.now() + o.timeoutMs;
     while (Date.now() < deadline) {
       try {
@@ -107,7 +147,8 @@ export async function smokeTest(exec: Exec, o: SmokeOptions): Promise<Check> {
       log: tail(`${logs.stdout}\n${logs.stderr}`),
     };
   } finally {
-    await exec('docker', ['rm', '-f', name], { timeoutMs: 60_000 });
+    // Newest first: leave the network, remove the container, then remove the network.
+    for (const args of cleanup) await docker(args, 60_000);
   }
 }
 

@@ -44,6 +44,9 @@ RUN apt-get update \
  && install -d -m 1777 /var/lib/kodra-agent \
  && install -d -o kodra -g kodra /etc/kodra-agent
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+# BuildKit builds (`docker build`) need the buildx plugin; the legacy builder is deprecated.
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-buildx \
+     /usr/local/libexec/docker/cli-plugins/docker-buildx
 COPY --from=helm /usr/bin/helm /usr/local/bin/helm
 COPY --from=mcp /opt/kodra-mcp /opt/kodra-mcp
 COPY --from=build /app /app
@@ -52,6 +55,7 @@ ENV NODE_ENV=production \
     KODRA_MCP_DIR=/opt/kodra-mcp \
     KODRA_AGENT_CONFIG=/etc/kodra-agent/kodra-agent.yaml \
     XDG_CACHE_HOME=/tmp/.cache \
+    DOCKER_CONFIG=/tmp/.docker \
     npm_config_cache=/tmp/.npm \
     npm_config_update_notifier=false
 USER 10001:10001
