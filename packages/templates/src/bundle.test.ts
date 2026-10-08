@@ -179,7 +179,15 @@ describe('kubernetes bundle', () => {
     expect(quickstartCommands(kubernetesDraft())).toContain(
       'docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.0 init --target kubernetes --namespace kodra-agent',
     );
-    expect(file(generateBundle(kubernetesDraft()), 'README.md')).toContain('Add `--dry-run`');
+    const readme = file(generateBundle(kubernetesDraft()), 'README.md');
+    expect(readme).toContain('add\n`--dry-run` to the `init` command');
+    // EKS: the same init, plus ~/.aws read-only and AWS_PROFILE for `aws eks get-token`.
+    expect(readme).toContain('### EKS clusters');
+    expect(readme).toContain(
+      'docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -e AWS_PROFILE -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$HOME/.aws:/home/kodra/.aws:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.0 init --target kubernetes --namespace kodra-agent',
+    );
+    // The default command does not mount ~/.aws.
+    expect(quickstartCommands(kubernetesDraft()).join('\n')).not.toContain('.aws');
   });
 
   it('quickstart installs the pinned chart into the agent namespace', () => {

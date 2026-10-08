@@ -93,6 +93,52 @@ async function until(what: string, check: () => boolean, ms: number): Promise<vo
   }
 }
 
+/** The image's `aws eks get-token`, for EKS kubeconfigs: signing needs no network. */
+function eksToken(): void {
+  console.log('\n== aws eks get-token in the image, offline');
+  const aws = (...args: string[]) =>
+    spawnSync(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '--read-only',
+        '--tmpfs',
+        '/tmp',
+        '--network',
+        'none',
+        '-e',
+        'AWS_ACCESS_KEY_ID=AKIDEXAMPLE',
+        '-e',
+        'AWS_SECRET_ACCESS_KEY=not-a-real-secret',
+        '--entrypoint',
+        'aws',
+        IMAGE,
+        ...args,
+      ],
+      { encoding: 'utf8' },
+    );
+  const ok = aws(
+    '--region',
+    'us-east-1',
+    'eks',
+    'get-token',
+    '--cluster-name',
+    'demo',
+    '--output',
+    'json',
+  );
+  if (ok.status !== 0) throw new Error(`aws eks get-token failed: ${ok.stderr}`);
+  const cred = JSON.parse(ok.stdout) as { kind?: string; status?: { token?: string } };
+  if (cred.kind !== 'ExecCredential' || !cred.status?.token?.startsWith('k8s-aws-v1.')) {
+    throw new Error(`unexpected ExecCredential: ${ok.stdout}`);
+  }
+  if (aws('s3', 'ls').status !== 2) throw new Error('aws s3 ls should be refused');
+  console.log(
+    'aws eks get-token: an ExecCredential with a k8s-aws-v1 token; other commands refused',
+  );
+}
+
 function servers(): void {
   console.log('\n== Preinstalled MCP servers, offline, read-only root filesystem');
   show('docker', [
@@ -322,6 +368,7 @@ function kind(): void {
 
 try {
   servers();
+  eksToken();
   await compose();
   shipInContainer();
   if (!process.argv.includes('--no-kind')) kind();

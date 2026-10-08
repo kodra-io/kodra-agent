@@ -48,6 +48,8 @@ COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-buildx \
      /usr/local/libexec/docker/cli-plugins/docker-buildx
 COPY --from=helm /usr/bin/helm /usr/local/bin/helm
+# `aws eks get-token` only, for EKS kubeconfigs (not the AWS CLI).
+COPY --chmod=755 docker/aws /usr/local/bin/aws
 COPY --from=mcp /opt/kodra-mcp /opt/kodra-mcp
 COPY --from=build /app /app
 # Caches go to /tmp, so the root filesystem can be read-only.

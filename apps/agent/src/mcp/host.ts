@@ -95,6 +95,9 @@ function settingValue(value: unknown): string | undefined {
   return JSON.stringify(value);
 }
 
+/** Inherited environment variables whose values are registered with the redactor. */
+const SECRET_ENV = /SECRET|TOKEN|PASSWORD|ACCESS_KEY/;
+
 /** Whether a manifest lists a connector in `requires`, the only way to share its values. */
 function requires(manifest: Manifest, connector: string): boolean {
   return manifest.requires.some((r) =>
@@ -231,7 +234,10 @@ export class ConnectorHost {
     const childEnv: Record<string, string> = { ...getDefaultEnvironment() };
     for (const name of runtime.inheritEnv ?? []) {
       const value = env[name];
-      if (value !== undefined) childEnv[name] = value;
+      if (value === undefined) continue;
+      // Inherited credentials (like AWS keys for an EKS kubeconfig) are secrets too.
+      if (SECRET_ENV.test(name) && !name.endsWith('_FILE')) this.opts.redactor.add(value);
+      childEnv[name] = value;
     }
     for (const [name, source] of Object.entries(runtime.env)) {
       const value = await resolve(source);

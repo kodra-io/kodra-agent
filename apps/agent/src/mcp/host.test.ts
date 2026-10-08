@@ -6,6 +6,7 @@ import { jsonLogger } from '../io.ts';
 import { Redactor } from '../redactor.ts';
 import { fakeComponent, fakeLauncher } from '../test-fixtures/fake-connector.ts';
 import { tempDir } from '../test-helpers.ts';
+import { getConnector } from '@kodra-agent/connectors';
 import { ConnectorHost } from './host.ts';
 
 let host: ConnectorHost | undefined;
@@ -88,6 +89,42 @@ describe('ConnectorHost', () => {
         decision: 'blocked',
       }),
     ]);
+  });
+
+  it('redacts inherited AWS credentials for EKS kubeconfigs, but not file paths', async () => {
+    const kubernetes = getConnector('kubernetes');
+    if (!kubernetes) throw new Error('no Kubernetes connector');
+    const redactor = new Redactor();
+    host = await ConnectorHost.start(
+      [
+        {
+          component: {
+            id: 'kubernetes',
+            displayName: kubernetes.displayName,
+            manifest: kubernetes,
+            settings: { namespaces: ['api'] },
+            secrets: [],
+          },
+          access: 'read-only',
+          secrets: {},
+        },
+      ],
+      {
+        redactor,
+        log: jsonLogger(() => undefined, redactor),
+        launcher: fakeLauncher(),
+        env: {
+          AWS_SECRET_ACCESS_KEY: 'aws-secret-canary-7f3e9a1c', // gitleaks:allow
+          AWS_SESSION_TOKEN: 'aws-session-canary-2b8d4e6f', // gitleaks:allow
+          AWS_WEB_IDENTITY_TOKEN_FILE: '/var/run/secrets/eks/token',
+        },
+      },
+    );
+    const text = redactor.redact(
+      'aws-secret-canary-7f3e9a1c aws-session-canary-2b8d4e6f /var/run/secrets/eks/token',
+    );
+    expect(text).not.toContain('canary');
+    expect(text).toContain('/var/run/secrets/eks/token');
   });
 
   it('starts the server in an empty private folder with a minimal environment', async () => {
