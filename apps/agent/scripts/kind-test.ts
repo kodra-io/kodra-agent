@@ -235,9 +235,11 @@ try {
       '-l',
       'app=crashloop',
       '-o',
-      'jsonpath={.items[0].status.containerStatuses[0].restartCount}',
+      // Wildcards, not [0]: right after `apply` the pod or its status may not exist yet, and an
+      // index into an empty list makes kubectl fail instead of printing nothing.
+      'jsonpath={.items[*].status.containerStatuses[*].restartCount}',
     );
-    if (Number(restarts) >= 1) break;
+    if (restarts.split(/\s+/).some((n) => Number(n) >= 1)) break;
     if (Date.now() > deadline) throw new Error('the pod never restarted');
     spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},3000)']);
   }
