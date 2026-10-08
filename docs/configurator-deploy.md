@@ -16,9 +16,11 @@ Kept in Kodra's own infrastructure repos, not here:
      extensionless `/agent/...` path go to `/agent/index.html`. The Build distribution sends
      every missing object to the Build site's own `/index.html`, so without this rewrite
      `/agent/` would show the Build home page;
-   - a response headers policy with the configurator's CSP (the same as its meta tag in
-     `apps/configurator/vite.config.ts`) plus `frame-ancestors 'none'`, a `DENY` frame
-     option, `nosniff`, a `no-referrer` referrer policy, and HSTS.
+   - a viewer-response function that adds the configurator's CSP (the same as its meta tag
+     in `apps/configurator/vite.config.ts`) plus `frame-ancestors 'none'`, a `DENY` frame
+     option, `nosniff`, a `no-referrer` referrer policy, and HSTS. A function, not a
+     response headers policy: CloudFront's free flat-rate plan, which the Build
+     distributions use, rejects custom response headers policies.
 
 ## Publishing a new version
 
