@@ -126,6 +126,7 @@ describe('detectStack', () => {
       stack: 'go',
       port: 9000,
       go: { pkg: '.' },
+      notes: expect.arrayContaining(['Go, main package at the repo root.']) as unknown,
     });
     expect(
       detect({

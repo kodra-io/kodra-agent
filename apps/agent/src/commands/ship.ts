@@ -12,7 +12,14 @@ import { decide } from '../policy.ts';
 import { startRuntime, type Runtime } from '../runtime.ts';
 import { spawnExec } from '../ship/exec.ts';
 import { proposeDockerfileFix } from '../ship/fix.ts';
-import { buildImage, helmCheck, smokeTest, toolAvailable, type Check } from '../ship/verify.ts';
+import {
+  buildImage,
+  helmCheck,
+  selfContainer,
+  smokeTest,
+  toolAvailable,
+  type Check,
+} from '../ship/verify.ts';
 import { AUTHOR, copyLocal, Git, remoteUrl, repoFiles, writeEmptyFile } from '../ship/workspace.ts';
 
 export interface ShipOptions {
@@ -104,11 +111,15 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
         return 1;
       }
     }
+    // Inside the agent container, the app under test is reached over a private network.
+    const self = ctx.selfContainer === undefined ? selfContainer() : ctx.selfContainer;
     for (const tool of ['docker', 'helm'] as const) {
       if (!(await toolAvailable(exec, tool))) {
         ctx.term.err(
           tool === 'docker'
-            ? 'Docker is needed to build and test the image. Start Docker and try again.'
+            ? self
+              ? 'Docker is needed to build and test the image. In the agent container, turn on the Docker connector with build access, so the bundle mounts the Docker socket.'
+              : 'Docker is needed to build and test the image. Start Docker and try again.'
             : 'Helm is needed to check the chart. Install Helm and try again.',
         );
         return 1;
@@ -206,6 +217,7 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
         healthPath: d.healthPath,
         timeoutMs: ctx.shipSmokeTimeoutMs ?? 120_000,
         fetch: ctx.fetch,
+        selfContainer: self,
       });
       return [built, smoke];
     };

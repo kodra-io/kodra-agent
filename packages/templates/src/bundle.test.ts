@@ -88,7 +88,14 @@ describe('compose bundle', () => {
     const compose = file(build, 'docker-compose.yml');
     expect(compose).toContain('"/var/run/docker.sock:/var/run/docker.sock"');
     expect(compose).toContain('WARNING: the Docker socket');
-    expect(file(build, 'README.md')).toContain('## Docker socket warning');
+    const service = (parse(compose) as { services: Record<string, Record<string, unknown>> })
+      .services['kodra-agent'];
+    expect(service?.['group_add']).toEqual(['${KODRA_DOCKER_GID:-0}']);
+    expect(file(readOnly, 'docker-compose.yml')).not.toContain('group_add');
+    const readme = file(build, 'README.md');
+    expect(readme).toContain('## Docker socket warning');
+    expect(readme).toContain('KODRA_DOCKER_GID=$(getent group docker | cut -d: -f3)');
+    expect(readme).toContain('docker compose run --rm kodra-agent ship <owner/repo>');
   });
 
   it('README has the quickstart, permissions, approvals, and uninstall', () => {

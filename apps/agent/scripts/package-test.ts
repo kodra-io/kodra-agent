@@ -1,16 +1,18 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   AGENT_IMAGE,
   AGENT_VERSION,
+  connectorDefaults,
   emptyDraft,
   generateBundle,
   modelFieldDefaults,
   type AgentDraft,
 } from '@kodra-agent/templates';
+import { getConnector } from '@kodra-agent/connectors';
 
 /**
  * pnpm test:package: the M7 checks on a built agent image (KODRA_IMAGE, default the
@@ -26,6 +28,7 @@ const IMAGE = process.env['KODRA_IMAGE'] ?? `${AGENT_IMAGE}:${AGENT_VERSION}`;
 const KIND = process.env['KIND'] ?? 'kind';
 const CLUSTER = 'kodra-agent-package';
 const NAME = 'package-test';
+const SAMPLE = fileURLToPath(new URL('../../../examples/ship/go', import.meta.url));
 const CHART = fileURLToPath(new URL('../../../charts/kodra-agent', import.meta.url));
 const base =
   process.platform === 'win32'
@@ -49,9 +52,13 @@ function show(cmd: string, args: string[], cwd?: string): void {
     throw new Error(`${cmd} ${args.join(' ')} exited ${String(result.status)}`);
 }
 
-function draft(target: AgentDraft['target']): AgentDraft {
+function draft(
+  target: AgentDraft['target'],
+  connectors: AgentDraft['connectors'] = {},
+): AgentDraft {
   return {
     ...emptyDraft(),
+    connectors,
     name: NAME,
     target,
     model: {
@@ -64,9 +71,13 @@ function draft(target: AgentDraft['target']): AgentDraft {
   };
 }
 
-function writeBundle(target: AgentDraft['target']): string {
-  const dir = join(work, target);
-  for (const file of generateBundle(draft(target)).files) {
+function writeBundle(
+  target: AgentDraft['target'],
+  folder: string = target,
+  connectors: AgentDraft['connectors'] = {},
+): string {
+  const dir = join(work, folder);
+  for (const file of generateBundle(draft(target, connectors)).files) {
     const path = join(dir, file.path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, file.content.replaceAll(`${AGENT_IMAGE}:${AGENT_VERSION}`, IMAGE));
@@ -103,13 +114,7 @@ function servers(): void {
 async function compose(): Promise<void> {
   console.log('\n== Compose bundle: init, up, health');
   const dir = writeBundle('compose');
-  // The README's Linux step: run as the user who owns the bundle folder.
-  if (process.getuid && process.getgid) {
-    writeFileSync(
-      join(dir, '.env'),
-      `KODRA_AGENT_USER=${String(process.getuid())}:${String(process.getgid())}\n`,
-    );
-  }
+  writeFileSync(join(dir, '.env'), linuxEnv(false));
   const dc = (...args: string[]) => {
     show('docker', ['compose', ...args], dir);
   };
@@ -152,6 +157,58 @@ async function compose(): Promise<void> {
   } finally {
     spawnSync('docker', ['compose', 'down', '-v'], { cwd: dir, stdio: 'inherit' });
   }
+}
+
+/** The README's Linux steps: run as the folder's owner, with the Docker socket's group. */
+function linuxEnv(docker: boolean): string {
+  if (!process.getuid || !process.getgid) return '';
+  const lines = [`KODRA_AGENT_USER=${String(process.getuid())}:${String(process.getgid())}`];
+  if (docker) {
+    const gid = spawnSync('getent', ['group', 'docker'], { encoding: 'utf8' }).stdout.split(':')[2];
+    if (gid) lines.push(`KODRA_DOCKER_GID=${gid.trim()}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** `ship` inside the agent container, through the bundle, with Docker build access. */
+function shipInContainer(): void {
+  console.log('\n== ship inside the agent container (Docker build access)');
+  const docker = getConnector('docker');
+  if (!docker) throw new Error('no Docker connector');
+  const dir = writeBundle('compose', 'ship', {
+    docker: { ...connectorDefaults(docker, 'compose'), access: 'read-write-approved' },
+  });
+  writeFileSync(join(dir, '.env'), linuxEnv(true));
+  // A sample app inside the bundle folder, which the container sees at /etc/kodra-agent.
+  cpSync(SAMPLE, join(dir, 'go-api'), { recursive: true });
+  show(
+    'docker',
+    ['compose', 'run', '--rm', '-T', 'kodra-agent', 'ship', '/etc/kodra-agent/go-api'],
+    dir,
+  );
+  for (const file of ['Dockerfile', '.dockerignore', 'charts/go-api/Chart.yaml']) {
+    if (!existsSync(join(dir, 'go-api', file))) throw new Error(`ship did not write ${file}`);
+  }
+  const leftover = sh('docker', [
+    'ps',
+    '-a',
+    '--filter',
+    'name=kodra-ship-',
+    '--format',
+    '{{.Names}}',
+  ]).trim();
+  const networks = sh('docker', [
+    'network',
+    'ls',
+    '--filter',
+    'name=kodra-ship-',
+    '--format',
+    '{{.Name}}',
+  ]).trim();
+  if (leftover || networks)
+    throw new Error(`ship left containers or networks behind: ${leftover} ${networks}`);
+  console.log('ship: built, started, and checked the app from inside the agent container');
+  spawnSync('docker', ['compose', 'down', '-v'], { cwd: dir, stdio: 'inherit' });
 }
 
 function kind(): void {
@@ -266,6 +323,7 @@ function kind(): void {
 try {
   servers();
   await compose();
+  shipInContainer();
   if (!process.argv.includes('--no-kind')) kind();
   console.log('\nAll package checks passed.');
 } catch (error) {
