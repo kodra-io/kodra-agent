@@ -1,5 +1,5 @@
 # Kodra AI Agent. Install with the values.yaml from your bundle:
-#   helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.0 \
+#   helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.1 \
 #     --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml
 
 image:
