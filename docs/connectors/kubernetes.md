@@ -55,3 +55,31 @@ The `config` toolset is never enabled: its `configuration_view` tool returns the
 ## Tested
 
 `pnpm test:kind` creates a kind cluster with a crashlooping deployment and drives this server through `kodra-agent chat`: read-only investigation, an approved scale, and a blocked read in `kube-system`.
+
+## EKS clusters
+
+A kubeconfig from `aws eks update-kubeconfig` has no token in it. It runs
+`aws --region <region> eks get-token --cluster-name <name>` each time a client connects. The
+agent image has no AWS CLI (it would add about 200 MB). It ships its own `aws` command, which
+does only `eks get-token` and refuses everything else (`apps/agent/src/eks-token.ts`,
+`docker/aws`). The kubeconfig stays as it is, and both the agent's own client (`init`, `doctor`)
+and this MCP server use it.
+
+- **Token:** a presigned STS `GetCallerIdentity` URL, with the cluster name in a signed
+  `x-k8s-aws-id` header, encoded as `k8s-aws-v1.` plus unpadded base64url. It is valid for 15
+  minutes; the agent reports 14. Checked against aws-iam-authenticator `pkg/token/token.go`
+  (October 2026). A unit test recomputes the SigV4 signature from the AWS spec.
+- **Options:** `--cluster-name`, `--region` (or `AWS_REGION`), `--role-arn` (assumed first),
+  `--profile` (or `AWS_PROFILE`), and `--output json`.
+- **Credentials:** the standard AWS chain: environment variables, `~/.aws` profiles including
+  SSO, web identity, and instance roles. This server inherits the `AWS_*` variables for it,
+  and the values of the secret ones are registered with the redactor.
+- **Running `init` from the image:** the bundle README has an EKS variant of the command that
+  also mounts `~/.aws` read-only and passes `AWS_PROFILE`. With SSO, run `aws sso login` first,
+  because the mount is read-only.
+- **Inside the cluster** none of this is used: the agent uses its service account token.
+- **Tested** against a real EKS cluster: `doctor` listed pods, and this server answered a read,
+  both through the built-in `aws eks get-token`.
+
+GKE's `gke-gcloud-auth-plugin` and other login helpers are not in the image; use
+`init --dry-run` for those clusters.

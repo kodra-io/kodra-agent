@@ -1,0 +1,4 @@
+#!/bin/sh
+# The `aws` command in the Kodra AI Agent image. It only does `aws eks get-token`, which
+# EKS kubeconfigs run to get a cluster token. It is not the AWS CLI.
+exec node --disable-warning=ExperimentalWarning /app/apps/agent/src/aws-bin.ts "$@"

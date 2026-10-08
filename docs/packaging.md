@@ -23,6 +23,8 @@ docker build -f docker/Dockerfile -t ghcr.io/kodra-io/kodra-agent:dev .
   (`docker:29.8.2-cli`), and Helm (`alpine/helm:4.3.0`), copied from pinned images. With the
   Docker socket mounted, the bundle adds the socket's group: 0 on Docker Desktop, and the
   `docker` group on Linux, which the bundle README has you set as `KODRA_DOCKER_GID` in `.env`.
+- **`aws eks get-token` only:** `docker/aws` runs the agent's built-in token generator, so EKS
+  kubeconfigs work without the AWS CLI. See `docs/connectors/kubernetes.md`.
 - **Runs as** `kodra` (uid 10001). Caches go to `/tmp`, so the root filesystem can be
   read-only. The health check calls `/healthz` on port 8080.
 - **Size:** about 1.7 GB unpacked. Most of it is the three Python server environments (the
@@ -61,7 +63,8 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.0 
 ## Checks
 
 - `pnpm test:package` (CI job `package`) runs on a built image: every preinstalled server
-  starts with no network and a read-only root filesystem, a generated compose bundle runs
+  starts with no network and a read-only root filesystem, `aws eks get-token` returns an
+  `ExecCredential` offline, a generated compose bundle runs
   `init --non-interactive` and `up` and answers `/healthz` and `/readyz`, `ship` runs inside
   the agent container on a sample app (build, smoke test, chart lint), and the chart
   installs on a throwaway kind cluster with the bundle's values and becomes ready.

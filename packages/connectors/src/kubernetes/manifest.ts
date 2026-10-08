@@ -182,7 +182,23 @@ export default defineManifest({
       },
     ],
     env: {},
-    inheritEnv: ['KUBERNETES_SERVICE_HOST', 'KUBERNETES_SERVICE_PORT', 'KUBECONFIG'],
+    inheritEnv: [
+      'KUBERNETES_SERVICE_HOST',
+      'KUBERNETES_SERVICE_PORT',
+      'KUBECONFIG',
+      // For EKS kubeconfigs, whose exec plugin runs `aws eks get-token` (the agent image has
+      // a built-in one). The values are registered with the redactor.
+      'AWS_PROFILE',
+      'AWS_REGION',
+      'AWS_DEFAULT_REGION',
+      'AWS_ACCESS_KEY_ID',
+      'AWS_SECRET_ACCESS_KEY',
+      'AWS_SESSION_TOKEN',
+      'AWS_CONFIG_FILE',
+      'AWS_SHARED_CREDENTIALS_FILE',
+      'AWS_ROLE_ARN',
+      'AWS_WEB_IDENTITY_TOKEN_FILE',
+    ],
     configFile: { arg: '--config', content: SERVER_CONFIG },
   },
   permissionsSummary: {

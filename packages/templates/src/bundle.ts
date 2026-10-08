@@ -60,6 +60,9 @@ export function dockerSocketPath(draft: AgentDraft): string | null {
   return docker.config['socketPath']?.trim() || '/var/run/docker.sock';
 }
 
+/** `init` for EKS: also mounts ~/.aws read-only and passes AWS_PROFILE, for `aws eks get-token`. */
+const EKS_INIT_COMMAND = `docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -e AWS_PROFILE -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$HOME/.aws:/home/kodra/.aws:ro" -v "$PWD:/work" -w /work ${AGENT_IMAGE}:${AGENT_VERSION} init --target kubernetes --namespace ${AGENT_NAMESPACE}`;
+
 export function quickstartCommands(draft: AgentDraft): string[] {
   const name = agentName(draft);
   if (draft.target === 'compose') {
@@ -333,12 +336,32 @@ function readme(draft: AgentDraft): string {
   lines.push(
     '',
     draft.target === 'compose'
-      ? '`init` asks for each secret with hidden input, checks it, and writes `.env` (owner-only). Never commit `.env`.'
+      ? [
+          '`init` asks for each secret with hidden input, checks it, and writes `.env` (owner-only). Never commit `.env`.',
+          ...(draft.connectors['kubernetes']?.enabled === true
+            ? [
+                '',
+                'EKS: if your kubeconfig runs `aws eks get-token`, the agent uses its own built-in version, with',
+                'the AWS credentials in `.env` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`) or',
+                "the machine's IAM role.",
+              ]
+            : []),
+        ].join('\n')
       : [
           '`init` asks for each secret with hidden input, checks it, and stores it in a Kubernetes Secret.',
           '',
-          'If your kubeconfig runs a login helper (common on EKS and GKE), the container cannot run it.',
-          'Add `--dry-run` to the `init` command instead: it prints the Secret with placeholders and the',
+          '### EKS clusters',
+          '',
+          'A kubeconfig from `aws eks update-kubeconfig` runs `aws eks get-token` for each connection.',
+          'The agent image has its own `aws eks get-token` (it is not the full AWS CLI), so give `init`',
+          'your AWS settings too, read-only. With AWS SSO, run `aws sso login` first.',
+          '',
+          '```sh',
+          EKS_INIT_COMMAND,
+          '```',
+          '',
+          "Other login helpers, like GKE's `gke-gcloud-auth-plugin`, are not in the image. For those, add",
+          '`--dry-run` to the `init` command: it prints the Secret with placeholders and the',
           '`kubectl create secret` command to fill it in yourself.',
         ].join('\n'),
     '',
