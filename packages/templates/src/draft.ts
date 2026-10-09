@@ -63,7 +63,11 @@ export function connectorDefaults(manifest: Manifest, target: Target): Connector
     config: Object.fromEntries(
       manifest.configFields.map((f) => [
         f.key,
-        'default' in f && f.default !== undefined ? String(f.default) : '',
+        !('default' in f) || f.default === undefined
+          ? ''
+          : Array.isArray(f.default)
+            ? f.default.join(', ')
+            : String(f.default),
       ]),
     ),
     optionalSecrets: defaultOptionalSecrets(manifest, target),

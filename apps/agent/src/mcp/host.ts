@@ -103,6 +103,13 @@ function settingValue(value: unknown): string | undefined {
   return JSON.stringify(value);
 }
 
+/** Whether an `onlyIf` server is wanted: unset settings mean yes, so old configs keep it. */
+function wanted(runtime: McpStdioRuntime, settings: Readonly<Record<string, unknown>>): boolean {
+  if (!runtime.onlyIf) return true;
+  const value = settings[runtime.onlyIf.setting];
+  return !Array.isArray(value) || value.map(String).includes(runtime.onlyIf.includes);
+}
+
 /** Inherited environment variables whose values are registered with the redactor. */
 const SECRET_ENV = /SECRET|TOKEN|PASSWORD|ACCESS_KEY/;
 
@@ -164,6 +171,7 @@ export class ConnectorHost {
     const host = new ConnectorHost(opts);
     for (const input of inputs) {
       for (const runtime of stdioRuntimes(input.component.manifest)) {
+        if (!wanted(runtime, input.component.settings)) continue;
         try {
           await host.startOne(input, runtime);
         } catch (error) {

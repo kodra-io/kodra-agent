@@ -52,6 +52,19 @@ export default defineManifest({
       patternHint: t('use an AWS region, like eu-central-1', 'استخدم منطقة AWS، مثل eu-central-1'),
       example: 'eu-central-1',
     },
+    {
+      kind: 'string-list',
+      key: 'services',
+      required: false,
+      description: t(
+        'AWS services the agent can read: eks, cloudwatch. Each one adds tools the model reads on every question, so leave out what you do not need.',
+        'خدمات AWS التي يمكن للوكيل قراءتها: eks و cloudwatch. كل خدمة تضيف أدوات يقرؤها النموذج مع كل سؤال، فاترك ما لا تحتاجه.',
+      ),
+      pattern: '^(eks|cloudwatch)$',
+      patternHint: t('use eks or cloudwatch', 'استخدم eks أو cloudwatch'),
+      default: ['eks', 'cloudwatch'],
+      example: ['eks'],
+    },
   ],
   secrets: [
     {
@@ -131,6 +144,7 @@ export default defineManifest({
       args: ['--no-allow-write', '--no-allow-sensitive-data-access'],
       env: awsEnv,
       inheritEnv: awsInheritEnv,
+      onlyIf: { setting: 'services', includes: 'eks' },
     },
     {
       type: 'mcp-stdio',
@@ -144,6 +158,7 @@ export default defineManifest({
       args: [],
       env: awsEnv,
       inheritEnv: awsInheritEnv,
+      onlyIf: { setting: 'services', includes: 'cloudwatch' },
     },
   ],
   permissionsSummary: {

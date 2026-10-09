@@ -66,6 +66,7 @@ const configField = z.discriminatedUnion('kind', [
     description: localizedText,
     pattern: regexSource.optional(),
     patternHint: localizedText.optional(),
+    default: z.array(z.string()).optional(),
     example: z.array(z.string()).optional(),
   }),
   z.strictObject({
@@ -238,6 +239,11 @@ const stdioRuntime = z.strictObject({
   inheritEnv: z.array(z.string().regex(ENV_VAR)).optional(),
   /** A config file written to a private temp folder and passed as `arg <path>`. */
   configFile: z.strictObject({ arg: z.string().min(1), content: z.string() }).optional(),
+  /**
+   * Start this server only if a list setting includes a value (AWS: `services` includes
+   * `cloudwatch`). Unset settings start it, so older configs keep every server.
+   */
+  onlyIf: z.strictObject({ setting: z.string().regex(KEY), includes: z.string() }).optional(),
 });
 export type McpStdioRuntime = z.infer<typeof stdioRuntime>;
 

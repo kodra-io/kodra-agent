@@ -605,6 +605,16 @@
                       "minLength": 1,
                       "pattern": "^[a-z]{2}(-gov)?-[a-z]+-\\d$",
                       "description": "AWS region."
+                    },
+                    "services": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^(eks|cloudwatch)$"
+                      },
+                      "description": "AWS services the agent can read: eks, cloudwatch. Each one adds tools the model reads on every question, so leave out what you do not need."
                     }
                   },
                   "required": [

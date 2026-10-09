@@ -193,6 +193,23 @@ describe('connector registry', () => {
     }
   });
 
+  it('gates servers only on list settings that exist and accept the value', () => {
+    for (const manifest of connectors) {
+      for (const runtime of stdioRuntimes(manifest)) {
+        if (!runtime.onlyIf) continue;
+        const { setting, includes } = runtime.onlyIf;
+        const field = manifest.configFields.find((f) => f.key === setting);
+        expect(field?.kind, `${manifest.id}: ${setting}`).toBe('string-list');
+        if (field?.kind === 'string-list' && field.pattern) {
+          expect(new RegExp(field.pattern).test(includes), `${manifest.id}: ${includes}`).toBe(
+            true,
+          );
+        }
+        if (field?.kind === 'string-list') expect(field.default ?? []).toContain(includes);
+      }
+    }
+  });
+
   it('turns off the GitLab server update check (no outbound call nobody asked for)', () => {
     for (const id of ['gitlab', 'gitlab-ci']) {
       const manifest = getConnector(id);
