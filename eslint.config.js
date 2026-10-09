@@ -22,7 +22,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/configurator/**/*.{ts,tsx}'],
+    files: ['apps/configurator/**/*.{ts,tsx}', 'apps/console/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
     languageOptions: { globals: { ...globals.browser } },
     rules: {
