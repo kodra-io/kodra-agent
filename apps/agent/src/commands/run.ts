@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { runTurn } from '../agent.ts';
+import { formatUsage, runTurn } from '../agent.ts';
 import type { ApprovalChannel } from '../approvals.ts';
 import type { Context } from '../context.ts';
 import { fetchFiringAlerts } from '../monitoring/alerts.ts';
@@ -129,7 +129,10 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             investigationPrompt(alert),
             `alert-${randomUUID().slice(0, 8)}`,
           );
-          return { text: result.text, stoppedBy: result.stoppedBy };
+          return {
+            text: `${result.text}\n_${formatUsage(result.usage)}_`,
+            stoppedBy: result.stoppedBy,
+          };
         },
         post,
         audit: runtime.audit,

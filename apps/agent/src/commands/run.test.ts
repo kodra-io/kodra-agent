@@ -194,7 +194,9 @@ describe('kodra-agent run', () => {
       await slack.handlers.onAction({ user: 'U0ASKER', actionId: 'kodra_approve', value });
       await slack.handlers.onAction({ user: 'U01OMAR', actionId: 'kodra_approve', value });
       await mention;
-      const reply = slack.posted.find((p) => p.text === 'Scaled web to 2.');
+      const reply = slack.posted.find((p) => p.text.startsWith('Scaled web to 2.'));
+      // Each answer ends with what it used.
+      expect(reply?.text).toMatch(/\n_\d[\d,]* tokens in.*, \d[\d,]* out_$/);
       expect(reply?.threadTs).toBe('1700000500.000001');
 
       stop.abort();

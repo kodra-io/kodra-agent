@@ -2,7 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
-import { REASON_ARG, runTurn, wrapUntrusted, type AgentDeps } from './agent.ts';
+import {
+  formatUsage,
+  REASON_ARG,
+  runTurn,
+  weightedTokens,
+  wrapUntrusted,
+  type AgentDeps,
+} from './agent.ts';
 import type { ApprovalChannel, ApprovalOutcome, ApprovalRequest } from './approvals.ts';
 import { AuditLog } from './audit.ts';
 import { jsonLogger, memoryTerminal } from './io.ts';
@@ -249,20 +256,22 @@ describe('agent loop', () => {
   });
 
   it('stops when the token budget is spent', async () => {
-    const { deps, audit } = await setup({
+    const { deps, audit, model } = await setup({
+      // One call is 40 in + 40 out: past the budget after the first step.
       tokenBudget: 50,
       responses: [
         call('fakek8s__pods_log', { namespace: 'api', name: 'a' }, 40),
-        call('fakek8s__pods_log', { namespace: 'api', name: 'b' }, 40),
-        answer('never'),
+        answer('found: the database is unreachable'),
       ],
     });
     const result = await runTurn(deps, [], 'loop', 't7');
     expect(result.stoppedBy).toBe('token-budget');
-    expect((await audit()).at(-1)).toMatchObject({
-      event: 'result',
-      detail: 'stopped: token-budget',
-    });
+    // It still answers: one last call, tools off, summarizes what it found.
+    expect(result.text).toContain('found: the database is unreachable');
+    expect(result.text).toContain('(Stopped at the token budget for one question.');
+    expect(model.doGenerateCalls.at(-1)?.toolChoice).toEqual({ type: 'none' });
+    expect((await audit()).at(-1)).toMatchObject({ event: 'result' });
+    expect((await audit()).at(-1)?.['detail']).toMatch(/^stopped: token-budget; \d+ tokens in/);
   });
 
   it('redacts secrets from the user message and from tool output before the model sees them', async () => {
@@ -277,9 +286,44 @@ describe('agent loop', () => {
   });
 });
 
+describe('cost', () => {
+  it('asks the provider to cache the tools and the conversation', async () => {
+    const { deps, model } = await setup({ responses: [answer('ok')] });
+    await runTurn(deps, [], 'hi', 't-cache');
+    const call = model.doGenerateCalls[0];
+    // Automatic caching of the growing conversation (top-level cache_control).
+    expect(call?.providerOptions).toEqual({ anthropic: { cacheControl: { type: 'ephemeral' } } });
+    // An explicit breakpoint after the last tool only: tools are the same on every call.
+    const tools = (call?.tools ?? []) as { providerOptions?: unknown }[];
+    expect(tools.at(-1)?.providerOptions).toEqual({
+      anthropic: { cacheControl: { type: 'ephemeral' } },
+    });
+    expect(tools.slice(0, -1).every((t) => t.providerOptions === undefined)).toBe(true);
+  });
+
+  it('weighs cached input at its price, and reports what a question used', () => {
+    const u = { input: 30_000, cacheRead: 28_000, cacheWrite: 1_000, output: 500 };
+    // 1,000 uncached + 2,800 (reads at 0.1) + 1,250 (writes at 1.25) + 500 out.
+    expect(weightedTokens(u)).toBe(5_550);
+    expect(formatUsage(u)).toBe('30,000 tokens in (28,000 from cache), 500 out');
+    expect(formatUsage({ input: 900, cacheRead: 0, cacheWrite: 0, output: 40 })).toBe(
+      '900 tokens in, 40 out',
+    );
+  });
+
+  it('returns what the turn used', async () => {
+    const { deps } = await setup({
+      responses: [call('fakek8s__pods_log', { namespace: 'api', name: 'a' }, 7), answer('ok')],
+    });
+    const result = await runTurn(deps, [], 'hi', 't-usage');
+    // 7 in + 7 out for the tool call, then 10 + 10 for the answer.
+    expect(result.usage).toEqual({ input: 17, cacheRead: 0, cacheWrite: 0, output: 17 });
+  });
+});
+
 describe('wrapUntrusted', () => {
   it('truncates very long output', () => {
-    const wrapped = wrapUntrusted('x/y', 'a'.repeat(25_000), new Redactor());
+    const wrapped = wrapUntrusted('x/y', 'a'.repeat(13_000), new Redactor());
     expect(wrapped).toContain('[truncated 5000 characters]');
   });
 });

@@ -139,6 +139,21 @@ const monitoringSchema = z
   .prefault({})
   .meta({ description: 'Limits for alert investigations.' });
 
+/** Per-question limits on the agent loop: a guard on cost and runaway tool use. */
+const limitsSchema = z
+  .strictObject({
+    /** Model calls per question. */
+    maxSteps: z.int().min(1).max(50).default(12),
+    /**
+     * Tokens per question, weighted by price: cached input counts a tenth, cache writes
+     * 1.25 times, so the budget tracks what a question costs rather than raw tokens.
+     */
+    tokenBudget: z.int().min(10_000).max(5_000_000).default(200_000),
+    timeoutMinutes: z.int().min(1).max(60).default(5),
+  })
+  .prefault({})
+  .meta({ description: 'Limits for each question the agent answers.' });
+
 function fieldSchema(field: ConfigField): z.ZodType {
   const description = field.description.en;
   switch (field.kind) {
@@ -259,6 +274,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         audit: auditSchema,
         telemetry: telemetrySchema,
         monitoring: monitoringSchema,
+        limits: limitsSchema,
       }),
     })
     .superRefine((config, ctx) => {
@@ -321,6 +337,7 @@ export interface AgentConfig {
     audit: { path: string };
     telemetry: { enabled: boolean };
     monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
+    limits: { maxSteps: number; tokenBudget: number; timeoutMinutes: number };
   };
 }
 

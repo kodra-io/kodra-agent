@@ -147,7 +147,11 @@ export async function startRuntime(
         destructiveActions: config.spec.policy.destructiveActions,
         expiresAfterMinutes: config.spec.policy.approvals.expiresAfterMinutes,
       },
-      ...(ctx.limits ? { limits: ctx.limits } : {}),
+      limits: ctx.limits ?? {
+        maxSteps: config.spec.limits.maxSteps,
+        tokenBudget: config.spec.limits.tokenBudget,
+        timeoutMs: config.spec.limits.timeoutMinutes * 60_000,
+      },
       actor: 'agent',
     }),
     close: () => host.close(),

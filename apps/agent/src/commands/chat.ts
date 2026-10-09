@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
-import { runTurn } from '../agent.ts';
+import { formatUsage, runTurn } from '../agent.ts';
 import { cliApprovalChannel, type ApprovalChannel } from '../approvals.ts';
 import type { Context } from '../context.ts';
 import { describeConnectors, startRuntime } from '../runtime.ts';
@@ -38,6 +38,7 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
       history = result.messages;
       ctx.term.out('');
       ctx.term.out(result.text);
+      ctx.term.out(`(${formatUsage(result.usage)})`);
     };
 
     if (opts.message !== undefined) {
