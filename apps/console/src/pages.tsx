@@ -199,7 +199,7 @@ export function OverviewPage({ onSignedOut }: PageProps) {
 }
 
 export function ConnectorsPage({ onSignedOut }: PageProps) {
-  const { t, has } = useI18n();
+  const { t } = useI18n();
   const load = useCallback(() => get<ConnectorView[]>('connectors'), []);
   const { data, error, loading, reload } = useLoad(load, onSignedOut);
   return (
@@ -227,37 +227,55 @@ export function ConnectorsPage({ onSignedOut }: PageProps) {
                 <dd>{c.hint}</dd>
               </dl>
             )}
-            {c.available && (
-              <>
-                <h3 className="mt-3 text-sm font-semibold">{t('connectors.tools')}</h3>
-                {c.tools.length === 0 ? (
-                  <p className="text-sm text-ink-secondary">{t('connectors.noTools')}</p>
-                ) : (
-                  <ul className="mt-1 space-y-1 text-sm">
-                    {c.tools.map((tool) => {
-                      const risk = `risk.${tool.risk}`;
-                      return (
-                        <li key={tool.name}>
-                          <Ltr>{tool.name}</Ltr>{' '}
-                          <span className="text-ink-secondary">
-                            ({has(risk) ? t(risk) : tool.risk})
-                          </span>
-                          {tool.limits.length > 0 && (
-                            <span className="block ps-4 text-xs text-ink-secondary" dir="ltr">
-                              {tool.limits.join('; ')}
-                            </span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </>
-            )}
+            {c.available && <ConnectorTools connector={c} />}
           </article>
         ))}
       </div>
     </Page>
+  );
+}
+
+/** A connector's tools. A limit every tool shares is shown once, not on each tool. */
+function ConnectorTools({ connector: c }: { connector: ConnectorView }) {
+  const { t, has } = useI18n();
+  if (c.tools.length === 0) {
+    const note =
+      c.category === 'build'
+        ? 'connectors.usedByShip'
+        : c.category === 'chat'
+          ? 'connectors.usedForChat'
+          : 'connectors.noTools';
+    return <p className="mt-3 text-sm text-ink-secondary">{t(note)}</p>;
+  }
+  const [first, ...rest] = c.tools;
+  const shared = (first?.limits ?? []).filter((l) => rest.every((tool) => tool.limits.includes(l)));
+  return (
+    <>
+      <h3 className="mt-3 text-sm font-semibold">{t('connectors.tools')}</h3>
+      {shared.length > 0 && (
+        <p className="mt-1 text-sm">
+          <span className="text-ink-secondary">{t('connectors.sharedLimits')}</span>{' '}
+          <bdi dir="ltr">{shared.join('; ')}</bdi>
+        </p>
+      )}
+      <ul className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+        {c.tools.map((tool) => {
+          const risk = `risk.${tool.risk}`;
+          const own = tool.limits.filter((l) => !shared.includes(l));
+          return (
+            <li key={tool.name}>
+              <Ltr>{tool.name}</Ltr>{' '}
+              <span className="text-ink-secondary">({has(risk) ? t(risk) : tool.risk})</span>
+              {own.length > 0 && (
+                <span className="block ps-4 text-xs text-ink-secondary" dir="ltr">
+                  {own.join('; ')}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
@@ -482,16 +500,24 @@ export function UsagePage({ onSignedOut }: PageProps) {
             <p>
               <Ltr>{data.model}</Ltr>
             </p>
-            <p className="mt-1">
-              {num(data.totals.input)} {t('usage.input')}, {num(data.totals.output)}{' '}
-              {t('usage.output')}
-              {data.pricing && data.totals.cost !== null && (
-                <>
-                  {', '}
-                  {t('usage.cost')}: <strong>{cost(data.totals.cost)}</strong>
-                </>
-              )}
-            </p>
+            <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
+              {(
+                [
+                  ['usage.calls', num(data.totals.calls)],
+                  ['usage.input', num(data.totals.input)],
+                  ['usage.cached', num(data.totals.cacheRead)],
+                  ['usage.output', num(data.totals.output)],
+                  ...(data.pricing && data.totals.cost !== null
+                    ? [['usage.cost', cost(data.totals.cost)]]
+                    : []),
+                ] as [MessageKey, string][]
+              ).map(([key, value]) => (
+                <div key={key} className="flex gap-1">
+                  <dt className="text-ink-secondary">{t(key)}:</dt>
+                  <dd className="font-semibold">{value}</dd>
+                </div>
+              ))}
+            </dl>
             {data.totals.input > 0 && (
               <p className="mt-1 text-ink-secondary">
                 {t('usage.cacheRate', {

@@ -17,6 +17,7 @@ export interface StatusView {
 export interface ConnectorView {
   id: string;
   name: string;
+  category: string;
   access: string | null;
   available: boolean;
   reason?: string;

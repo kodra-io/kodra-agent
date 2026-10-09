@@ -71,6 +71,9 @@ function fieldsObject(fields: readonly ConfigField[], raw: Record<string, string
   return out;
 }
 
+/** The console's port, in the container and on the host (compose maps 127.0.0.1 only). */
+export const CONSOLE_PORT = 8081;
+
 /** The kodra-agent.yaml content for a draft, as a plain object. */
 export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
   const provider = getModelProvider(draft.model.provider);
@@ -115,6 +118,7 @@ export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
       },
       audit: { path: DEFAULT_AUDIT_PATH },
       telemetry: { enabled: false },
+      console: { enabled: draft.console.enabled, port: CONSOLE_PORT },
     },
   };
 }

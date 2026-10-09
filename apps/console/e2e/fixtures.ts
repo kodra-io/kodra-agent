@@ -24,6 +24,7 @@ const fixtures: Record<string, unknown> = {
     {
       id: 'gitlab',
       name: 'GitLab',
+      category: 'source',
       access: 'read-only',
       available: true,
       tools: [
@@ -32,11 +33,25 @@ const fixtures: Record<string, unknown> = {
           risk: 'read',
           limits: ['project_id must be one of: jordan-kodra/terraform'],
         },
+        {
+          name: 'get_project',
+          risk: 'read',
+          limits: ['project_id must be one of: jordan-kodra/terraform'],
+        },
       ],
+    },
+    {
+      id: 'docker',
+      name: 'Docker',
+      category: 'build',
+      access: 'read-write-approved',
+      available: true,
+      tools: [],
     },
     {
       id: 'kubernetes',
       name: 'Kubernetes',
+      category: 'deploy',
       access: 'read-only',
       available: false,
       reason:

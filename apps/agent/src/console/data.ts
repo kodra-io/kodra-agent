@@ -16,6 +16,8 @@ import { failureHint, type Runtime } from '../runtime.ts';
 export interface ConnectorView {
   id: string;
   name: string;
+  /** The manifest category (source, deploy, build, chat, ...), for connectors without tools. */
+  category: string;
   access: string | null;
   available: boolean;
   reason?: string;
@@ -176,6 +178,7 @@ export function connectorViews(runtime: Runtime): ConnectorView[] {
     return {
       id,
       name: input.component.displayName,
+      category: input.component.manifest.category,
       access: input.access ?? null,
       available: !down,
       ...(down
@@ -193,6 +196,7 @@ export function connectorViews(runtime: Runtime): ConnectorView[] {
     views.push({
       id: failure.connector,
       name: failure.displayName,
+      category: '',
       access: null,
       available: false,
       reason: failure.reason,

@@ -32,7 +32,15 @@ test('shows why a connector is not available, and how to fix it', async ({ page 
   await expect(kube).toContainText('copy it to secrets/kubeconfig');
   const gitlab = page.getByRole('article').filter({ hasText: 'GitLab' });
   await expect(gitlab).toContainText('list_merge_requests');
-  await expect(gitlab).toContainText('project_id must be one of: jordan-kodra/terraform');
+  // A limit every tool shares is shown once.
+  await expect(gitlab.getByText('project_id must be one of: jordan-kodra/terraform')).toHaveCount(
+    1,
+  );
+  await expect(gitlab).toContainText('Every tool:');
+  const docker = page
+    .getByRole('article')
+    .filter({ has: page.getByRole('heading', { name: 'Docker' }) });
+  await expect(docker).toContainText('Used by kodra-agent ship');
 });
 
 test('filters activity on the server', async ({ page, api }) => {
@@ -54,7 +62,7 @@ test('shows tool and alert text as text, never as markup', async ({ page, guard 
 test('shows usage with the estimated cost and where the price comes from', async ({ page }) => {
   await signIn(page);
   await page.getByRole('navigation').getByRole('link', { name: 'Usage' }).click();
-  await expect(page.getByText('Estimated cost: $0.1406')).toBeVisible();
+  await expect(page.getByRole('definition').filter({ hasText: '$0.1406' })).toBeVisible();
   await expect(page.getByText('66% of input tokens came from the cache.')).toBeVisible();
   await expect(page.getByText('list prices as of 2026-09-25')).toBeVisible();
 });

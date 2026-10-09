@@ -53,6 +53,11 @@ spec:
             - name: health
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.console.enabled }}
+            - name: console
+              containerPort: {{ .Values.console.port }}
+              protocol: TCP
+            {{- end }}
           startupProbe:
             httpGet:
               path: /healthz

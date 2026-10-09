@@ -26,6 +26,8 @@ export interface AgentDraft {
     expiresAfterMinutes: string;
     destructiveActions: DestructivePolicy;
   };
+  /** The read-only web console the agent serves on 127.0.0.1:8081 (or via port-forward). */
+  console: { enabled: boolean };
 }
 
 export interface ConnectorDraft {
@@ -43,6 +45,7 @@ export function emptyDraft(): AgentDraft {
     model: { provider: 'anthropic', name: '', fields: modelFieldDefaults('anthropic') },
     connectors: {},
     policy: { approvers: '', expiresAfterMinutes: '15', destructiveActions: 'deny' },
+    console: { enabled: true },
   };
 }
 
@@ -120,6 +123,8 @@ const draftSchema = z.strictObject({
     expiresAfterMinutes: str,
     destructiveActions: z.enum(['deny', 'require-approval']),
   }),
+  // Links made before the console existed have no console field: it defaults to on.
+  console: z.strictObject({ enabled: z.boolean() }).optional(),
 });
 
 function toBase64Url(text: string): string {
@@ -175,6 +180,7 @@ export function decodeDraft(hash: string): DecodeResult {
     },
     connectors: {},
     policy: raw.policy,
+    console: raw.console ?? { enabled: true },
   };
   for (const [id, entry] of Object.entries(raw.connectors)) {
     const manifest = getConnector(id);

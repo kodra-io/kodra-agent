@@ -9,7 +9,6 @@
   "app.loading": "جار التحميل...",
   "app.error": "تعذر تحميل هذه الصفحة: {message}",
   "app.readOnly": "للقراءة فقط. تتم الموافقة على التغييرات في Slack أو في الطرفية.",
-
   "nav.label": "الأقسام",
   "nav.overview": "نظرة عامة",
   "nav.connectors": "الموصلات",
@@ -17,14 +16,12 @@
   "nav.investigations": "التحقيقات",
   "nav.usage": "الاستهلاك",
   "nav.approvals": "الموافقات",
-
   "login.title": "تسجيل الدخول",
   "login.intro": "أدخل رمز لوحة التحكم. تجده باسم KODRA_CONSOLE_TOKEN في ملف ‎.env الخاص بالوكيل، أو في Secret الخاص به على Kubernetes.",
   "login.token": "رمز لوحة التحكم",
   "login.submit": "تسجيل الدخول",
   "login.wrong": "هذا الرمز غير صحيح.",
   "login.tooMany": "محاولات كثيرة. انتظر دقيقة ثم حاول مرة أخرى.",
-
   "overview.title": "نظرة عامة",
   "overview.model": "النموذج",
   "overview.version": "الإصدار",
@@ -40,7 +37,6 @@
   "overview.minutes": "{n} دقيقة",
   "overview.hours": "{h} ساعة و{m} دقيقة",
   "overview.days": "{d} يوم و{h} ساعة",
-
   "connectors.title": "الموصلات",
   "connectors.access": "الصلاحية",
   "connectors.on": "مفعّل",
@@ -48,11 +44,9 @@
   "connectors.noTools": "لا توجد أدوات للنموذج.",
   "connectors.reason": "السبب",
   "connectors.fix": "طريقة الإصلاح",
-
   "risk.read": "قراءة",
   "risk.write": "كتابة، تحتاج إلى موافقة",
   "risk.destructive": "حذف أو تغيير جذري، يحتاج إلى موافقة",
-
   "activity.title": "النشاط",
   "activity.intro": "كل ما قام به الوكيل، من سجل التدقيق. الأسرار محذوفة.",
   "activity.event": "الحدث",
@@ -66,7 +60,6 @@
   "activity.detail": "التفاصيل",
   "activity.empty": "لا توجد نتائج مطابقة.",
   "activity.more": "عرض الأقدم",
-
   "event.task.start": "سؤال",
   "event.model.call": "استدعاء النموذج",
   "event.tool.call": "استدعاء أداة",
@@ -74,18 +67,15 @@
   "event.approval.decision": "قرار موافقة",
   "event.result": "إجابة",
   "event.error": "خطأ",
-
   "decision.allowed": "مسموح",
   "decision.approved": "تمت الموافقة",
   "decision.denied": "مرفوض",
   "decision.blocked": "محظور",
   "decision.expired": "انتهت المهلة",
-
   "investigations.title": "التحقيقات",
   "investigations.intro": "التنبيهات التي فحصها الوكيل للقراءة فقط، وما توصل إليه.",
   "investigations.empty": "لم يتم التحقيق في أي تنبيه بعد.",
   "investigations.findings": "النتائج",
-
   "usage.title": "الاستهلاك",
   "usage.intro": "الرموز التي استخدمها الوكيل، من سجل التدقيق.",
   "usage.priceSource": "التكلفة تقديرية حسب أسعار {source} بتاريخ {date}.",
@@ -102,7 +92,6 @@
   "usage.day": "اليوم",
   "usage.question": "السؤال",
   "usage.empty": "لا توجد استدعاءات للنموذج بعد.",
-
   "approvals.title": "الموافقات",
   "approvals.intro": "التغييرات التي طلبها الوكيل، وقرار صاحب الموافقة. يتم القرار في Slack أو في الطرفية.",
   "approvals.asked": "وقت الطلب",
@@ -112,5 +101,8 @@
   "approvals.outcome": "النتيجة",
   "approvals.waiting": "لم يُسجل قرار",
   "approvals.decided": "{decision} بواسطة {who}",
-  "approvals.empty": "لا توجد طلبات موافقة بعد."
+  "approvals.empty": "لا توجد طلبات موافقة بعد.",
+  "connectors.sharedLimits": "لكل الأدوات:",
+  "connectors.usedByShip": "يستخدمه الأمر kodra-agent ship لبناء الصور واختبارها. لا يحصل النموذج منه على أدوات.",
+  "connectors.usedForChat": "يُستخدم لرسائل Slack والموافقات. لا يحصل النموذج منه على أدوات."
 }

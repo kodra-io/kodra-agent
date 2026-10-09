@@ -41,11 +41,12 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
     ctx.term.out(dryRunManifest(config, uses, opts.namespace ?? AGENT_NAMESPACE));
     return 0;
   }
-  if (uses.length === 0) {
+  // With the console on, there is always one value to store: its sign-in token.
+  if (uses.length === 0 && !config.spec.console.enabled) {
     ctx.term.out('This configuration needs no secrets. Nothing to do.');
     return 0;
   }
-  if (!opts.nonInteractive && !ctx.prompter) {
+  if (uses.length > 0 && !opts.nonInteractive && !ctx.prompter) {
     ctx.term.err(
       'No terminal to ask questions on. Run with --non-interactive to read values from the environment.',
     );
@@ -57,10 +58,12 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
   const existing = existingText === null ? new Map<string, string>() : parseEnvFile(existingText);
   for (const value of existing.values()) ctx.redactor.add(value);
 
-  ctx.term.out(
-    `Setting up ${String(uses.length)} secret${uses.length === 1 ? '' : 's'} for ${config.metadata.name} (${target}).`,
-  );
-  ctx.term.out('Values are hidden as you type and are never shown again.');
+  if (uses.length > 0) {
+    ctx.term.out(
+      `Setting up ${String(uses.length)} secret${uses.length === 1 ? '' : 's'} for ${config.metadata.name} (${target}).`,
+    );
+    ctx.term.out('Values are hidden as you type and are never shown again.');
+  }
 
   const collected: Collected = new Map();
   const failures: string[] = [];

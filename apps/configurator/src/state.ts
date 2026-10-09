@@ -25,7 +25,8 @@ export type Action =
   | { type: 'optionalSecret'; id: string; key: string; included: boolean }
   | { type: 'approvers'; value: string }
   | { type: 'expires'; value: string }
-  | { type: 'destructive'; value: DestructivePolicy };
+  | { type: 'destructive'; value: DestructivePolicy }
+  | { type: 'console'; enabled: boolean };
 
 export function reducer(draft: AgentDraft, action: Action): AgentDraft {
   switch (action.type) {
@@ -87,6 +88,8 @@ export function reducer(draft: AgentDraft, action: Action): AgentDraft {
       return { ...draft, policy: { ...draft.policy, expiresAfterMinutes: action.value } };
     case 'destructive':
       return { ...draft, policy: { ...draft.policy, destructiveActions: action.value } };
+    case 'console':
+      return { ...draft, console: { enabled: action.enabled } };
   }
 }
 

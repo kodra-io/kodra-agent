@@ -22,6 +22,16 @@ COPY packages packages
 COPY apps/agent apps/agent
 COPY docker/mcp docker/mcp
 
+# The read-only web console (apps/console), built to static files the agent serves.
+FROM node:24.21.0-trixie-slim AS console
+RUN npm install --global --no-audit --no-fund pnpm@12.8.1
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/console/package.json apps/console/
+RUN pnpm install --frozen-lockfile --filter @kodra-agent/console
+COPY apps/console apps/console
+RUN pnpm --filter @kodra-agent/console build
+
 # MCP servers, preinstalled so the agent starts them without downloading anything:
 # release binaries (SHA-256 verified), PyPI servers (hash-locked), npm servers (npm ci).
 FROM build AS mcp
@@ -52,6 +62,7 @@ COPY --from=helm /usr/bin/helm /usr/local/bin/helm
 COPY --chmod=755 docker/aws /usr/local/bin/aws
 COPY --from=mcp /opt/kodra-mcp /opt/kodra-mcp
 COPY --from=build /app /app
+COPY --from=console /app/apps/console/dist /app/apps/console/dist
 # Caches go to /tmp, so the root filesystem can be read-only.
 ENV NODE_ENV=production \
     KODRA_MCP_DIR=/opt/kodra-mcp \
@@ -62,7 +73,8 @@ ENV NODE_ENV=production \
     npm_config_update_notifier=false
 USER 10001:10001
 WORKDIR /etc/kodra-agent
-EXPOSE 8080
+# 8080: /healthz and /readyz. 8081: the read-only console (spec.console).
+EXPOSE 8080 8081
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 ENTRYPOINT ["node", "--disable-warning=ExperimentalWarning", "/app/apps/agent/src/bin.ts"]

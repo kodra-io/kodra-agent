@@ -184,6 +184,33 @@ describe('init on compose', () => {
   });
 });
 
+describe('init with no secrets to ask for', () => {
+  const noSecrets = async (console: boolean) => {
+    const dir = await tempDir();
+    const yaml = configYaml({
+      auditPath: posixPath(join(dir, 'audit.jsonl')),
+      model: '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.1:9',
+    });
+    const path = await writeConfig(console ? yaml : `${yaml}  console:\n    enabled: false\n`, dir);
+    return { dir, path };
+  };
+
+  it('still creates the console token, without asking anything', async () => {
+    const { dir, path } = await noSecrets(true);
+    const t = testContext({ prompter: scriptedPrompter([]) });
+    expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
+    expect(await readFile(join(dir, '.env'), 'utf8')).toMatch(/^KODRA_CONSOLE_TOKEN=\S{43}$/m);
+  });
+
+  it('has nothing to do with the console off', async () => {
+    const { dir, path } = await noSecrets(false);
+    const t = testContext();
+    expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
+    expect(t.output()).toContain('This configuration needs no secrets. Nothing to do.');
+    await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
+  });
+});
+
 describe('init --non-interactive', () => {
   it('reads values from the environment and checks them', async () => {
     server = await anthropicServer('ci-key-1234');
