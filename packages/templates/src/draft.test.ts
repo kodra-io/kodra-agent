@@ -64,6 +64,17 @@ describe('URL hash', () => {
     expect(decoded.draft.model.fields).toEqual({ baseUrl: '' });
   });
 
+  it('turns the console and its chat on for links made before they existed', () => {
+    const withoutConsole: Partial<ReturnType<typeof composeDraft>> =
+      structuredClone(composeDraft());
+    delete withoutConsole.console;
+    const old = decodeDraft(encodeRaw(withoutConsole));
+    expect(old.ok && old.draft.console).toEqual({ enabled: true, chat: true });
+    const beforeChat = { ...withoutConsole, console: { enabled: false } };
+    const decoded = decodeDraft(encodeRaw(beforeChat));
+    expect(decoded.ok && decoded.draft.console).toEqual({ enabled: false, chat: true });
+  });
+
   it('falls back to a valid access level', () => {
     const raw = structuredClone(composeDraft());
     const prometheus = raw.connectors['prometheus'];

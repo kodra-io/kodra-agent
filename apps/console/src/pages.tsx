@@ -6,141 +6,26 @@ import {
   type AuditRecord,
   type ConnectorView,
   type Investigation,
+  type PendingApproval,
   type StatusView,
   type UsageTotals,
   type UsageView,
 } from './api.ts';
+import { ApprovalCard } from './approval.tsx';
 import { useI18n, type MessageKey } from './i18n.tsx';
+import { useLoad } from './load.ts';
+import { Badge, Cell, Ltr, Page, Table } from './ui.tsx';
+
+/** Who is signed in: `console` (the shared token) or `console:<name>`. */
+export interface Me {
+  user: string;
+  canApprove: boolean;
+}
 
 export interface PageProps {
   onSignedOut: () => void;
+  me: Me;
 }
-
-/** Loads one API route; a 401 signs the page out. */
-function useLoad<T>(load: () => Promise<T>, onSignedOut: () => void) {
-  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({
-    data: null,
-    error: null,
-    loading: true,
-  });
-  const [nonce, setNonce] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    load()
-      .then((data) => {
-        if (alive) setState({ data, error: null, loading: false });
-      })
-      .catch((e: unknown) => {
-        if (!alive) return;
-        if (e instanceof SignedOut) {
-          onSignedOut();
-          return;
-        }
-        setState((s) => ({
-          ...s,
-          error: e instanceof Error ? e.message : String(e),
-          loading: false,
-        }));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [load, nonce, onSignedOut]);
-  const reload = useCallback(() => {
-    setState((s) => ({ ...s, loading: true }));
-    setNonce((n) => n + 1);
-  }, []);
-  return { ...state, reload };
-}
-
-function Page({
-  title,
-  intro,
-  onRefresh,
-  loading,
-  error,
-  children,
-}: {
-  title: MessageKey;
-  intro?: MessageKey;
-  onRefresh: () => void;
-  loading: boolean;
-  error: string | null;
-  children: ReactNode;
-}) {
-  const { t } = useI18n();
-  return (
-    <section aria-labelledby="page-title">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 id="page-title" className="text-2xl font-bold">
-            {t(title)}
-          </h1>
-          {intro && <p className="mt-1 text-sm text-ink-secondary">{t(intro)}</p>}
-        </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="rounded-md border border-line bg-white px-3 py-1.5 text-sm hover:bg-primary-tint"
-        >
-          {t('app.refresh')}
-        </button>
-      </div>
-      <div className="mt-6" aria-busy={loading}>
-        {error && (
-          <p role="alert" className="rounded-md border border-line bg-white p-3">
-            {t('app.error', { message: error })}
-          </p>
-        )}
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function Badge({ tone, children }: { tone: 'accent' | 'plain'; children: ReactNode }) {
-  return (
-    <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
-        tone === 'accent'
-          ? 'bg-primary-tint text-primary-deep'
-          : 'border border-line bg-white text-ink'
-      }`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Table({ head, children }: { head: ReactNode[]; children: ReactNode }) {
-  return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-white">
-      <table className="w-full text-start text-sm">
-        <thead className="bg-surface text-ink-secondary">
-          <tr>
-            {head.map((h, i) => (
-              <th key={i} scope="col" className="px-3 py-2 text-start font-semibold">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line">{children}</tbody>
-      </table>
-    </div>
-  );
-}
-
-const Cell = ({ children, mono }: { children: ReactNode; mono?: boolean }) => (
-  <td className={`px-3 py-2 align-top ${mono ? 'font-mono text-xs break-all' : ''}`}>{children}</td>
-);
-
-/** Technical values (names, ids, arguments) read left to right in both languages. */
-const Ltr = ({ children }: { children: ReactNode }) => (
-  <bdi dir="ltr" className="font-mono text-xs">
-    {children}
-  </bdi>
-);
 
 function uptime(seconds: number, t: ReturnType<typeof useI18n>['t']): string {
   const m = Math.floor(seconds / 60) % 60;
@@ -574,18 +459,53 @@ export function UsagePage({ onSignedOut }: PageProps) {
   );
 }
 
-export function ApprovalsPage({ onSignedOut }: PageProps) {
+const PENDING_POLL_MS = 5_000;
+
+export function ApprovalsPage({ onSignedOut, me }: PageProps) {
   const { t, has, time } = useI18n();
   const load = useCallback(() => get<ApprovalView[]>('approvals'), []);
   const { data, error, loading, reload } = useLoad(load, onSignedOut);
+  const loadPending = useCallback(() => get<PendingApproval[]>('approvals/pending'), []);
+  const pending = useLoad(loadPending, onSignedOut);
+  const reloadPending = pending.reload;
+  useEffect(() => {
+    const timer = setInterval(reloadPending, PENDING_POLL_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [reloadPending]);
+  const refresh = () => {
+    reload();
+    reloadPending();
+  };
   return (
     <Page
       title="approvals.title"
       intro="approvals.intro"
-      onRefresh={reload}
+      onRefresh={refresh}
       loading={loading}
-      error={error}
+      error={error ?? pending.error}
     >
+      <section aria-labelledby="waiting-title" className="mb-8">
+        <h2 id="waiting-title" className="mb-2 font-bold">
+          {t('approvals.waitingTitle')}
+        </h2>
+        {pending.data?.length === 0 && (
+          <p className="text-sm text-ink-secondary">{t('approvals.noneWaiting')}</p>
+        )}
+        <div className="space-y-3">
+          {pending.data?.map((a) => (
+            <ApprovalCard
+              key={a.id}
+              approval={a}
+              canApprove={me.canApprove}
+              onDecided={refresh}
+              onSignedOut={onSignedOut}
+            />
+          ))}
+        </div>
+      </section>
+      <h2 className="mb-2 font-bold">{t('approvals.historyTitle')}</h2>
       {data?.length === 0 ? (
         <p>{t('approvals.empty')}</p>
       ) : (

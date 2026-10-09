@@ -89,6 +89,28 @@ test('dependency warnings show inline and block the download', async ({ page }) 
   await expect(connectorCard(page, 'github-actions').getByRole('alert')).toHaveCount(0);
 });
 
+test('console approvers need the console, and chat can be turned off', async ({ page }) => {
+  await fillBasics(page);
+  await goToStep(page, /Review/);
+  await page.getByLabel('Approvers').fill('@omar, console:omar');
+  await expect(page.getByText('Everything checks out. You can download your agent.')).toBeVisible();
+
+  const chat = page.getByRole('switch', { name: 'Chat in the console' });
+  await expect(chat).toBeChecked();
+  await chat.click();
+  await expect(chat).not.toBeChecked();
+
+  await page.getByRole('switch', { name: 'Turn on the web console' }).click();
+  await expect(page.getByRole('switch', { name: 'Chat in the console' })).toHaveCount(0);
+  await expect(
+    page
+      .getByTestId('problems')
+      .getByText(
+        'console:omar approves in the web console. Turn the console on, or remove console:omar.',
+      ),
+  ).toBeVisible();
+});
+
 test('coming-soon connectors are visible but cannot be enabled', async ({ page }) => {
   await fillBasics(page);
   const teams = connectorCard(page, 'teams');

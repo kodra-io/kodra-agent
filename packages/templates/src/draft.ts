@@ -26,8 +26,8 @@ export interface AgentDraft {
     expiresAfterMinutes: string;
     destructiveActions: DestructivePolicy;
   };
-  /** The read-only web console the agent serves on 127.0.0.1:8081 (or via port-forward). */
-  console: { enabled: boolean };
+  /** The web console the agent serves on 127.0.0.1:8081 (or via port-forward), and chat in it. */
+  console: { enabled: boolean; chat: boolean };
 }
 
 export interface ConnectorDraft {
@@ -45,7 +45,7 @@ export function emptyDraft(): AgentDraft {
     model: { provider: 'anthropic', name: '', fields: modelFieldDefaults('anthropic') },
     connectors: {},
     policy: { approvers: '', expiresAfterMinutes: '15', destructiveActions: 'deny' },
-    console: { enabled: true },
+    console: { enabled: true, chat: true },
   };
 }
 
@@ -123,8 +123,8 @@ const draftSchema = z.strictObject({
     expiresAfterMinutes: str,
     destructiveActions: z.enum(['deny', 'require-approval']),
   }),
-  // Links made before the console existed have no console field: it defaults to on.
-  console: z.strictObject({ enabled: z.boolean() }).optional(),
+  // Links made before the console (or its chat) existed leave them out: both default to on.
+  console: z.strictObject({ enabled: z.boolean(), chat: z.boolean().optional() }).optional(),
 });
 
 function toBase64Url(text: string): string {
@@ -180,7 +180,7 @@ export function decodeDraft(hash: string): DecodeResult {
     },
     connectors: {},
     policy: raw.policy,
-    console: raw.console ?? { enabled: true },
+    console: { enabled: raw.console?.enabled ?? true, chat: raw.console?.chat ?? true },
   };
   for (const [id, entry] of Object.entries(raw.connectors)) {
     const manifest = getConnector(id);
