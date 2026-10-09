@@ -68,6 +68,8 @@ export interface HostOptions {
   /** Overrides how a server is started (tests run fake servers). */
   launcher?: (manifest: Manifest, runtime: McpStdioRuntime) => Launch;
   timeoutMs?: number;
+  /** Connectors left out before starting (a required secret is missing), reported as failures. */
+  skipped?: readonly ConnectorFailure[];
 }
 
 export interface ConnectorInput {
@@ -169,6 +171,7 @@ export class ConnectorHost {
    */
   static async start(inputs: readonly ConnectorInput[], opts: HostOptions): Promise<ConnectorHost> {
     const host = new ConnectorHost(opts);
+    host.failed.push(...(opts.skipped ?? []));
     for (const input of inputs) {
       for (const runtime of stdioRuntimes(input.component.manifest)) {
         if (!wanted(runtime, input.component.settings)) continue;

@@ -111,10 +111,36 @@ export function policyInputFor(
   };
 }
 
+/**
+ * Whether the policy blocks a tool whatever its arguments are: a write on a read-only
+ * connector, a destructive tool under the deny policy, anything but a read in a read-only
+ * investigation. Such tools are never offered to the model: offering them misleads it about
+ * what it can do and costs tokens on every call. The policy still checks every call.
+ */
+export function alwaysBlocked(
+  tool: HostedTool,
+  policy: AgentDeps['policy'],
+  readOnly: boolean,
+): boolean {
+  if (readOnly && tool.risk !== 'read') return true;
+  return (
+    decide({
+      risk: tool.risk,
+      access: tool.access,
+      destructiveActions: policy.destructiveActions,
+      guards: [],
+      args: {},
+      settings: {},
+    }).kind === 'block'
+  );
+}
+
 function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
   const actor = deps.actor ?? 'agent';
   const tools: Record<string, Tool> = {};
-  const hostedTools = deps.host.tools();
+  const hostedTools = deps.host
+    .tools()
+    .filter((t) => !alwaysBlocked(t, deps.policy, deps.readOnly === true));
   const last = hostedTools.at(-1)?.name;
   for (const hosted of hostedTools) {
     tools[hosted.name] = dynamicTool({

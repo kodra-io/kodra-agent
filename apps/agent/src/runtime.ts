@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
-import type { AgentDeps } from './agent.ts';
+import { alwaysBlocked, type AgentDeps } from './agent.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
 import { components, loadConfig, secretLabel } from './config.ts';
@@ -59,14 +59,26 @@ export async function startRuntime(
   const inputs: ConnectorInput[] = [];
   let modelSecrets: Record<string, string> = {};
   const missing: string[] = [];
+  // A connector missing a required secret is skipped (the agent runs without it); only a
+  // missing model key stops the agent, because nothing works without the model.
+  const skipped: ConnectorFailure[] = [];
   for (const comp of components(config)) {
     const resolved = await resolveAll(comp.secrets, { env, redactor: ctx.redactor });
-    for (const gap of resolved.missing) {
-      if (isSecretRequired(gap.use.spec, config.spec.target))
-        missing.push(`${secretLabel(gap.use)}: ${gap.reason}`);
-    }
+    const gaps = resolved.missing
+      .filter((gap) => isSecretRequired(gap.use.spec, config.spec.target))
+      .map((gap) => `${secretLabel(gap.use)}: ${gap.reason}`);
     if (comp.manifest.category === 'model') {
+      missing.push(...gaps);
       modelSecrets = resolved.values;
+      continue;
+    }
+    if (gaps.length > 0) {
+      skipped.push({
+        connector: comp.id,
+        displayName: comp.displayName,
+        server: undefined,
+        reason: `missing ${gaps.join('; ')}`,
+      });
       continue;
     }
     const entry = config.spec.connectors[comp.id];
@@ -116,6 +128,7 @@ export async function startRuntime(
   // A connector that cannot start is skipped, not fatal: the agent works with the rest.
   const connectorLogPath = join(dirname(config.spec.audit.path), 'connectors.log');
   const host = await ConnectorHost.start(inputs, {
+    skipped,
     redactor: ctx.redactor,
     log: options.connectorLogFile ? fileLogger(connectorLogPath, ctx.redactor) : ctx.log,
     audit,
@@ -173,6 +186,9 @@ export function failureHint(
   ) {
     return 'On Docker Compose, Kubernetes needs a kubeconfig: copy it to secrets/kubeconfig in the bundle folder, then restart.';
   }
+  if (failure.reason.startsWith('missing ')) {
+    return 'The agent runs without it. Run `kodra-agent init` to set it, then restart.';
+  }
   // Only a source checkout fetches server binaries; the agent image has them preinstalled.
   if (!env['KODRA_MCP_DIR'] && /no .* server build|ENOENT/.test(failure.reason)) {
     return 'The server binary is missing. In a source checkout, run: pnpm mcp:fetch';
@@ -182,10 +198,29 @@ export function failureHint(
 
 /** One line per connector: access level and tool count, or why it is not available. */
 export function describeConnectors(runtime: Runtime): string[] {
+  // Count what the model is offered: tools the policy always blocks are left out.
+  const policy = {
+    destructiveActions: runtime.config.spec.policy.destructiveActions,
+    expiresAfterMinutes: runtime.config.spec.policy.approvals.expiresAfterMinutes,
+  };
   const counts = new Map<string, number>();
-  for (const tool of runtime.host.tools())
+  for (const tool of runtime.host.tools()) {
+    if (alwaysBlocked(tool, policy, false)) continue;
     counts.set(tool.connector, (counts.get(tool.connector) ?? 0) + 1);
+  }
   const failed = new Map(runtime.host.failures().map((f) => [f.connector, f.reason]));
+  const notStarted = runtime.host
+    .failures()
+    .filter((f) => !runtime.inputs.some((i) => i.component.id === f.connector))
+    .map((f) => `${f.displayName}: not available (${f.reason.split('\n')[0] ?? f.reason})`);
+  return [...connectorLines(runtime, counts, failed), ...notStarted];
+}
+
+function connectorLines(
+  runtime: Runtime,
+  counts: ReadonlyMap<string, number>,
+  failed: ReadonlyMap<string, string>,
+): string[] {
   return runtime.inputs.map((input) => {
     const name = input.component.displayName;
     const reason = failed.get(input.component.id);

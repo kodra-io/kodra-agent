@@ -51,16 +51,6 @@ function scriptedModel() {
           return Promise.resolve(
             call('kubernetes__pods_log', { namespace: 'payments', name: 'web-1' }),
           );
-        if (toolTurns === 1) {
-          return Promise.resolve(
-            call('kubernetes__resources_scale', {
-              namespace: 'payments',
-              name: 'web',
-              scale: 0,
-              kodra_reason: 'stop it',
-            }),
-          );
-        }
         return Promise.resolve(
           say('The database is unreachable. Suggested fix: check the db service.'),
         );
@@ -169,8 +159,6 @@ describe('kodra-agent run', () => {
       );
       expect(findings.text).toContain('The database is unreachable.');
       expect(findings.threadTs).toBeUndefined();
-      const investigationPrompt = JSON.stringify(model.doGenerateCalls.map((c) => c.prompt));
-      expect(investigationPrompt).toContain('investigations are read-only');
 
       // A mention asks for a change; the approval message appears in the thread.
       const mention = slack.handlers.onMention({
@@ -229,14 +217,12 @@ describe('kodra-agent run', () => {
           actor: 'slack:U0ASKER',
         }),
       );
-      expect(audit).toContainEqual(
-        expect.objectContaining({
-          event: 'tool.call',
-          tool: 'resources_scale',
-          decision: 'blocked',
-          actor: 'monitor',
-        }),
-      );
+      // Investigations are read-only: the model is never even offered the write tool.
+      const investigationTools = model.doGenerateCalls
+        .filter((c) => JSON.stringify(c.prompt).includes('A monitoring alert is firing'))
+        .flatMap((c) => (c.tools ?? []).map((t) => t.name));
+      expect(investigationTools).toContain('kubernetes__pods_log');
+      expect(investigationTools).not.toContain('kubernetes__resources_scale');
 
       // The kubeconfig token echoed by the server never reaches Slack, the model, or the audit log.
       const everything = [
@@ -301,7 +287,8 @@ describe('kodra-agent run', () => {
     expect(t.term.stderr.join('\n')).toContain('Grafana is not available:');
     const hello = slack.posted[0]?.text ?? '';
     expect(hello).toContain('• Grafana: not available (');
-    expect(hello).toMatch(/• Kubernetes: read-only, \d+ tools/);
+    // Counts what the model is offered: reads only on a read-only connector.
+    expect(hello).toContain('• Kubernetes: read-only, 1 tool\n');
 
     stop.abort();
     expect(await running).toBe(0);

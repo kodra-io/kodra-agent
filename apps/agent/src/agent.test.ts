@@ -233,26 +233,36 @@ describe('agent loop', () => {
     );
   });
 
-  it('blocks writes on a read-only connector and destructive tools under the deny policy', async () => {
-    const { deps, model, channel } = await setup({
-      responses: [
-        call('fakek8s__resources_scale', {
-          namespace: 'api',
-          name: 'web',
-          scale: 1,
-          [REASON_ARG]: 'x',
-        }),
-        call('fakek8s__wipe_everything', { namespace: 'api', [REASON_ARG]: 'x' }),
-        answer('Both blocked.'),
-      ],
-    });
-    await runTurn(deps, [], 'do things', 't6');
-    expect(promptOf(model, 1)).toContain('BLOCKED by policy: this connector is read-only');
-    expect(promptOf(model, 2)).toContain(
-      'BLOCKED by policy: destructive actions are denied by policy',
+  it('never offers tools the policy would always block', async () => {
+    const offered = async (opts: Parameters<typeof setup>[0], readOnly = false) => {
+      const { deps, model } = await setup(opts);
+      await runTurn({ ...deps, readOnly }, [], 'hi', 't-offer');
+      return (model.doGenerateCalls[0]?.tools ?? []).map((t) => t.name).sort();
+    };
+    // Read-only connector, deny policy: reads only.
+    expect(await offered({ responses: [answer('ok')] })).toEqual([
+      'fakek8s__pods_log',
+      'fakek8s__whoami',
+    ]);
+    // Read-write: the write is offered (it asks an approver); destructive stays out under deny.
+    expect(await offered({ access: 'read-write-approved', responses: [answer('ok')] })).toContain(
+      'fakek8s__resources_scale',
     );
-    expect(promptOf(model, 2)).not.toContain('WIPED');
-    expect(channel.requests).toEqual([]);
+    expect(
+      await offered({ access: 'read-write-approved', responses: [answer('ok')] }),
+    ).not.toContain('fakek8s__wipe_everything');
+    // Destructive with approval allowed: offered too.
+    expect(
+      await offered({
+        access: 'read-write-approved',
+        destructive: 'require-approval',
+        responses: [answer('ok')],
+      }),
+    ).toContain('fakek8s__wipe_everything');
+    // A read-only investigation gets reads only, whatever the access.
+    expect(
+      await offered({ access: 'read-write-approved', responses: [answer('ok')] }, true),
+    ).toEqual(['fakek8s__pods_log', 'fakek8s__whoami']);
   });
 
   it('stops when the token budget is spent', async () => {
