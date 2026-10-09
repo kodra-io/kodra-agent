@@ -56,9 +56,10 @@ export async function startRuntime(
   // Inside the container compose already loads .env; outside it, read it too.
   const dotenvText = await readFile(join(dir, '.env'), 'utf8').catch(() => '');
   const env = { ...Object.fromEntries(parseEnvFile(dotenvText)), ...ctx.env };
-  // The console sign-in token is a secret like any other.
-  const consoleToken = env[CONSOLE_TOKEN_ENV];
-  if (consoleToken) ctx.redactor.add(consoleToken);
+  // Console sign-in tokens (shared and per approver) are secrets like any other.
+  for (const [key, value] of Object.entries(env)) {
+    if (key.startsWith(CONSOLE_TOKEN_ENV) && value) ctx.redactor.add(value);
+  }
 
   const inputs: ConnectorInput[] = [];
   let modelSecrets: Record<string, string> = {};

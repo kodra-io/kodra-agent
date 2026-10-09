@@ -1,4 +1,4 @@
-import type { ApprovalChannel, ApprovalOutcome, ApprovalRequest } from '../approvals.ts';
+import type { ApprovalOutcome, ApprovalRequest, SettleableChannel } from '../approvals.ts';
 import type { AuditLog } from '../audit.ts';
 import type { Redactor } from '../redactor.ts';
 import type { IncomingAction, SlackApi } from './api.ts';
@@ -38,8 +38,11 @@ export class SlackApprovals {
   }
 
   /** An approval channel that posts into a given channel and thread. */
-  channelFor(channel: string, threadTs: string | undefined): ApprovalChannel {
-    return { request: (req) => this.request(req, channel, threadTs) };
+  channelFor(channel: string, threadTs: string | undefined): SettleableChannel {
+    return {
+      request: (req) => this.request(req, channel, threadTs),
+      settle: (id, outcome) => this.finish(id, outcome, outcomeLabel(outcome)),
+    };
   }
 
   get pendingCount(): number {
@@ -183,4 +186,13 @@ export class SlackApprovals {
     }
     return blocks;
   }
+}
+
+/** How a decision reads on the Slack message, wherever it was made. */
+export function outcomeLabel(outcome: ApprovalOutcome): string {
+  if (outcome.decision === 'expired') return 'expired: nothing was run';
+  const who = outcome.by.startsWith('console:')
+    ? `${outcome.by} in the console`
+    : `<@${outcome.by}>`;
+  return `${outcome.decision} by ${who}`;
 }

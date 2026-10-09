@@ -53,7 +53,39 @@ export interface AgentDeps {
   actor?: string;
   /** Investigations: every tool that is not a read is blocked, whatever the access level. */
   readOnly?: boolean;
+  /** What happens during a turn, as it happens (the console's live view). Redacted. */
+  events?: (event: TurnEvent) => void;
 }
+
+/**
+ * A step of a turn, for a live view. Arguments are redacted; tool output is never included.
+ * `call` ties together the events of one tool call.
+ */
+export type TurnEvent =
+  | {
+      type: 'tool';
+      call: string;
+      connector: string;
+      tool: string;
+      risk: string;
+      args: string;
+      state: ToolState;
+      detail?: string;
+    }
+  | {
+      type: 'approval';
+      call: string;
+      id: string;
+      connector: string;
+      tool: string;
+      risk: string;
+      args: string;
+      reason: string;
+      expiresAt: string;
+    }
+  | { type: 'decision'; call: string; id: string; decision: string; by?: string };
+
+export type ToolState = 'running' | 'ok' | 'error' | 'blocked' | 'denied' | 'expired';
 
 /**
  * Wraps tool output as labeled, untrusted data (golden rule 5), redacted and size-limited.
@@ -165,6 +197,19 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
           tool: hosted.tool,
           risk: hosted.risk,
         } as const;
+        const call = options.toolCallId;
+        const toolEvent = (state: ToolState, detail?: string) => {
+          deps.events?.({
+            type: 'tool',
+            call,
+            connector: hosted.connector,
+            tool: hosted.tool,
+            risk: hosted.risk,
+            args: redactedArgs,
+            state,
+            ...(detail === undefined ? {} : { detail: deps.redactor.redact(detail) }),
+          });
+        };
 
         const decision: Decision =
           deps.readOnly && hosted.risk !== 'read'
@@ -176,6 +221,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
 
         if (decision.kind === 'block') {
           deps.term.out(`  [blocked] ${source}: ${decision.reason}`);
+          toolEvent('blocked', decision.reason);
           await deps.audit.append({
             ...base,
             event: 'tool.call',
@@ -208,25 +254,51 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
             event: 'approval.request',
             detail: `${req.id}; args ${redactedArgs}`,
           });
+          deps.events?.({
+            type: 'approval',
+            call,
+            id: req.id,
+            connector: req.connector,
+            tool: req.tool,
+            risk: req.risk,
+            args: req.args,
+            reason: req.reason,
+            expiresAt: req.expiresAt.toISOString(),
+          });
           const outcome = await deps.approvals.request(req);
+          const note =
+            outcome.decision === 'denied' && outcome.note
+              ? deps.redactor.redact(outcome.note).slice(0, 500)
+              : undefined;
           await deps.audit.append({
             ...base,
             event: 'approval.decision',
             actor: outcome.decision === 'expired' ? actor : outcome.by,
             decision: outcome.decision,
-            detail: req.id,
+            detail: note ? `${req.id}; ${note}` : req.id,
+          });
+          deps.events?.({
+            type: 'decision',
+            call,
+            id: req.id,
+            decision: outcome.decision,
+            ...(outcome.decision === 'expired' ? {} : { by: outcome.by }),
           });
           if (outcome.decision !== 'approved') {
             deps.term.out(`  [${outcome.decision}] ${source}`);
+            toolEvent(outcome.decision, note);
             return wrapUntrusted(
               source,
-              `The approver ${outcome.decision === 'expired' ? 'did not answer in time' : 'denied this action'}. Nothing was run.`,
+              outcome.decision === 'expired'
+                ? 'The approver did not answer in time. Nothing was run.'
+                : `The approver denied this action${note ? `, saying: ${note}` : ''}. Nothing was run.`,
               deps.redactor,
             );
           }
         }
 
         deps.term.out(`  [${hosted.risk}] ${source} ${redactedArgs}`);
+        toolEvent('running');
         try {
           const result = await deps.host.call(hosted.name, args, options.abortSignal);
           await deps.audit.append({
@@ -235,6 +307,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
             decision: decision.kind === 'approve' ? 'approved' : 'allowed',
             detail: `${result.isError ? 'error' : 'ok'}; args ${redactedArgs}`,
           });
+          toolEvent(result.isError ? 'error' : 'ok');
           return wrapUntrusted(
             source,
             result.isError ? `ERROR: ${result.text}` : result.text,
@@ -247,6 +320,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
             event: 'error',
             detail: deps.redactor.redact(message),
           });
+          toolEvent('error', message);
           return wrapUntrusted(source, `ERROR: the tool call failed: ${message}`, deps.redactor);
         }
       },

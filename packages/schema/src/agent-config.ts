@@ -36,13 +36,27 @@ const agentName = z
     'must be lowercase letters, digits, and hyphens (start and end with a letter or digit, at most 53 characters)',
   );
 
-// Slack handles like @omar, or Slack user ids like U0123ABCD.
+/** Console approvers: `console:<name>`, each signing in with their own token. */
+export const CONSOLE_APPROVER_PREFIX = 'console:';
+const CONSOLE_APPROVER = /^console:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+
+// Slack handles like @omar, Slack user ids like U0123ABCD, or console approvers like console:omar.
 const approver = z
   .string()
   .regex(
-    /^(@[A-Za-z0-9][A-Za-z0-9._-]{0,79}|[UW][A-Z0-9]{2,})$/,
-    'must be a Slack handle like @omar or a Slack user id like U0123ABCD',
+    /^(@[A-Za-z0-9][A-Za-z0-9._-]{0,79}|[UW][A-Z0-9]{2,}|console:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?)$/,
+    'must be a Slack handle like @omar, a Slack user id like U0123ABCD, or a console approver like console:omar',
   );
+
+/** Whether an approver entry is a console approver (`console:omar`). */
+export function isConsoleApprover(entry: string): boolean {
+  return CONSOLE_APPROVER.test(entry);
+}
+
+/** The environment variable holding a console approver's sign-in token: console:on-call -> KODRA_CONSOLE_TOKEN_ON_CALL. */
+export function consoleApproverTokenEnv(entry: string): string {
+  return `KODRA_CONSOLE_TOKEN_${entry.slice(CONSOLE_APPROVER_PREFIX.length).toUpperCase().replaceAll('-', '_')}`;
+}
 
 const awsRegion = z
   .string()
@@ -159,11 +173,13 @@ const consoleSchema = z
   .strictObject({
     enabled: z.boolean().default(true),
     port: z.int().min(1024).max(65535).default(8081),
+    /** Chat with the agent in the browser. Changes still need an approver. */
+    chat: z.boolean().default(true),
     /** Overrides the model's list prices for estimated cost, in US dollars per million tokens. */
     pricing: modelPrice.optional(),
   })
   .prefault({})
-  .meta({ description: 'The read-only web console.' });
+  .meta({ description: 'The web console: status, activity, usage, chat, and approvals.' });
 
 function fieldSchema(field: ConfigField): z.ZodType {
   const description = field.description.en;
@@ -312,6 +328,16 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
           message: issue.message.en,
         });
       }
+      if (
+        !config.spec.console.enabled &&
+        config.spec.policy.approvals.approvers.some(isConsoleApprover)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['spec', 'console', 'enabled'],
+          message: 'console approvers need the console: set spec.console.enabled to true.',
+        });
+      }
     });
 }
 
@@ -350,7 +376,12 @@ export interface AgentConfig {
     telemetry: { enabled: boolean };
     monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
     limits: { maxSteps: number; tokenBudget: number; timeoutMinutes: number };
-    console: { enabled: boolean; port: number; pricing?: ModelPrice | undefined };
+    console: {
+      enabled: boolean;
+      port: number;
+      chat: boolean;
+      pricing?: ModelPrice | undefined;
+    };
   };
 }
 

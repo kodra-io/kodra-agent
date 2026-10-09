@@ -3,9 +3,10 @@ import type { Server } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test-helpers.ts';
-import { CONSOLE_CSP, startConsoleServer } from './server.ts';
+import { ACTION_HEADER, CONSOLE_CSP, startConsoleServer, type StreamRoute } from './server.ts';
 
 const TOKEN = 'console-token-for-tests-7c1e9b2a'; // gitleaks:allow
+const APPROVER_TOKEN = 'approver-token-for-tests-4d2f8e1c'; // gitleaks:allow
 let server: Server | undefined;
 afterEach(async () => {
   const running = server;
@@ -14,10 +15,20 @@ afterEach(async () => {
       running.close(() => {
         r();
       });
+      running.closeAllConnections();
     });
   }
   server = undefined;
 });
+
+let streamStops = 0;
+const ticker: StreamRoute = ({ query, lastEventId }, send) => {
+  if (query.get('conversation') !== 'c1') return null;
+  send(lastEventId + 1, { hello: 'world' });
+  return () => {
+    streamStops += 1;
+  };
+};
 
 async function start(opts: { staticDir?: string } = {}) {
   const dir = opts.staticDir ?? (await tempDir());
@@ -29,9 +40,18 @@ async function start(opts: { staticDir?: string } = {}) {
   server = await startConsoleServer({
     port: 0,
     host: '127.0.0.1',
-    token: TOKEN,
+    accounts: [
+      { token: TOKEN, user: { name: 'console', canApprove: false } },
+      { token: APPROVER_TOKEN, user: { name: 'console:omar', canApprove: true } },
+    ],
     staticDir: dir,
-    routes: { status: () => ({ ok: true }), echo: (q) => ({ q: q.get('x') }) },
+    routes: {
+      status: () => ({ ok: true }),
+      echo: ({ query, user }) => ({ q: query.get('x'), user: user.name }),
+    },
+    actions: { say: ({ user, body }) => ({ status: 200, body: { user: user.name, body } }) },
+    streams: { 'chat/events': ticker },
+    features: { chat: true },
   });
   const address = server.address();
   const base = `http://127.0.0.1:${String(typeof address === 'object' && address ? address.port : 0)}`;
@@ -63,7 +83,13 @@ describe('console server', () => {
 
     const cookie = sessionCookie(ok);
     const res = await fetch(`${base}/api/echo?x=1`, { headers: { cookie } });
-    expect(await res.json()).toEqual({ q: '1' });
+    expect(await res.json()).toEqual({ q: '1', user: 'console' });
+    expect(await (await fetch(`${base}/api/session`, { headers: { cookie } })).json()).toEqual({
+      signedIn: true,
+      user: 'console',
+      canApprove: false,
+      features: { chat: true },
+    });
     expect(res.headers.get('cache-control')).toBe('no-store');
 
     await fetch(`${base}/api/logout`, { method: 'POST', headers: { cookie } });
@@ -79,7 +105,39 @@ describe('console server', () => {
     expect((await other.login(TOKEN, { origin: 'https://evil.example' })).status).toBe(403);
   });
 
-  it('is read-only', async () => {
+  it('signs each approver in as themselves', async () => {
+    const { base, login } = await start();
+    const cookie = sessionCookie(await login(APPROVER_TOKEN));
+    const session = (await (
+      await fetch(`${base}/api/session`, { headers: { cookie } })
+    ).json()) as {
+      user: string;
+      canApprove: boolean;
+    };
+    expect(session).toMatchObject({ user: 'console:omar', canApprove: true });
+  });
+
+  it('accepts an action only with a session, the header, and a small JSON object', async () => {
+    const { base, login } = await start();
+    const cookie = sessionCookie(await login(TOKEN));
+    const say = (headers: Record<string, string>, body: string) =>
+      fetch(`${base}/api/say`, { method: 'POST', headers, body });
+    const noHeader = { cookie, 'content-type': 'application/json' };
+    const good = { ...noHeader, [ACTION_HEADER]: '1' };
+
+    const ok = await say(good, JSON.stringify({ text: 'hi' }));
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ user: 'console', body: { text: 'hi' } });
+
+    expect((await say(noHeader, '{}')).status).toBe(403);
+    expect((await say({ ...good, 'content-type': 'text/plain' }, '{}')).status).toBe(415);
+    expect((await say({ ...good, cookie: 'kodra_console=nope' }, '{}')).status).toBe(401);
+    expect((await say({ ...good, origin: 'https://evil.example' }, '{}')).status).toBe(403);
+    expect((await say(good, '[1]')).status).toBe(400);
+    expect((await say(good, JSON.stringify({ text: 'x'.repeat(17 * 1024) }))).status).toBe(400);
+  });
+
+  it('refuses unknown methods and routes', async () => {
     const { base, login } = await start();
     const cookie = sessionCookie(await login(TOKEN));
     expect((await fetch(`${base}/api/status`, { method: 'PUT', headers: { cookie } })).status).toBe(
@@ -88,6 +146,35 @@ describe('console server', () => {
     expect(
       (await fetch(`${base}/api/status`, { method: 'POST', headers: { cookie } })).status,
     ).toBe(404);
+  });
+
+  it('streams events to a signed-in session and stops them on sign-out', async () => {
+    const { base, login } = await start();
+    expect((await fetch(`${base}/api/chat/events?conversation=c1`)).status).toBe(401);
+    const cookie = sessionCookie(await login(TOKEN));
+    expect(
+      (await fetch(`${base}/api/chat/events?conversation=nope`, { headers: { cookie } })).status,
+    ).toBe(404);
+
+    const res = await fetch(`${base}/api/chat/events?conversation=c1`, {
+      headers: { cookie, 'last-event-id': '41' },
+    });
+    expect(res.headers.get('content-type')).toBe('text/event-stream; charset=utf-8');
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    let text = '';
+    while (!text.includes('world')) {
+      const { value } = await reader.read();
+      text += new TextDecoder().decode(value);
+    }
+    expect(text).toContain('id: 42\ndata: {"hello":"world"}');
+
+    const before = streamStops;
+    await fetch(`${base}/api/logout`, { method: 'POST', headers: { cookie } });
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+    expect(streamStops).toBe(before + 1);
   });
 
   it('serves the app with strict headers, assets cached, and never files outside it', async () => {

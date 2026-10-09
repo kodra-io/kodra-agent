@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
 import { formatUsage, runTurn, type AgentDeps } from '../agent.ts';
-import type { ApprovalChannel } from '../approvals.ts';
+import { fanOut, type ApprovalChannel, type SettleableChannel } from '../approvals.ts';
 import type { Redactor } from '../redactor.ts';
 import type { IncomingMessage, SlackApi } from './api.ts';
 import type { SlackApprovals } from './approvals.ts';
@@ -15,6 +15,8 @@ export interface ConversationsOptions {
   approverIds: ReadonlySet<string>;
   /** Builds agent dependencies for one turn with a given approval channel. */
   deps: (approvals: ApprovalChannel) => AgentDeps;
+  /** Other places a Slack turn's approval requests also go (the console). */
+  alsoAsk?: readonly SettleableChannel[];
   maxThreads?: number;
 }
 
@@ -72,7 +74,12 @@ export class SlackConversations {
     const text = message.text.replace(/<@[A-Z0-9]+>/g, '').trim();
     if (!text) return;
     const deps = {
-      ...this.opts.deps(this.opts.approvals.channelFor(message.channel, thread)),
+      ...this.opts.deps(
+        fanOut([
+          this.opts.approvals.channelFor(message.channel, thread),
+          ...(this.opts.alsoAsk ?? []),
+        ]),
+      ),
       actor: `slack:${message.user}`,
     };
     let reply: string;

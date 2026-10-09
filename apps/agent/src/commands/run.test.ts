@@ -364,6 +364,119 @@ describe('kodra-agent run', () => {
     expect(t.output()).not.toContain(CONSOLE_TOKEN);
   });
 
+  it('chats in the console and takes a console approval, closing the Slack request too', async () => {
+    const SHARED = 'run-console-shared-token-5c3a'; // gitleaks:allow
+    const OMAR = 'run-console-omar-token-8e1f'; // gitleaks:allow
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        approvers: ['@omar', 'console:omar'],
+        connectors: [
+          '    kubernetes:',
+          '      enabled: true',
+          '      access: read-write-approved',
+          '      config: {namespaces: [payments]}',
+          '    slack:',
+          '      enabled: true',
+          "      config: {channel: '#ops'}",
+          "      secrets: {botToken: '${env:B}', appToken: '${env:A}'}",
+        ].join('\n'),
+      }),
+      dir,
+    );
+    const slack = fakeSlack([{ id: 'U01OMAR', name: 'omar', displayName: 'Omar' }]);
+    const stop = new AbortController();
+    let consolePort = 0;
+    const t = testContext({
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        B: 'xoxb-1',
+        A: 'xapp-1',
+        KODRA_CONSOLE_TOKEN: SHARED,
+        KODRA_CONSOLE_TOKEN_OMAR: OMAR,
+      },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      slackConnection: () => slack.connection(),
+      stopSignal: stop.signal,
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+      onReady: (info) => {
+        consolePort = info.consolePort ?? 0;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (consolePort ? true : undefined));
+    const base = `http://127.0.0.1:${String(consolePort)}`;
+    const signIn = async (token: string) => {
+      const res = await fetch(`${base}/api/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      return (res.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    };
+    const post = (cookie: string, route: string, body: unknown) =>
+      fetch(`${base}/api/${route}`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+        body: JSON.stringify(body),
+      });
+
+    const team = await signIn(SHARED);
+    const sent = await post(team, 'chat', { text: 'scale web to 2' });
+    expect(sent.status).toBe(200);
+    const { conversation } = (await sent.json()) as { conversation: string };
+
+    // Live events, as the browser reads them.
+    const stream = await fetch(`${base}/api/chat/events?conversation=${conversation}`, {
+      headers: { cookie: team },
+    });
+    const reader = (stream.body as ReadableStream<Uint8Array>).getReader();
+    let text = '';
+    const readUntil = async (needle: string) => {
+      while (!text.includes(needle)) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error(`stream ended before ${needle}`);
+        text += new TextDecoder().decode(value);
+      }
+    };
+    await readUntil('"type":"approval"');
+    // The request went to Slack's channel as well.
+    await until(() =>
+      slack.posted.some((m) => m.text.includes('needs approval')) ? true : undefined,
+    );
+
+    const pending = (await (
+      await fetch(`${base}/api/approvals/pending`, { headers: { cookie: team } })
+    ).json()) as { id: string }[];
+    expect(pending).toHaveLength(1);
+    const id = pending[0]?.id ?? '';
+    // The shared token cannot approve; omar's own token can.
+    expect((await post(team, 'approvals/decide', { id, approve: true })).status).toBe(403);
+    const omar = await signIn(OMAR);
+    expect((await post(omar, 'approvals/decide', { id, approve: true })).status).toBe(200);
+
+    await readUntil('"type":"answer"');
+    expect(text).toContain('Scaled web to 2.');
+    expect(text).toContain('"by":"console:omar"');
+    expect(slack.updated.at(-1)?.text).toContain('approved by console:omar in the console');
+    await reader.cancel();
+
+    stop.abort();
+    expect(await running).toBe(0);
+    const audit = await readFile(join(dir, 'audit.jsonl'), 'utf8');
+    expect(audit).toContain('"actor":"console:omar"');
+    expect(audit).toContain('click refused: not an approver');
+    for (const secret of [SHARED, OMAR]) {
+      expect(t.output()).not.toContain(secret);
+      expect(audit).not.toContain(secret);
+    }
+  });
+
   it('refuses direct messages from people who are not approvers', async () => {
     const dir = await tempDir();
     const path = await writeConfig(

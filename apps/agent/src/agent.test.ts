@@ -9,6 +9,7 @@ import {
   weightedTokens,
   wrapUntrusted,
   type AgentDeps,
+  type TurnEvent,
 } from './agent.ts';
 import type { ApprovalChannel, ApprovalOutcome, ApprovalRequest } from './approvals.ts';
 import { AuditLog } from './audit.ts';
@@ -181,6 +182,68 @@ describe('agent loop', () => {
     expect(events).toContain('approval.request:');
     expect(events).toContain('approval.decision:approved');
     expect(events).toContain('tool.call:approved');
+  });
+
+  it('reports each step as it happens, without tool output', async () => {
+    const { deps } = await setup({
+      access: 'read-write-approved',
+      responses: [
+        call('fakek8s__pods_log', { namespace: 'api', name: 'web-1' }),
+        call('fakek8s__resources_scale', {
+          namespace: 'api',
+          name: 'web',
+          scale: 3,
+          [REASON_ARG]: 'spike',
+        }),
+        answer('Done.'),
+      ],
+    });
+    const events: TurnEvent[] = [];
+    await runTurn({ ...deps, events: (e) => events.push(e) }, [], 'fix web', 't3e');
+    expect(events.map((e) => (e.type === 'tool' ? `tool:${e.tool}:${e.state}` : e.type))).toEqual([
+      'tool:pods_log:running',
+      'tool:pods_log:ok',
+      'approval',
+      'decision',
+      'tool:resources_scale:running',
+      'tool:resources_scale:ok',
+    ]);
+    expect(events[2]).toMatchObject({
+      type: 'approval',
+      reason: 'spike',
+      call: 'c-fakek8s__resources_scale',
+    });
+    expect(events[3]).toMatchObject({ type: 'decision', decision: 'approved', by: '@omar' });
+    expect(JSON.stringify(events)).not.toContain('connection refused');
+  });
+
+  it("tells the model an approver's reason for a denial, and audits it", async () => {
+    const { deps, model, audit } = await setup({
+      access: 'read-write-approved',
+      approval: { decision: 'denied', by: 'console:omar', note: 'not during the release' },
+      responses: [
+        call('fakek8s__resources_scale', {
+          namespace: 'api',
+          name: 'web',
+          scale: 3,
+          [REASON_ARG]: 'x',
+        }),
+        answer('Denied.'),
+      ],
+    });
+    const events: TurnEvent[] = [];
+    await runTurn({ ...deps, events: (e) => events.push(e) }, [], 'scale', 't3d');
+    expect(promptOf(model, 1)).toContain('denied this action, saying: not during the release');
+    expect((await audit()).find((r) => r['event'] === 'approval.decision')).toMatchObject({
+      actor: 'console:omar',
+      decision: 'denied',
+      detail: expect.stringContaining('; not during the release') as string,
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: 'tool',
+      state: 'denied',
+      detail: 'not during the release',
+    });
   });
 
   it('requires a reason for non-read tools in the schema sent to the model', async () => {

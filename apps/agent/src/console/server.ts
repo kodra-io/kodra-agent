@@ -3,12 +3,14 @@ import { readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ConsoleUser } from './approvals.ts';
 
 /**
- * The console's HTTP server (M8a): the static app, a token sign-in, and a read-only JSON API.
- * It never writes anything the agent acts on. Security: a session cookie (HttpOnly,
- * SameSite=Strict) after a constant-time token check, sign-in rate limiting, an Origin check
- * on POST, and strict headers on every response (CSP allows only this origin).
+ * The console's HTTP server: the static app, a token sign-in, a JSON API, write actions
+ * (chat and approvals), and server-sent events. Security: a session cookie (HttpOnly,
+ * SameSite=Strict) after a constant-time token check, sign-in and message rate limits, an
+ * Origin check on every POST, a required custom header and JSON body on actions, and strict
+ * headers on every response (CSP allows only this origin).
  */
 
 /** Where the built console lives: apps/console/dist (also its path in the agent image). */
@@ -17,6 +19,10 @@ export const DEFAULT_STATIC_DIR = fileURLToPath(new URL('../../../console/dist/'
 const SESSION_COOKIE = 'kodra_console';
 const SESSION_HOURS = 12;
 const MAX_FAILED_SIGN_INS_PER_MINUTE = 10;
+/** Actions must send this header: a plain cross-site form cannot, so it is a CSRF check too. */
+export const ACTION_HEADER = 'x-kodra-console';
+const MAX_ACTION_BODY = 16 * 1024;
+const HEARTBEAT_MS = 20_000;
 
 export const CONSOLE_CSP = [
   "default-src 'none'",
@@ -50,38 +56,87 @@ const TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
-/** A read-only API route: gets the query string, returns JSON-serializable data. */
-export type ApiRoute = (query: URLSearchParams) => unknown;
+export interface RouteRequest {
+  query: URLSearchParams;
+  user: ConsoleUser;
+}
+
+/** A read route: returns JSON-serializable data. */
+export type ApiRoute = (req: RouteRequest) => unknown;
+
+/** A write route (POST with a JSON body). */
+export type ActionRoute = (
+  req: RouteRequest & { body: Record<string, unknown> },
+) => Promise<{ status: number; body: unknown }> | { status: number; body: unknown };
+
+/**
+ * A server-sent events route. Gets a `send` for each event and returns the function that
+ * stops it, or null when there is nothing to stream (404).
+ */
+export type StreamRoute = (
+  req: RouteRequest & { lastEventId: number },
+  send: (id: number, data: unknown) => void,
+) => (() => void) | null;
+
+/** A sign-in token and who it signs in. */
+export interface ConsoleAccount {
+  token: string;
+  user: ConsoleUser;
+}
 
 export interface ConsoleServerOptions {
   port: number;
   /** 0.0.0.0 in a container (compose maps it to 127.0.0.1 on the host). */
   host?: string;
-  /** The sign-in token (KODRA_CONSOLE_TOKEN). */
-  token: string;
+  /** The shared token (view and chat) and each console approver's own token. */
+  accounts: readonly ConsoleAccount[];
   routes: Record<string, ApiRoute>;
+  actions?: Record<string, ActionRoute>;
+  streams?: Record<string, StreamRoute>;
+  /** Shown to the app with the session, e.g. whether chat is on. */
+  features?: Record<string, boolean>;
   staticDir?: string;
   now?: () => number;
+}
+
+interface Session {
+  expires: number;
+  user: ConsoleUser;
+  streams: Set<() => void>;
 }
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest();
 
 export async function startConsoleServer(o: ConsoleServerOptions): Promise<Server> {
   const now = o.now ?? (() => Date.now());
-  const expected = digest(o.token);
-  const sessions = new Map<string, number>();
+  const accounts = o.accounts.map((a) => ({ digest: digest(a.token), user: a.user }));
+  const sessions = new Map<string, Session>();
   const failures = new Map<string, number[]>();
   const staticDir = resolve(o.staticDir ?? DEFAULT_STATIC_DIR);
 
-  const signedIn = (req: IncomingMessage): boolean => {
+  const sessionOf = (req: IncomingMessage): Session | null => {
     const id = cookie(req, SESSION_COOKIE);
-    const expires = id ? sessions.get(id) : undefined;
-    if (!id || expires === undefined) return false;
-    if (expires < now()) {
-      sessions.delete(id);
-      return false;
+    const session = id ? sessions.get(id) : undefined;
+    if (!id || !session) return null;
+    if (session.expires < now()) {
+      endSession(id);
+      return null;
     }
-    return true;
+    return session;
+  };
+
+  const endSession = (id: string) => {
+    const session = sessions.get(id);
+    sessions.delete(id);
+    for (const stop of session?.streams ?? []) stop();
+  };
+
+  /** Checks every account in constant time, so timing says nothing about which matched. */
+  const accountFor = (token: string): ConsoleUser | null => {
+    const given = digest(token);
+    let found: ConsoleUser | null = null;
+    for (const a of accounts) if (timingSafeEqual(given, a.digest)) found = a.user;
+    return found;
   };
 
   const server = createServer((req, res) => {
@@ -97,28 +152,33 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
 
     if (path.startsWith('/api/')) {
       res.setHeader('cache-control', 'no-store');
+      const name = path.slice('/api/'.length);
       if (req.method === 'POST') {
         if (!sameOrigin(req)) {
           json(res, 403, { error: 'cross-origin request refused' });
           return;
         }
-        if (path === '/api/login') {
+        if (name === 'login') {
           const ip = req.socket.remoteAddress ?? 'unknown';
           const recent = (failures.get(ip) ?? []).filter((t) => t > now() - 60_000);
           if (recent.length >= MAX_FAILED_SIGN_INS_PER_MINUTE) {
             json(res, 429, { error: 'too many attempts, wait a minute' });
             return;
           }
-          const body = await readBody(req);
-          const given = typeof body?.['token'] === 'string' ? body['token'] : '';
-          if (!timingSafeEqual(digest(given), expected)) {
+          const body = await readBody(req, 8 * 1024);
+          const user = accountFor(typeof body?.['token'] === 'string' ? body['token'] : '');
+          if (!user) {
             failures.set(ip, [...recent, now()]);
             json(res, 401, { error: 'wrong token' });
             return;
           }
           failures.delete(ip);
           const id = randomBytes(32).toString('base64url');
-          sessions.set(id, now() + SESSION_HOURS * 3_600_000);
+          sessions.set(id, {
+            expires: now() + SESSION_HOURS * 3_600_000,
+            user,
+            streams: new Set(),
+          });
           res.setHeader(
             'set-cookie',
             `${SESSION_COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(SESSION_HOURS * 3600)}`,
@@ -126,9 +186,9 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
           json(res, 200, { signedIn: true });
           return;
         }
-        if (path === '/api/logout') {
+        if (name === 'logout') {
           const id = cookie(req, SESSION_COOKIE);
-          if (id) sessions.delete(id);
+          if (id) endSession(id);
           res.setHeader(
             'set-cookie',
             `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
@@ -136,27 +196,71 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
           json(res, 200, { signedIn: false });
           return;
         }
-        json(res, 404, { error: 'not found' });
+        const action = o.actions?.[name];
+        if (!action) {
+          json(res, 404, { error: 'not found' });
+          return;
+        }
+        if (req.headers[ACTION_HEADER] !== '1') {
+          json(res, 403, { error: `missing the ${ACTION_HEADER} header` });
+          return;
+        }
+        if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
+          json(res, 415, { error: 'send JSON' });
+          return;
+        }
+        const session = sessionOf(req);
+        if (!session) {
+          json(res, 401, { error: 'sign in first' });
+          return;
+        }
+        const body = await readBody(req, MAX_ACTION_BODY);
+        if (!body) {
+          json(res, 400, {
+            error: `send a JSON object of at most ${String(MAX_ACTION_BODY / 1024)} KB`,
+          });
+          return;
+        }
+        const result = await action({ query: url.searchParams, user: session.user, body });
+        json(res, result.status, result.body);
         return;
       }
       if (req.method !== 'GET') {
-        json(res, 405, { error: 'read-only' });
+        json(res, 405, { error: 'method not allowed' });
         return;
       }
-      if (path === '/api/session') {
-        json(res, 200, { signedIn: signedIn(req) });
+      if (name === 'session') {
+        const session = sessionOf(req);
+        json(
+          res,
+          200,
+          session
+            ? {
+                signedIn: true,
+                user: session.user.name,
+                canApprove: session.user.canApprove,
+                features: o.features ?? {},
+              }
+            : { signedIn: false },
+        );
         return;
       }
-      if (!signedIn(req)) {
+      const session = sessionOf(req);
+      if (!session) {
         json(res, 401, { error: 'sign in first' });
         return;
       }
-      const route = o.routes[path.slice('/api/'.length)];
+      const stream = o.streams?.[name];
+      if (stream) {
+        serveStream(req, res, session, url, stream);
+        return;
+      }
+      const route = o.routes[name];
       if (!route) {
         json(res, 404, { error: 'not found' });
         return;
       }
-      json(res, 200, await route(url.searchParams));
+      json(res, 200, await route({ query: url.searchParams, user: session.user }));
       return;
     }
 
@@ -172,6 +276,57 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
     server.listen(o.port, o.host ?? '0.0.0.0', resolveListen);
   });
   return server;
+}
+
+function serveStream(
+  req: IncomingMessage,
+  res: ServerResponse,
+  session: Session,
+  url: URL,
+  stream: StreamRoute,
+): void {
+  const header = req.headers['last-event-id'];
+  const lastEventId = Number(typeof header === 'string' ? header : url.searchParams.get('after'));
+  let open = false;
+  const start = () => {
+    if (open) return;
+    open = true;
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-accel-buffering': 'no',
+    });
+    res.write('retry: 3000\n\n');
+  };
+  const send = (id: number, data: unknown) => {
+    start();
+    res.write(`id: ${String(id)}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  const stopRoute = stream(
+    {
+      query: url.searchParams,
+      user: session.user,
+      lastEventId: Number.isFinite(lastEventId) ? lastEventId : 0,
+    },
+    send,
+  );
+  if (!stopRoute) {
+    json(res, 404, { error: 'not found' });
+    return;
+  }
+  start();
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), HEARTBEAT_MS);
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(heartbeat);
+    stopRoute();
+    session.streams.delete(stop);
+    res.end();
+  };
+  session.streams.add(stop);
+  req.on('close', stop);
 }
 
 /** The file for a path, or the app's index.html for its routes. Never outside staticDir. */
@@ -223,17 +378,22 @@ function sameOrigin(req: IncomingMessage): boolean {
   }
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+async function readBody(
+  req: IncomingMessage,
+  limit: number,
+): Promise<Record<string, unknown> | null> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > 8 * 1024) return null;
+    if (size > limit) return null;
     chunks.push(chunk as Buffer);
   }
   try {
     const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
