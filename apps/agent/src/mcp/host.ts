@@ -42,6 +42,14 @@ export interface HostedTool {
   server: number;
 }
 
+export interface ConnectorFailure {
+  connector: string;
+  displayName: string;
+  /** The server's name, for connectors that run several. */
+  server: string | undefined;
+  reason: string;
+}
+
 export interface ToolCallResult {
   isError: boolean;
   text: string;
@@ -60,6 +68,8 @@ export interface HostOptions {
   /** Overrides how a server is started (tests run fake servers). */
   launcher?: (manifest: Manifest, runtime: McpStdioRuntime) => Launch;
   timeoutMs?: number;
+  /** Connectors left out before starting (a required secret is missing), reported as failures. */
+  skipped?: readonly ConnectorFailure[];
 }
 
 export interface ConnectorInput {
@@ -93,6 +103,13 @@ function settingValue(value: unknown): string | undefined {
     return String(value);
   }
   return JSON.stringify(value);
+}
+
+/** Whether an `onlyIf` server is wanted: unset settings mean yes, so old configs keep it. */
+function wanted(runtime: McpStdioRuntime, settings: Readonly<Record<string, unknown>>): boolean {
+  if (!runtime.onlyIf) return true;
+  const value = settings[runtime.onlyIf.setting];
+  return !Array.isArray(value) || value.map(String).includes(runtime.onlyIf.includes);
 }
 
 /** Inherited environment variables whose values are registered with the redactor. */
@@ -140,25 +157,49 @@ export function defaultLauncher(env: Readonly<Record<string, string | undefined>
 export class ConnectorHost {
   private readonly running: Running[] = [];
   private readonly toolsByName = new Map<string, HostedTool>();
+  private readonly failed: ConnectorFailure[] = [];
   private readonly opts: HostOptions;
 
   private constructor(opts: HostOptions) {
     this.opts = opts;
   }
 
+  /**
+   * Starts every connector's servers. A server that cannot start is recorded and skipped, so
+   * one broken connector (a missing kubeconfig, an unreachable registry) never takes the
+   * agent down: the rest keep working, and `failures()` says what is missing and why.
+   */
   static async start(inputs: readonly ConnectorInput[], opts: HostOptions): Promise<ConnectorHost> {
     const host = new ConnectorHost(opts);
-    try {
-      for (const input of inputs) {
-        for (const runtime of stdioRuntimes(input.component.manifest)) {
+    host.failed.push(...(opts.skipped ?? []));
+    for (const input of inputs) {
+      for (const runtime of stdioRuntimes(input.component.manifest)) {
+        if (!wanted(runtime, input.component.settings)) continue;
+        try {
           await host.startOne(input, runtime);
+        } catch (error) {
+          const manifest = input.component.manifest;
+          const reason = opts.redactor.redact(
+            error instanceof Error ? error.message : String(error),
+          );
+          host.failed.push({
+            connector: manifest.id,
+            displayName: manifest.displayName,
+            server: runtime.name,
+            reason,
+          });
+          await opts.audit
+            ?.append({ event: 'error', actor: 'agent', connector: manifest.id, detail: reason })
+            .catch(() => undefined);
         }
       }
-    } catch (error) {
-      await host.close();
-      throw error;
     }
     return host;
+  }
+
+  /** Servers that could not start, with the reason (redacted). */
+  failures(): readonly ConnectorFailure[] {
+    return this.failed;
   }
 
   tools(): HostedTool[] {
@@ -275,7 +316,15 @@ export class ConnectorHost {
     const label = `${manifest.id}${runtime.name ? `/${runtime.name}` : ''}`;
     const serverIndex = this.running.push({ connector: manifest.id, label, client, dir }) - 1;
 
-    const { tools } = await client.listTools(undefined, { timeout: this.opts.timeoutMs ?? 30_000 });
+    let tools: Awaited<ReturnType<Client['listTools']>>['tools'];
+    try {
+      ({ tools } = await client.listTools(undefined, { timeout: this.opts.timeoutMs ?? 30_000 }));
+    } catch (error) {
+      this.running.pop();
+      await client.close().catch(() => undefined);
+      await rm(dir, { recursive: true, force: true });
+      throw error;
+    }
     for (const tool of tools) {
       if (manifest.hiddenTools?.includes(tool.name)) continue;
       const risk = manifest.tools[tool.name];

@@ -605,6 +605,16 @@
                       "minLength": 1,
                       "pattern": "^[a-z]{2}(-gov)?-[a-z]+-\\d$",
                       "description": "AWS region."
+                    },
+                    "services": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^(eks|cloudwatch)$"
+                      },
+                      "description": "AWS services the agent can read: eks, cloudwatch. Each one adds tools the model reads on every question, so leave out what you do not need."
                     }
                   },
                   "required": [
@@ -825,6 +835,32 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 1440
+            }
+          },
+          "additionalProperties": false
+        },
+        "limits": {
+          "description": "Limits for each question the agent answers.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "maxSteps": {
+              "default": 12,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "tokenBudget": {
+              "default": 200000,
+              "type": "integer",
+              "minimum": 10000,
+              "maximum": 5000000
+            },
+            "timeoutMinutes": {
+              "default": 5,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
             }
           },
           "additionalProperties": false

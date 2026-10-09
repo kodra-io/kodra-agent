@@ -42,3 +42,11 @@ From `listTools` on both real servers:
 **Hidden:** `get_k8s_events`, `get_pod_logs`, and `list_k8s_resources`. They reach pods through AWS credentials, which would bypass the Kubernetes connector's namespace limits; pods go through the Kubernetes connector instead.
 
 **Cost note:** CloudWatch Logs Insights queries are billed by AWS for the data they scan. The permission summary says so.
+
+## Choosing services (0.1.2)
+
+`config.services` picks which AWS servers start: `eks`, `cloudwatch`, or both (the default,
+and what older configs without the setting get). Every tool a connector offers is sent to the
+model on every call, and AWS is the largest connector: about 22,000 tokens for both servers.
+Leave out a service you do not need. Tools the policy would always block (anything but a
+read, since this connector is read-only) are never offered to the model at all.

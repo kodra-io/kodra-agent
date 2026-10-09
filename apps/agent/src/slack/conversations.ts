@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
-import { runTurn, type AgentDeps } from '../agent.ts';
+import { formatUsage, runTurn, type AgentDeps } from '../agent.ts';
 import type { ApprovalChannel } from '../approvals.ts';
 import type { Redactor } from '../redactor.ts';
 import type { IncomingMessage, SlackApi } from './api.ts';
@@ -84,7 +84,7 @@ export class SlackConversations {
         `slack-${randomUUID().slice(0, 8)}`,
       );
       this.remember(key, result.messages);
-      reply = result.text || '(no answer)';
+      reply = `${result.text || '(no answer)'}\n_${formatUsage(result.usage)}_`;
     } catch (error) {
       reply = `Something went wrong: ${error instanceof Error ? error.message : 'the request failed'}`;
     }

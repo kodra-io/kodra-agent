@@ -2,7 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
-import { REASON_ARG, runTurn, wrapUntrusted, type AgentDeps } from './agent.ts';
+import {
+  formatUsage,
+  REASON_ARG,
+  runTurn,
+  weightedTokens,
+  wrapUntrusted,
+  type AgentDeps,
+} from './agent.ts';
 import type { ApprovalChannel, ApprovalOutcome, ApprovalRequest } from './approvals.ts';
 import { AuditLog } from './audit.ts';
 import { jsonLogger, memoryTerminal } from './io.ts';
@@ -193,6 +200,14 @@ describe('agent loop', () => {
     expect(Object.keys(logs.inputSchema.properties)).not.toContain(REASON_ARG);
   });
 
+  it('tells the model each tool’s allowed values, so it does not guess', async () => {
+    const { deps, model } = await setup({ responses: [answer('ok')] });
+    await runTurn(deps, [], 'hi', 't-guards');
+    const tools = model.doGenerateCalls[0]?.tools ?? [];
+    const logs = tools.find((t) => t.name === 'fakek8s__pods_log') as { description: string };
+    expect(logs.description).toContain('Allowed: namespace is required and must be one of: api.');
+  });
+
   it.each([
     [{ decision: 'denied', by: '@omar' } as const, 'denied this action', 'denied'],
     [{ decision: 'expired' } as const, 'did not answer in time', 'expired'],
@@ -218,43 +233,55 @@ describe('agent loop', () => {
     );
   });
 
-  it('blocks writes on a read-only connector and destructive tools under the deny policy', async () => {
-    const { deps, model, channel } = await setup({
-      responses: [
-        call('fakek8s__resources_scale', {
-          namespace: 'api',
-          name: 'web',
-          scale: 1,
-          [REASON_ARG]: 'x',
-        }),
-        call('fakek8s__wipe_everything', { namespace: 'api', [REASON_ARG]: 'x' }),
-        answer('Both blocked.'),
-      ],
-    });
-    await runTurn(deps, [], 'do things', 't6');
-    expect(promptOf(model, 1)).toContain('BLOCKED by policy: this connector is read-only');
-    expect(promptOf(model, 2)).toContain(
-      'BLOCKED by policy: destructive actions are denied by policy',
+  it('never offers tools the policy would always block', async () => {
+    const offered = async (opts: Parameters<typeof setup>[0], readOnly = false) => {
+      const { deps, model } = await setup(opts);
+      await runTurn({ ...deps, readOnly }, [], 'hi', 't-offer');
+      return (model.doGenerateCalls[0]?.tools ?? []).map((t) => t.name).sort();
+    };
+    // Read-only connector, deny policy: reads only.
+    expect(await offered({ responses: [answer('ok')] })).toEqual([
+      'fakek8s__pods_log',
+      'fakek8s__whoami',
+    ]);
+    // Read-write: the write is offered (it asks an approver); destructive stays out under deny.
+    expect(await offered({ access: 'read-write-approved', responses: [answer('ok')] })).toContain(
+      'fakek8s__resources_scale',
     );
-    expect(promptOf(model, 2)).not.toContain('WIPED');
-    expect(channel.requests).toEqual([]);
+    expect(
+      await offered({ access: 'read-write-approved', responses: [answer('ok')] }),
+    ).not.toContain('fakek8s__wipe_everything');
+    // Destructive with approval allowed: offered too.
+    expect(
+      await offered({
+        access: 'read-write-approved',
+        destructive: 'require-approval',
+        responses: [answer('ok')],
+      }),
+    ).toContain('fakek8s__wipe_everything');
+    // A read-only investigation gets reads only, whatever the access.
+    expect(
+      await offered({ access: 'read-write-approved', responses: [answer('ok')] }, true),
+    ).toEqual(['fakek8s__pods_log', 'fakek8s__whoami']);
   });
 
   it('stops when the token budget is spent', async () => {
-    const { deps, audit } = await setup({
+    const { deps, audit, model } = await setup({
+      // One call is 40 in + 40 out: past the budget after the first step.
       tokenBudget: 50,
       responses: [
         call('fakek8s__pods_log', { namespace: 'api', name: 'a' }, 40),
-        call('fakek8s__pods_log', { namespace: 'api', name: 'b' }, 40),
-        answer('never'),
+        answer('found: the database is unreachable'),
       ],
     });
     const result = await runTurn(deps, [], 'loop', 't7');
     expect(result.stoppedBy).toBe('token-budget');
-    expect((await audit()).at(-1)).toMatchObject({
-      event: 'result',
-      detail: 'stopped: token-budget',
-    });
+    // It still answers: one last call, tools off, summarizes what it found.
+    expect(result.text).toContain('found: the database is unreachable');
+    expect(result.text).toContain('(Stopped at the token budget for one question.');
+    expect(model.doGenerateCalls.at(-1)?.toolChoice).toEqual({ type: 'none' });
+    expect((await audit()).at(-1)).toMatchObject({ event: 'result' });
+    expect((await audit()).at(-1)?.['detail']).toMatch(/^stopped: token-budget; \d+ tokens in/);
   });
 
   it('redacts secrets from the user message and from tool output before the model sees them', async () => {
@@ -269,9 +296,44 @@ describe('agent loop', () => {
   });
 });
 
+describe('cost', () => {
+  it('asks the provider to cache the tools and the conversation', async () => {
+    const { deps, model } = await setup({ responses: [answer('ok')] });
+    await runTurn(deps, [], 'hi', 't-cache');
+    const call = model.doGenerateCalls[0];
+    // Automatic caching of the growing conversation (top-level cache_control).
+    expect(call?.providerOptions).toEqual({ anthropic: { cacheControl: { type: 'ephemeral' } } });
+    // An explicit breakpoint after the last tool only: tools are the same on every call.
+    const tools = (call?.tools ?? []) as { providerOptions?: unknown }[];
+    expect(tools.at(-1)?.providerOptions).toEqual({
+      anthropic: { cacheControl: { type: 'ephemeral' } },
+    });
+    expect(tools.slice(0, -1).every((t) => t.providerOptions === undefined)).toBe(true);
+  });
+
+  it('weighs cached input at its price, and reports what a question used', () => {
+    const u = { input: 30_000, cacheRead: 28_000, cacheWrite: 1_000, output: 500 };
+    // 1,000 uncached + 2,800 (reads at 0.1) + 1,250 (writes at 1.25) + 500 out.
+    expect(weightedTokens(u)).toBe(5_550);
+    expect(formatUsage(u)).toBe('30,000 tokens in (28,000 from cache), 500 out');
+    expect(formatUsage({ input: 900, cacheRead: 0, cacheWrite: 0, output: 40 })).toBe(
+      '900 tokens in, 40 out',
+    );
+  });
+
+  it('returns what the turn used', async () => {
+    const { deps } = await setup({
+      responses: [call('fakek8s__pods_log', { namespace: 'api', name: 'a' }, 7), answer('ok')],
+    });
+    const result = await runTurn(deps, [], 'hi', 't-usage');
+    // 7 in + 7 out for the tool call, then 10 + 10 for the answer.
+    expect(result.usage).toEqual({ input: 17, cacheRead: 0, cacheWrite: 0, output: 17 });
+  });
+});
+
 describe('wrapUntrusted', () => {
   it('truncates very long output', () => {
-    const wrapped = wrapUntrusted('x/y', 'a'.repeat(25_000), new Redactor());
+    const wrapped = wrapUntrusted('x/y', 'a'.repeat(13_000), new Redactor());
     expect(wrapped).toContain('[truncated 5000 characters]');
   });
 });

@@ -1,10 +1,11 @@
 import { connectors, getModelProvider, modelProviders } from '@kodra-agent/connectors';
-import type {
-  Category,
-  ConfigField,
-  Manifest,
-  ModelProvider,
-  SecretSpec,
+import {
+  isSecretRequired,
+  type Category,
+  type ConfigField,
+  type Manifest,
+  type ModelProvider,
+  type SecretSpec,
 } from '@kodra-agent/schema';
 import {
   includedSecrets,
@@ -311,11 +312,11 @@ function ConnectorCard({
               ) : (
                 <>
                   <SecretNames
-                    secrets={manifest.secrets.filter((s) => s.required)}
+                    secrets={manifest.secrets.filter((s) => isSecretRequired(s, draft.target))}
                     access={access}
                   />
                   {manifest.secrets
-                    .filter((s) => !s.required)
+                    .filter((s) => !isSecretRequired(s, draft.target))
                     .map((secret) => (
                       <label key={secret.key} className="flex items-start gap-2 text-sm">
                         <input
@@ -395,7 +396,7 @@ export function ReviewStep(
   const secrets = [
     ...(provider?.secrets ?? []).map((s) => ({ owner: provider?.displayName ?? '', s })),
     ...enabled.flatMap((m) =>
-      includedSecrets(m, draft.connectors[m.id]?.optionalSecrets ?? []).map((s) => ({
+      includedSecrets(m, draft.connectors[m.id]?.optionalSecrets ?? [], draft.target).map((s) => ({
         owner: m.displayName,
         s,
       })),

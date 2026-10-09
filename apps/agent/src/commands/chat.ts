@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
-import { runTurn } from '../agent.ts';
+import { formatUsage, runTurn } from '../agent.ts';
 import { cliApprovalChannel, type ApprovalChannel } from '../approvals.ts';
 import type { Context } from '../context.ts';
 import { describeConnectors, startRuntime } from '../runtime.ts';
@@ -21,7 +21,7 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
     ctx.term.err('No terminal to chat on. Use --message "<question>" to ask one thing.');
     return 1;
   }
-  const runtime = await startRuntime(opts.configPath, ctx);
+  const runtime = await startRuntime(opts.configPath, ctx, { connectorLogFile: true });
   if (!runtime) return 1;
 
   try {
@@ -30,6 +30,7 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
     );
     ctx.term.out(`Kodra AI Agent, model ${deps.modelLabel}.`);
     for (const line of describeConnectors(runtime)) ctx.term.out(`  ${line}`);
+    if (runtime.connectorLogPath) ctx.term.out(`Connector logs: ${runtime.connectorLogPath}`);
 
     let history: ModelMessage[] = [];
     const turn = async (text: string) => {
@@ -37,6 +38,7 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
       history = result.messages;
       ctx.term.out('');
       ctx.term.out(result.text);
+      ctx.term.out(`(${formatUsage(result.usage)})`);
     };
 
     if (opts.message !== undefined) {

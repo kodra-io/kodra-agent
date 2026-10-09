@@ -1,6 +1,6 @@
 import type { AccessLevel, ToolGuard } from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
-import { decide, type Decision, type Risk } from './policy.ts';
+import { decide, describeGuards, type Decision, type Risk } from './policy.ts';
 
 const base = {
   destructiveActions: 'deny' as const,
@@ -243,5 +243,31 @@ describe('policy engine', () => {
       expect(write({ owner: 'acme', repo: 'api', branch: 'main' }, trunk)).toBe('approve');
       expect(write({ owner: 'acme', repo: 'api', branch: 'trunk' }, trunk)).toMatch(/^block/);
     });
+  });
+});
+
+describe('describeGuards', () => {
+  it('states each guard as a limit the model can follow', () => {
+    const guards: ToolGuard[] = [
+      { kind: 'arg-in-setting', arg: 'namespace', setting: 'namespaces', required: true },
+      {
+        kind: 'repo-in-setting',
+        ownerArg: 'owner',
+        repoArg: 'repo',
+        setting: 'repos',
+        from: 'github',
+      },
+      { kind: 'not-default-branch', branchArg: 'branch', ownerArg: 'owner', repoArg: 'repo' },
+    ];
+    expect(
+      describeGuards(guards, { namespaces: ['dev', 'web'] }, { github: { repos: ['acme/api'] } }),
+    ).toEqual([
+      'namespace is required and must be one of: dev, web',
+      'owner/repo must be one of: acme/api',
+      'branch must be a new branch, never the default branch',
+    ]);
+    expect(describeGuards([guards[0] as ToolGuard], {})).toEqual([
+      'namespace is required and must be one of: none configured',
+    ]);
   });
 });

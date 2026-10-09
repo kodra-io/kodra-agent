@@ -1,20 +1,23 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { AgentConfig } from '@kodra-agent/schema';
-import type { AgentDeps } from './agent.ts';
+import { dirname, join } from 'node:path';
+import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
+import { alwaysBlocked, type AgentDeps } from './agent.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
 import { components, loadConfig, secretLabel } from './config.ts';
 import type { Context } from './context.ts';
 import { lookupDefaultBranches } from './default-branches.ts';
 import { parseEnvFile } from './env-file.ts';
+import { fileLogger } from './io.ts';
 import { createModel } from './llm.ts';
-import { ConnectorHost, type ConnectorInput } from './mcp/host.ts';
+import { ConnectorHost, type ConnectorFailure, type ConnectorInput } from './mcp/host.ts';
 import { resolveAll } from './secrets.ts';
 
 /** Everything `chat` and `run` share once the config is loaded and connectors started. */
 export interface Runtime {
   config: AgentConfig;
+  /** Where connector output goes, when not to the terminal. */
+  connectorLogPath?: string;
   inputs: ConnectorInput[];
   host: ConnectorHost;
   audit: AuditLog;
@@ -29,7 +32,19 @@ export interface Runtime {
  * between connectors that require each other, looks up default branches, starts the
  * connector host, and builds the model. Prints problems and returns null on failure.
  */
-export async function startRuntime(configPath: string, ctx: Context): Promise<Runtime | null> {
+export interface RuntimeOptions {
+  /**
+   * Write connector output (server logs on stderr) to connectors.log next to the audit log
+   * instead of the terminal, so it never interleaves with a `chat` conversation.
+   */
+  connectorLogFile?: boolean;
+}
+
+export async function startRuntime(
+  configPath: string,
+  ctx: Context,
+  options: RuntimeOptions = {},
+): Promise<Runtime | null> {
   const loaded = await loadConfig(configPath);
   if (!loaded.ok) {
     for (const e of loaded.errors) ctx.term.err(e);
@@ -44,13 +59,26 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
   const inputs: ConnectorInput[] = [];
   let modelSecrets: Record<string, string> = {};
   const missing: string[] = [];
+  // A connector missing a required secret is skipped (the agent runs without it); only a
+  // missing model key stops the agent, because nothing works without the model.
+  const skipped: ConnectorFailure[] = [];
   for (const comp of components(config)) {
     const resolved = await resolveAll(comp.secrets, { env, redactor: ctx.redactor });
-    for (const gap of resolved.missing) {
-      if (gap.use.spec.required) missing.push(`${secretLabel(gap.use)}: ${gap.reason}`);
-    }
+    const gaps = resolved.missing
+      .filter((gap) => isSecretRequired(gap.use.spec, config.spec.target))
+      .map((gap) => `${secretLabel(gap.use)}: ${gap.reason}`);
     if (comp.manifest.category === 'model') {
+      missing.push(...gaps);
       modelSecrets = resolved.values;
+      continue;
+    }
+    if (gaps.length > 0) {
+      skipped.push({
+        connector: comp.id,
+        displayName: comp.displayName,
+        server: undefined,
+        reason: `missing ${gaps.join('; ')}`,
+      });
       continue;
     }
     const entry = config.spec.connectors[comp.id];
@@ -97,19 +125,19 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
   }
 
   const audit = new AuditLog(config.spec.audit.path, ctx.redactor);
-  let host: ConnectorHost;
-  try {
-    host = await ConnectorHost.start(inputs, {
-      redactor: ctx.redactor,
-      log: ctx.log,
-      audit,
-      env,
-      ...(ctx.launcher ? { launcher: ctx.launcher } : {}),
-    });
-  } catch (error) {
-    ctx.term.err(error instanceof Error ? error.message : 'Could not start the connectors.');
-    ctx.term.err('If a server binary is missing, run: pnpm mcp:fetch');
-    return null;
+  // A connector that cannot start is skipped, not fatal: the agent works with the rest.
+  const connectorLogPath = join(dirname(config.spec.audit.path), 'connectors.log');
+  const host = await ConnectorHost.start(inputs, {
+    skipped,
+    redactor: ctx.redactor,
+    log: options.connectorLogFile ? fileLogger(connectorLogPath, ctx.redactor) : ctx.log,
+    audit,
+    env,
+    ...(ctx.launcher ? { launcher: ctx.launcher } : {}),
+  });
+  for (const failure of host.failures()) {
+    ctx.term.err(`${failure.displayName} is not available: ${failure.reason}`);
+    ctx.term.err(`  ${failureHint(failure, config, inputs, env)}`);
   }
 
   const model = (ctx.modelFactory ?? createModel)(config.spec.model, modelSecrets);
@@ -117,6 +145,7 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
     config,
     inputs,
     host,
+    ...(options.connectorLogFile ? { connectorLogPath } : {}),
     audit,
     env,
     deps: (approvals) => ({
@@ -131,20 +160,81 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
         destructiveActions: config.spec.policy.destructiveActions,
         expiresAfterMinutes: config.spec.policy.approvals.expiresAfterMinutes,
       },
-      ...(ctx.limits ? { limits: ctx.limits } : {}),
+      limits: ctx.limits ?? {
+        maxSteps: config.spec.limits.maxSteps,
+        tokenBudget: config.spec.limits.tokenBudget,
+        timeoutMs: config.spec.limits.timeoutMinutes * 60_000,
+      },
       actor: 'agent',
     }),
     close: () => host.close(),
   };
 }
 
-/** One line per connector: access level and tool count. */
+/** What to do about a connector that did not start. */
+export function failureHint(
+  failure: ConnectorFailure,
+  config: AgentConfig,
+  inputs: readonly ConnectorInput[],
+  env: Readonly<Record<string, string | undefined>>,
+): string {
+  const input = inputs.find((i) => i.component.id === failure.connector);
+  if (
+    failure.connector === 'kubernetes' &&
+    config.spec.target === 'compose' &&
+    input?.secrets['kubeconfig'] === undefined
+  ) {
+    return 'On Docker Compose, Kubernetes needs a kubeconfig: copy it to secrets/kubeconfig in the bundle folder, then restart.';
+  }
+  if (failure.reason.startsWith('missing ')) {
+    return 'The agent runs without it. Run `kodra-agent init` to set it, then restart.';
+  }
+  // Only a source checkout fetches server binaries; the agent image has them preinstalled.
+  if (!env['KODRA_MCP_DIR'] && /no .* server build|ENOENT/.test(failure.reason)) {
+    return 'The server binary is missing. In a source checkout, run: pnpm mcp:fetch';
+  }
+  return 'The agent runs without it. Run `kodra-agent doctor` to check this connector.';
+}
+
+/** One line per connector: access level and tool count, or why it is not available. */
 export function describeConnectors(runtime: Runtime): string[] {
+  // Count what the model is offered: tools the policy always blocks are left out.
+  const policy = {
+    destructiveActions: runtime.config.spec.policy.destructiveActions,
+    expiresAfterMinutes: runtime.config.spec.policy.approvals.expiresAfterMinutes,
+  };
   const counts = new Map<string, number>();
-  for (const tool of runtime.host.tools())
+  for (const tool of runtime.host.tools()) {
+    if (alwaysBlocked(tool, policy, false)) continue;
     counts.set(tool.connector, (counts.get(tool.connector) ?? 0) + 1);
+  }
+  const failed = new Map(runtime.host.failures().map((f) => [f.connector, f.reason]));
+  const notStarted = runtime.host
+    .failures()
+    .filter((f) => !runtime.inputs.some((i) => i.component.id === f.connector))
+    .map((f) => `${f.displayName}: not available (${f.reason.split('\n')[0] ?? f.reason})`);
+  return [...connectorLines(runtime, counts, failed), ...notStarted];
+}
+
+function connectorLines(
+  runtime: Runtime,
+  counts: ReadonlyMap<string, number>,
+  failed: ReadonlyMap<string, string>,
+): string[] {
   return runtime.inputs.map((input) => {
+    const name = input.component.displayName;
+    const reason = failed.get(input.component.id);
+    if (reason !== undefined && !counts.has(input.component.id)) {
+      const short = reason.split('\n')[0] ?? reason;
+      return `${name}: not available (${short.length > 160 ? `${short.slice(0, 157)}...` : short})`;
+    }
+    // Connectors without an MCP server (Docker, Slack) give the model no tools.
+    const runtime = input.component.manifest.runtime;
+    if (runtime === null || (!Array.isArray(runtime) && runtime.type === 'builtin')) {
+      const use = input.component.manifest.category === 'build' ? ', used by `ship`' : '';
+      return `${name}: ${input.access ?? 'on'}${use}`;
+    }
     const n = counts.get(input.component.id) ?? 0;
-    return `${input.component.displayName}: ${input.access ?? 'on'}, ${String(n)} tool${n === 1 ? '' : 's'}`;
+    return `${name}: ${input.access ?? 'on'}, ${String(n)} tool${n === 1 ? '' : 's'}`;
   });
 }

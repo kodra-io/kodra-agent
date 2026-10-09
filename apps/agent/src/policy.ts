@@ -113,3 +113,37 @@ function checkGuard(guard: ToolGuard, input: PolicyInput): string | null {
     }
   }
 }
+
+/**
+ * The limits a tool's guards set, in words the model can follow up front (for example
+ * "namespace must be one of: dev"), so it does not spend steps on calls the policy blocks.
+ */
+export function describeGuards(
+  guards: readonly ToolGuard[],
+  settings: Readonly<Record<string, unknown>>,
+  sharedSettings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+): string[] {
+  const out: string[] = [];
+  for (const guard of guards) {
+    switch (guard.kind) {
+      case 'arg-in-setting': {
+        const list = listSetting(settings, guard.setting);
+        out.push(
+          `${guard.arg} ${guard.required ? 'is required and ' : ''}must be one of: ${list.join(', ') || 'none configured'}`,
+        );
+        break;
+      }
+      case 'repo-in-setting': {
+        const source = guard.from ? (sharedSettings?.[guard.from] ?? {}) : settings;
+        const list = listSetting(source, guard.setting);
+        const arg = guard.ownerArg ? `${guard.ownerArg}/${guard.repoArg}` : guard.repoArg;
+        out.push(`${arg} must be one of: ${list.join(', ') || 'none configured'}`);
+        break;
+      }
+      case 'not-default-branch':
+        out.push(`${guard.branchArg} must be a new branch, never the default branch`);
+        break;
+    }
+  }
+  return [...new Set(out)];
+}

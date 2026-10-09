@@ -139,6 +139,8 @@ export default defineManifest({
       GITLAB_PERSONAL_ACCESS_TOKEN: { secret: 'token' },
       GITLAB_API_URL: { setting: 'url', suffix: '/api/v4' },
       GITLAB_DENIED_TOOLS_REGEX: { value: GITLAB_DENY_PATTERN },
+      // No update check against the npm registry at startup: an outbound call nobody asked for.
+      GITLAB_DISABLE_VERSION_CHECK: { value: 'true' },
     },
   },
   permissionsSummary: {

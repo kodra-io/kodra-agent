@@ -1,6 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
-import type { AgentConfig } from '@kodra-agent/schema';
+import { existsSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { join, relative, resolve, sep } from 'node:path';
+import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
 import { stringify } from 'yaml';
 import { components, loadConfig, secretLabel, type Component, type SecretUse } from '../config.ts';
 import { AGENT_NAMESPACE, type Context } from '../context.ts';
@@ -98,6 +99,24 @@ async function readOptional(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * Why a file cannot be used as a secret, in words that fit where `init` runs: inside the agent
+ * container, only the bundle folder is visible, so a host path like C:\Users\... is not.
+ */
+async function fileProblem(path: string, shown: string): Promise<string | null> {
+  try {
+    const info = await stat(path);
+    if (info.isDirectory()) {
+      return `${shown} is a folder. Give the file itself (for a kubeconfig, usually the file named config inside .kube).`;
+    }
+    return null;
+  } catch {
+    return existsSync('/.dockerenv')
+      ? `Cannot find ${shown}. This runs inside the agent container, which only sees the bundle folder: copy the file into it first.`
+      : `Cannot find ${shown}.`;
+  }
+}
+
 /** Where a ${file:/secrets/...} reference lives next to the bundle (compose mounts ./secrets). */
 function hostFilePath(dir: string, containerPath: string): string | null {
   if (!containerPath.startsWith('/secrets/')) return null;
@@ -165,24 +184,41 @@ async function interactively(
     let value: string;
     if (use.ref.scheme === 'env') {
       value = await prompter.secret(
-        `${label}${use.spec.required ? '' : ' (optional, Enter to skip)'}:`,
+        `${label}${isSecretRequired(use.spec, target) ? '' : ' (optional, Enter to skip)'}:`,
       );
     } else {
-      const sourcePath = (await prompter.text(`Path to the file for ${label}:`)).trim();
-      if (sourcePath === '') {
+      // On compose, file secrets live in the bundle's secrets/ folder. `init` usually runs in
+      // the container, which sees only the bundle folder, so say where to put the file.
+      const dest = target === 'compose' ? hostFilePath(dir, use.ref.path) : null;
+      if (dest) {
+        ctx.term.out(
+          `  ${label}: copy the file into this bundle folder as ${relative(dir, dest).split(sep).join('/')} (the agent reads it at ${use.ref.path}).`,
+        );
+      }
+      const sourcePath = (
+        await prompter.text(
+          dest
+            ? `Path to the file for ${label}, or Enter once it is in place:`
+            : `Path to the file for ${label}:`,
+        )
+      ).trim();
+      let from: string | null = null;
+      if (sourcePath !== '') from = resolve(dir, sourcePath);
+      else if (dest && (await readOptional(dest)) !== null) from = dest;
+      if (from === null) {
         value = '';
       } else {
-        const content = await readOptional(resolve(dir, sourcePath));
-        if (content === null) {
-          ctx.term.err(`  Cannot read ${sourcePath}.`);
+        const problem = await fileProblem(from, sourcePath || from);
+        if (problem) {
+          ctx.term.err(`  ${problem}`);
           continue;
         }
-        value = content.replace(/\r?\n$/, '');
+        value = (await readFile(from, 'utf8')).replace(/\r?\n$/, '');
       }
     }
 
     if (value === '') {
-      if (!use.spec.required) {
+      if (!isSecretRequired(use.spec, target)) {
         ctx.term.out(`  SKIP  ${label}: left out`);
         return null;
       }
@@ -231,7 +267,7 @@ async function fromEnvironment(
     value = path ? ((await readOptional(path))?.replace(/\r?\n$/, '') ?? undefined) : undefined;
   }
   if (value === undefined || value === '') {
-    return use.spec.required ? `Missing ${label}.` : null;
+    return isSecretRequired(use.spec, target) ? `Missing ${label}.` : null;
   }
   ctx.redactor.add(value);
   collected.set(use, value);

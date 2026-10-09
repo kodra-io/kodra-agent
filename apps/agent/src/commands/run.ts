@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { runTurn } from '../agent.ts';
+import { formatUsage, runTurn } from '../agent.ts';
 import type { ApprovalChannel } from '../approvals.ts';
 import type { Context } from '../context.ts';
 import { fetchFiringAlerts } from '../monitoring/alerts.ts';
@@ -29,12 +29,18 @@ const DEFAULT_HEALTH_PORT = 8080;
  */
 export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   let ready = false;
-  const health = await startHealthServer(ctx, () => ready);
+  let unavailable: string[] = [];
+  const health = await startHealthServer(
+    ctx,
+    () => ready,
+    () => unavailable,
+  );
   const runtime = await startRuntime(opts.configPath, ctx);
   if (!runtime) {
     await closeServer(health);
     return 1;
   }
+  unavailable = [...new Set(runtime.host.failures().map((f) => f.displayName))];
 
   let slack: SlackConnection | null = null;
   let approvals: SlackApprovals | null = null;
@@ -123,7 +129,10 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             investigationPrompt(alert),
             `alert-${randomUUID().slice(0, 8)}`,
           );
-          return { text: result.text, stoppedBy: result.stoppedBy };
+          return {
+            text: `${result.text}\n_${formatUsage(result.usage)}_`,
+            stoppedBy: result.stoppedBy,
+          };
         },
         post,
         audit: runtime.audit,
@@ -167,15 +176,27 @@ function helloText(runtime: Runtime): string {
   ].join('\n');
 }
 
-async function startHealthServer(ctx: Context, isReady: () => boolean): Promise<Server> {
+async function startHealthServer(
+  ctx: Context,
+  isReady: () => boolean,
+  unavailable: () => string[],
+): Promise<Server> {
   const server = createServer((req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
     } else if (req.url === '/readyz') {
       const ok = isReady();
+      // Still ready with a connector down: the rest of the agent works. The body says what is missing.
+      const missing = ok ? unavailable() : [];
       res
         .writeHead(ok ? 200 : 503, { 'content-type': 'text/plain' })
-        .end(ok ? 'ready' : 'starting');
+        .end(
+          ok
+            ? missing.length
+              ? `ready; not available: ${missing.join(', ')}`
+              : 'ready'
+            : 'starting',
+        );
     } else {
       res.writeHead(404).end();
     }

@@ -5,7 +5,7 @@ import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
 /** The published image and chart. A test checks these against the chart and the agent version. */
 export const AGENT_IMAGE = 'ghcr.io/kodra-io/kodra-agent';
-export const AGENT_VERSION = '0.1.1';
+export const AGENT_VERSION = '0.1.2';
 export const AGENT_CHART = 'oci://ghcr.io/kodra-io/charts/kodra-agent';
 export const AGENT_NAMESPACE = 'kodra-agent';
 const CONFIG_PATH = '/etc/kodra-agent/kodra-agent.yaml';
@@ -40,7 +40,7 @@ function secretsInUse(draft: AgentDraft): SecretUse[] {
     uses.push({ owner: provider?.displayName ?? '', spec });
   for (const manifest of enabledConnectors(draft)) {
     const entry = draft.connectors[manifest.id];
-    for (const spec of includedSecrets(manifest, entry?.optionalSecrets ?? [])) {
+    for (const spec of includedSecrets(manifest, entry?.optionalSecrets ?? [], draft.target)) {
       uses.push({ owner: manifest.displayName, spec, access: entry?.access });
     }
   }

@@ -1,3 +1,5 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Redactor } from './redactor.ts';
 
 /** Terminal output. Every write goes through the redactor, with no way around it. */
@@ -73,4 +75,20 @@ export function jsonLogger(
       log('error', m, f);
     },
   };
+}
+
+/** A JSON-lines logger into an owner-only file, redacted like everything else. */
+export function fileLogger(path: string, redactor: Redactor): Logger {
+  let ready = false;
+  return jsonLogger((line) => {
+    try {
+      if (!ready) {
+        mkdirSync(dirname(path), { recursive: true });
+        ready = true;
+      }
+      appendFileSync(path, `${line}\n`, { mode: 0o600 });
+    } catch {
+      // Logging must never break the agent; the audit log is the record that matters.
+    }
+  }, redactor);
 }
