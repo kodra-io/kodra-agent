@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
 import type { AgentDeps } from './agent.ts';
 import type { ApprovalChannel } from './approvals.ts';
@@ -8,6 +8,7 @@ import { components, loadConfig, secretLabel } from './config.ts';
 import type { Context } from './context.ts';
 import { lookupDefaultBranches } from './default-branches.ts';
 import { parseEnvFile } from './env-file.ts';
+import { fileLogger } from './io.ts';
 import { createModel } from './llm.ts';
 import { ConnectorHost, type ConnectorFailure, type ConnectorInput } from './mcp/host.ts';
 import { resolveAll } from './secrets.ts';
@@ -15,6 +16,8 @@ import { resolveAll } from './secrets.ts';
 /** Everything `chat` and `run` share once the config is loaded and connectors started. */
 export interface Runtime {
   config: AgentConfig;
+  /** Where connector output goes, when not to the terminal. */
+  connectorLogPath?: string;
   inputs: ConnectorInput[];
   host: ConnectorHost;
   audit: AuditLog;
@@ -29,7 +32,19 @@ export interface Runtime {
  * between connectors that require each other, looks up default branches, starts the
  * connector host, and builds the model. Prints problems and returns null on failure.
  */
-export async function startRuntime(configPath: string, ctx: Context): Promise<Runtime | null> {
+export interface RuntimeOptions {
+  /**
+   * Write connector output (server logs on stderr) to connectors.log next to the audit log
+   * instead of the terminal, so it never interleaves with a `chat` conversation.
+   */
+  connectorLogFile?: boolean;
+}
+
+export async function startRuntime(
+  configPath: string,
+  ctx: Context,
+  options: RuntimeOptions = {},
+): Promise<Runtime | null> {
   const loaded = await loadConfig(configPath);
   if (!loaded.ok) {
     for (const e of loaded.errors) ctx.term.err(e);
@@ -99,9 +114,10 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
 
   const audit = new AuditLog(config.spec.audit.path, ctx.redactor);
   // A connector that cannot start is skipped, not fatal: the agent works with the rest.
+  const connectorLogPath = join(dirname(config.spec.audit.path), 'connectors.log');
   const host = await ConnectorHost.start(inputs, {
     redactor: ctx.redactor,
-    log: ctx.log,
+    log: options.connectorLogFile ? fileLogger(connectorLogPath, ctx.redactor) : ctx.log,
     audit,
     env,
     ...(ctx.launcher ? { launcher: ctx.launcher } : {}),
@@ -116,6 +132,7 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
     config,
     inputs,
     host,
+    ...(options.connectorLogFile ? { connectorLogPath } : {}),
     audit,
     env,
     deps: (approvals) => ({

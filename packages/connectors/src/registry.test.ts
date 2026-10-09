@@ -193,6 +193,16 @@ describe('connector registry', () => {
     }
   });
 
+  it('turns off the GitLab server update check (no outbound call nobody asked for)', () => {
+    for (const id of ['gitlab', 'gitlab-ci']) {
+      const manifest = getConnector(id);
+      if (!manifest) throw new Error(`no ${id} connector`);
+      for (const runtime of stdioRuntimes(manifest)) {
+        expect(runtime.env['GITLAB_DISABLE_VERSION_CHECK'], id).toEqual({ value: 'true' });
+      }
+    }
+  });
+
   it('has Arabic copy for every text field', () => {
     const texts = JSON.stringify(all);
     const pairs = [...texts.matchAll(/"ar":"([^"]*)"/g)].map((m) => m[1] ?? '');

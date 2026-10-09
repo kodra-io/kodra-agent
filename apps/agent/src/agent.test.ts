@@ -193,6 +193,14 @@ describe('agent loop', () => {
     expect(Object.keys(logs.inputSchema.properties)).not.toContain(REASON_ARG);
   });
 
+  it('tells the model each tool’s allowed values, so it does not guess', async () => {
+    const { deps, model } = await setup({ responses: [answer('ok')] });
+    await runTurn(deps, [], 'hi', 't-guards');
+    const tools = model.doGenerateCalls[0]?.tools ?? [];
+    const logs = tools.find((t) => t.name === 'fakek8s__pods_log') as { description: string };
+    expect(logs.description).toContain('Allowed: namespace is required and must be one of: api.');
+  });
+
   it.each([
     [{ decision: 'denied', by: '@omar' } as const, 'denied this action', 'denied'],
     [{ decision: 'expired' } as const, 'did not answer in time', 'expired'],

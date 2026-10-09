@@ -11,7 +11,7 @@ import { newApprovalRequest, type ApprovalChannel } from './approvals.ts';
 import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
-import { decide, type Decision, type PolicyInput } from './policy.ts';
+import { decide, describeGuards, type Decision, type PolicyInput } from './policy.ts';
 import type { Redactor } from './redactor.ts';
 
 /** Guardrails for every task (golden rules 4, 5, and 6). */
@@ -114,7 +114,12 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
   const tools: Record<string, Tool> = {};
   for (const hosted of deps.host.tools()) {
     tools[hosted.name] = dynamicTool({
-      description: `[${hosted.connector}, ${hosted.risk}] ${hosted.description}`,
+      description: [
+        `[${hosted.connector}, ${hosted.risk}] ${hosted.description}`,
+        ...describeGuards(hosted.guards, hosted.settings, hosted.sharedSettings).map(
+          (limit) => `Allowed: ${limit}.`,
+        ),
+      ].join(' '),
       inputSchema: jsonSchema(schemaFor(hosted)),
       execute: async (input, options) => {
         const raw = (input ?? {}) as Record<string, unknown>;
