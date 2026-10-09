@@ -40,7 +40,7 @@ function secretsInUse(draft: AgentDraft): SecretUse[] {
     uses.push({ owner: provider?.displayName ?? '', spec });
   for (const manifest of enabledConnectors(draft)) {
     const entry = draft.connectors[manifest.id];
-    for (const spec of includedSecrets(manifest, entry?.optionalSecrets ?? [])) {
+    for (const spec of includedSecrets(manifest, entry?.optionalSecrets ?? [], draft.target)) {
       uses.push({ owner: manifest.displayName, spec, access: entry?.access });
     }
   }

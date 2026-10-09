@@ -2,6 +2,7 @@ import { dependencyIssues, getModelProvider, parseAgentConfig } from '@kodra-age
 import {
   DEFAULT_AUDIT_PATH,
   formatSecretRef,
+  isSecretRequired,
   SCHEMA_API_VERSION,
   type ConfigField,
   type LocalizedText,
@@ -37,11 +38,15 @@ export function secretRefFor(secret: SecretSpec): string {
 }
 
 /** Secrets an enabled connector or the model will ask for. */
+/** Secrets the config names: required ones (for this target), plus the optional ones chosen. */
 export function includedSecrets(
   manifest: Manifest,
   optionalChosen: readonly string[],
+  target: 'compose' | 'kubernetes',
 ): SecretSpec[] {
-  return manifest.secrets.filter((s) => s.required || optionalChosen.includes(s.key));
+  return manifest.secrets.filter(
+    (s) => isSecretRequired(s, target) || optionalChosen.includes(s.key),
+  );
 }
 
 function fieldValue(field: ConfigField, raw: string | undefined): unknown {
@@ -84,7 +89,7 @@ export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
     if (manifest.accessLevels.length > 0) out['access'] = entry.access;
     const config = fieldsObject(manifest.configFields, entry.config);
     if (Object.keys(config).length > 0) out['config'] = config;
-    const secrets = includedSecrets(manifest, entry.optionalSecrets);
+    const secrets = includedSecrets(manifest, entry.optionalSecrets, draft.target);
     if (secrets.length > 0) {
       out['secrets'] = Object.fromEntries(secrets.map((s) => [s.key, secretRefFor(s)]));
     }

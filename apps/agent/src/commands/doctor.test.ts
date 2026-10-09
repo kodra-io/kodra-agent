@@ -71,6 +71,32 @@ describe('doctor', () => {
     expect(rows.find((r) => r.check === 'anthropic.list-models')?.status).toBe('skip');
   });
 
+  it('needs a kubeconfig on compose, but not inside the cluster', async () => {
+    const kube =
+      "    kubernetes:\n      enabled: true\n      config: {namespaces: [api]}\n      secrets: {kubeconfig: '${file:/secrets/kubeconfig}'}";
+    const model = '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.1:9';
+    const rowFor = async (target: 'compose' | 'kubernetes') => {
+      const dir = await tempDir();
+      const path = await writeConfig(
+        configYaml({
+          target,
+          auditPath: posixPath(join(dir, 'audit.jsonl')),
+          model,
+          connectors: kube,
+        }),
+        dir,
+      );
+      const t = testContext();
+      await doctor({ configPath: path, json: true }, t.ctx);
+      return rowsOf(t).find((r) => r.check.startsWith('Kubernetes kubeconfig'));
+    };
+    expect(await rowFor('compose')).toMatchObject({
+      status: 'fail',
+      hint: 'Copy the file into the bundle folder as secrets/kubeconfig, or run `kodra-agent init`.',
+    });
+    expect(await rowFor('kubernetes')).toMatchObject({ status: 'skip' });
+  });
+
   it('reads secrets from the .env next to the config', async () => {
     server = await fakeServer({
       '/v1/models': (_q, s) => {

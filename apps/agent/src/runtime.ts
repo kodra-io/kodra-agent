@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentConfig } from '@kodra-agent/schema';
+import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
 import type { AgentDeps } from './agent.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
@@ -9,7 +9,7 @@ import type { Context } from './context.ts';
 import { lookupDefaultBranches } from './default-branches.ts';
 import { parseEnvFile } from './env-file.ts';
 import { createModel } from './llm.ts';
-import { ConnectorHost, type ConnectorInput } from './mcp/host.ts';
+import { ConnectorHost, type ConnectorFailure, type ConnectorInput } from './mcp/host.ts';
 import { resolveAll } from './secrets.ts';
 
 /** Everything `chat` and `run` share once the config is loaded and connectors started. */
@@ -47,7 +47,8 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
   for (const comp of components(config)) {
     const resolved = await resolveAll(comp.secrets, { env, redactor: ctx.redactor });
     for (const gap of resolved.missing) {
-      if (gap.use.spec.required) missing.push(`${secretLabel(gap.use)}: ${gap.reason}`);
+      if (isSecretRequired(gap.use.spec, config.spec.target))
+        missing.push(`${secretLabel(gap.use)}: ${gap.reason}`);
     }
     if (comp.manifest.category === 'model') {
       modelSecrets = resolved.values;
@@ -97,19 +98,17 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
   }
 
   const audit = new AuditLog(config.spec.audit.path, ctx.redactor);
-  let host: ConnectorHost;
-  try {
-    host = await ConnectorHost.start(inputs, {
-      redactor: ctx.redactor,
-      log: ctx.log,
-      audit,
-      env,
-      ...(ctx.launcher ? { launcher: ctx.launcher } : {}),
-    });
-  } catch (error) {
-    ctx.term.err(error instanceof Error ? error.message : 'Could not start the connectors.');
-    ctx.term.err('If a server binary is missing, run: pnpm mcp:fetch');
-    return null;
+  // A connector that cannot start is skipped, not fatal: the agent works with the rest.
+  const host = await ConnectorHost.start(inputs, {
+    redactor: ctx.redactor,
+    log: ctx.log,
+    audit,
+    env,
+    ...(ctx.launcher ? { launcher: ctx.launcher } : {}),
+  });
+  for (const failure of host.failures()) {
+    ctx.term.err(`${failure.displayName} is not available: ${failure.reason}`);
+    ctx.term.err(`  ${failureHint(failure, config, inputs, env)}`);
   }
 
   const model = (ctx.modelFactory ?? createModel)(config.spec.model, modelSecrets);
@@ -138,13 +137,48 @@ export async function startRuntime(configPath: string, ctx: Context): Promise<Ru
   };
 }
 
-/** One line per connector: access level and tool count. */
+/** What to do about a connector that did not start. */
+export function failureHint(
+  failure: ConnectorFailure,
+  config: AgentConfig,
+  inputs: readonly ConnectorInput[],
+  env: Readonly<Record<string, string | undefined>>,
+): string {
+  const input = inputs.find((i) => i.component.id === failure.connector);
+  if (
+    failure.connector === 'kubernetes' &&
+    config.spec.target === 'compose' &&
+    input?.secrets['kubeconfig'] === undefined
+  ) {
+    return 'On Docker Compose, Kubernetes needs a kubeconfig: copy it to secrets/kubeconfig in the bundle folder, then restart.';
+  }
+  // Only a source checkout fetches server binaries; the agent image has them preinstalled.
+  if (!env['KODRA_MCP_DIR'] && /no .* server build|ENOENT/.test(failure.reason)) {
+    return 'The server binary is missing. In a source checkout, run: pnpm mcp:fetch';
+  }
+  return 'The agent runs without it. Run `kodra-agent doctor` to check this connector.';
+}
+
+/** One line per connector: access level and tool count, or why it is not available. */
 export function describeConnectors(runtime: Runtime): string[] {
   const counts = new Map<string, number>();
   for (const tool of runtime.host.tools())
     counts.set(tool.connector, (counts.get(tool.connector) ?? 0) + 1);
+  const failed = new Map(runtime.host.failures().map((f) => [f.connector, f.reason]));
   return runtime.inputs.map((input) => {
+    const name = input.component.displayName;
+    const reason = failed.get(input.component.id);
+    if (reason !== undefined && !counts.has(input.component.id)) {
+      const short = reason.split('\n')[0] ?? reason;
+      return `${name}: not available (${short.length > 160 ? `${short.slice(0, 157)}...` : short})`;
+    }
+    // Connectors without an MCP server (Docker, Slack) give the model no tools.
+    const runtime = input.component.manifest.runtime;
+    if (runtime === null || (!Array.isArray(runtime) && runtime.type === 'builtin')) {
+      const use = input.component.manifest.category === 'build' ? ', used by `ship`' : '';
+      return `${name}: ${input.access ?? 'on'}${use}`;
+    }
     const n = counts.get(input.component.id) ?? 0;
-    return `${input.component.displayName}: ${input.access ?? 'on'}, ${String(n)} tool${n === 1 ? '' : 's'}`;
+    return `${name}: ${input.access ?? 'on'}, ${String(n)} tool${n === 1 ? '' : 's'}`;
   });
 }

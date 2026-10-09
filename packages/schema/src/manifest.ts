@@ -95,6 +95,11 @@ const secretSpec = z.strictObject({
   required: z.boolean(),
   /** For optional secrets: deployment targets where the configurator includes it by default. */
   defaultFor: z.array(z.enum(['compose', 'kubernetes'])).optional(),
+  /**
+   * For optional secrets: deployment targets where it is required after all (a kubeconfig is
+   * optional inside the cluster, but needed on Docker Compose). Use isSecretRequired().
+   */
+  requiredOn: z.array(z.enum(['compose', 'kubernetes'])).optional(),
   description: localizedText,
   howToCreate: localizedText,
   minimumScopes: scopesByAccess,
@@ -102,6 +107,14 @@ const secretSpec = z.strictObject({
   probe: z.string().regex(PROBE),
 });
 export type SecretSpec = z.infer<typeof secretSpec>;
+
+/** Whether a secret must be set for this deployment target. */
+export function isSecretRequired(
+  spec: Pick<SecretSpec, 'required' | 'requiredOn'>,
+  target: 'compose' | 'kubernetes',
+): boolean {
+  return spec.required || (spec.requiredOn ?? []).includes(target);
+}
 
 const requirement = z.strictObject({
   anyOf: z

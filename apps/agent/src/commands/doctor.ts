@@ -1,7 +1,8 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AuditLog } from '../audit.ts';
-import { components, loadConfig, secretLabel } from '../config.ts';
+import { isSecretRequired } from '@kodra-agent/schema';
+import { components, loadConfig, secretLabel, type SecretUse } from '../config.ts';
 import type { Context } from '../context.ts';
 import { parseEnvFile } from '../env-file.ts';
 import { probeIds, runProbe, type ProbeStatus } from '../probes.ts';
@@ -77,14 +78,15 @@ export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number>
     const { values, missing } = await resolveAll(comp.secrets, { env, redactor: ctx.redactor });
     for (const use of comp.secrets) {
       const gap = missing.find((m) => m.use === use);
+      const required = isSecretRequired(use.spec, config.spec.target);
       add(
         gap
           ? {
-              status: use.spec.required ? 'fail' : 'skip',
+              status: required ? 'fail' : 'skip',
               component: comp.displayName,
               check: secretLabel(use),
               message: gap.reason,
-              ...(use.spec.required ? { hint: 'Run `kodra-agent init` to set it.' } : {}),
+              ...(required ? { hint: missingHint(use, config.spec.target) } : {}),
             }
           : {
               status: 'pass',
@@ -95,7 +97,9 @@ export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number>
       );
     }
     for (const id of probeIds(comp)) {
-      const needed = comp.secrets.filter((s) => s.spec.probe === id && s.spec.required);
+      const needed = comp.secrets.filter(
+        (s) => s.spec.probe === id && isSecretRequired(s.spec, config.spec.target),
+      );
       if (needed.some((s) => missing.some((m) => m.use === s))) {
         add({ status: 'skip', component: comp.displayName, check: id, message: 'secret missing' });
         continue;
@@ -201,4 +205,12 @@ function finish(rows: readonly DoctorRow[], opts: DoctorOptions, ctx: Context): 
     );
   }
   return failed.length > 0 ? 1 : 0;
+}
+
+/** How to fix a missing required secret: file secrets on compose go in the bundle folder. */
+function missingHint(use: SecretUse, target: 'compose' | 'kubernetes'): string {
+  if (target === 'compose' && use.ref.scheme === 'file' && use.ref.path.startsWith('/secrets/')) {
+    return `Copy the file into the bundle folder as secrets/${use.ref.path.slice('/secrets/'.length)}, or run \`kodra-agent init\`.`;
+  }
+  return 'Run `kodra-agent init` to set it.';
 }

@@ -103,12 +103,17 @@ describe('several servers per connector', () => {
         { ...baseRuntime(), name: 'second' },
       ],
     };
-    // Both fake servers offer the same tools, so the second must be refused.
-    await expect(
-      start([{ component: component(multi), access: 'read-only', secrets: {} }]),
-    ).rejects.toThrow(
-      /multi\/second offers pods_log, which another Fake Kubernetes server already offers/,
-    );
+    // Both fake servers offer the same tools, so the second is refused: recorded as a
+    // failure of that server, while the first keeps working.
+    const h = await start([{ component: component(multi), access: 'read-only', secrets: {} }]);
+    expect(h.failures().map((f) => [f.connector, f.server, f.reason])).toEqual([
+      [
+        'multi',
+        'second',
+        'multi/second offers pods_log, which another Fake Kubernetes server already offers',
+      ],
+    ]);
+    expect(h.get('multi__pods_log')).toBeDefined();
   });
 
   it('routes each tool to the server that offers it', async () => {

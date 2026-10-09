@@ -88,6 +88,8 @@ export default defineManifest({
       defaultFilePath: '/secrets/kubeconfig',
       required: false,
       defaultFor: ['compose'],
+      // Optional inside the cluster (service account), required on Docker Compose.
+      requiredOn: ['compose'],
       description: t(
         'Kubeconfig for the cluster. Not needed when the agent runs inside the cluster with its own service account.',
         'ملف kubeconfig للعنقود. لا حاجة إليه عندما يعمل الوكيل داخل العنقود بحساب الخدمة الخاص به.',

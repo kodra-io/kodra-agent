@@ -249,6 +249,62 @@ describe('kodra-agent run', () => {
     },
   );
 
+  it('keeps running when one connector cannot start, and says which', async () => {
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        connectors: [
+          '    kubernetes:',
+          '      enabled: true',
+          '      config: {namespaces: [payments]}',
+          '    grafana:',
+          '      enabled: true',
+          "      config: {url: 'http://127.0.0.1:1'}",
+          "      secrets: {serviceAccountToken: '${env:G}'}",
+          '    slack:',
+          '      enabled: true',
+          "      config: {channel: '#ops'}",
+          "      secrets: {botToken: '${env:B}', appToken: '${env:A}'}",
+        ].join('\n'),
+      }),
+      dir,
+    );
+    const slack = fakeSlack();
+    const stop = new AbortController();
+    let healthPort = 0;
+    const fake = fakeLauncher();
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: 'k', G: 'grafana-token', B: 'xoxb-1', A: 'xapp-1' },
+      modelFactory: () => scriptedModel(),
+      // Grafana's server cannot start; Kubernetes's can.
+      launcher: (manifest, runtime) =>
+        manifest.id === 'grafana'
+          ? { command: join(dir, 'no-such-server'), args: [] }
+          : fake(manifest, runtime),
+      slackConnection: () => slack.connection(),
+      stopSignal: stop.signal,
+      healthPort: 0,
+      onReady: (info) => {
+        healthPort = info.healthPort;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (healthPort ? true : undefined));
+
+    const readyz = await fetch(`http://127.0.0.1:${String(healthPort)}/readyz`);
+    expect(readyz.status).toBe(200);
+    expect(await readyz.text()).toBe('ready; not available: Grafana');
+    expect(t.term.stderr.join('\n')).toContain('Grafana is not available:');
+    const hello = slack.posted[0]?.text ?? '';
+    expect(hello).toContain('• Grafana: not available (');
+    expect(hello).toMatch(/• Kubernetes: read-only, \d+ tools/);
+
+    stop.abort();
+    expect(await running).toBe(0);
+  });
+
   it('refuses direct messages from people who are not approvers', async () => {
     const dir = await tempDir();
     const path = await writeConfig(

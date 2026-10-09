@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -122,6 +122,42 @@ describe('init on compose', () => {
       kubeconfig: 'apiVersion: v1\nkind: Config',
       args: ['api', 2000],
     });
+  });
+
+  it('says where a file secret goes, uses it on Enter, and explains a folder', async () => {
+    const { dir, path } = await setup(
+      "    kubernetes:\n      enabled: true\n      config: {namespaces: [api]}\n      secrets: {kubeconfig: '${file:/secrets/kubeconfig}'}",
+    );
+    await mkdir(join(dir, 'dot-kube'));
+    server = await anthropicServer('good-key-1234');
+    // A folder first (the common mistake), then Enter once the file is in secrets/.
+    const prompter = scriptedPrompter(['good-key-1234', 'dot-kube', '']);
+    const original = prompter.text.bind(prompter);
+    prompter.text = async (m) => {
+      if (prompter.asked.length === 2) {
+        await mkdir(join(dir, 'secrets'), { recursive: true });
+        await writeFile(join(dir, 'secrets', 'kubeconfig'), 'apiVersion: v1\nkind: Config\n');
+      }
+      return original(m);
+    };
+    const t = testContext({
+      prompter,
+      kubernetes: fakeKubernetes(),
+      endpoints: { anthropic: server.url },
+    });
+
+    expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
+    const out = t.output();
+    expect(out).toContain(
+      'copy the file into this bundle folder as secrets/kubeconfig (the agent reads it at /secrets/kubeconfig)',
+    );
+    expect(prompter.asked).toContain(
+      'Path to the file for Kubernetes kubeconfig (file /secrets/kubeconfig), or Enter once it is in place:',
+    );
+    expect(out).toContain('dot-kube is a folder. Give the file itself');
+    expect(await readFile(join(dir, 'secrets', 'kubeconfig'), 'utf8')).toBe(
+      'apiVersion: v1\nkind: Config\n',
+    );
   });
 
   it('skips an optional secret on an empty answer', async () => {
