@@ -67,7 +67,7 @@ describe('compose bundle', () => {
       services: { 'kodra-agent': Record<string, unknown> };
     };
     const service = compose.services['kodra-agent'];
-    expect(service['image']).toBe('ghcr.io/kodra-io/kodra-agent:0.1.2');
+    expect(service['image']).toBe('ghcr.io/kodra-io/kodra-agent:0.1.3');
     expect(service['read_only']).toBe(true);
     expect(service['cap_drop']).toEqual(['ALL']);
     // The root filesystem is read-only; MCP servers get private folders under /tmp.
@@ -177,14 +177,14 @@ describe('kubernetes bundle', () => {
 
   it('quickstart runs init from the pinned image, so no local CLI is needed', () => {
     expect(quickstartCommands(kubernetesDraft())).toContain(
-      'docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.2 init --target kubernetes --namespace kodra-agent',
+      'docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.3 init --target kubernetes --namespace kodra-agent',
     );
     const readme = file(generateBundle(kubernetesDraft()), 'README.md');
     expect(readme).toContain('add\n`--dry-run` to the `init` command');
     // EKS: the same init, plus ~/.aws read-only and AWS_PROFILE for `aws eks get-token`.
     expect(readme).toContain('### EKS clusters');
     expect(readme).toContain(
-      'docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -e AWS_PROFILE -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$HOME/.aws:/home/kodra/.aws:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.2 init --target kubernetes --namespace kodra-agent',
+      'docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -e AWS_PROFILE -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$HOME/.aws:/home/kodra/.aws:ro" -v "$PWD:/work" -w /work ghcr.io/kodra-io/kodra-agent:0.1.3 init --target kubernetes --namespace kodra-agent',
     );
     // The default command does not mount ~/.aws.
     expect(quickstartCommands(kubernetesDraft()).join('\n')).not.toContain('.aws');
@@ -192,7 +192,7 @@ describe('kubernetes bundle', () => {
 
   it('quickstart installs the pinned chart into the agent namespace', () => {
     expect(quickstartCommands(kubernetesDraft()).at(-1)).toBe(
-      'helm install platform-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.2 --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml',
+      'helm install platform-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.3 --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml',
     );
   });
 });

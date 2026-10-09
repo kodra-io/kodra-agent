@@ -5,7 +5,7 @@ import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
 /** The published image and chart. A test checks these against the chart and the agent version. */
 export const AGENT_IMAGE = 'ghcr.io/kodra-io/kodra-agent';
-export const AGENT_VERSION = '0.1.2';
+export const AGENT_VERSION = '0.1.3';
 export const AGENT_CHART = 'oci://ghcr.io/kodra-io/charts/kodra-agent';
 export const AGENT_NAMESPACE = 'kodra-agent';
 const CONFIG_PATH = '/etc/kodra-agent/kodra-agent.yaml';
