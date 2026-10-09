@@ -128,6 +128,7 @@ export function configYaml(opts: {
   auditPath: string;
   model?: string;
   connectors?: string;
+  approvers?: string[];
 }): string {
   return `apiVersion: kodra.io/v1alpha1
 kind: Agent
@@ -141,7 +142,7 @@ ${opts.model ?? '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.
 ${opts.connectors ?? '    {}'}
   policy:
     approvals:
-      approvers: ['@omar']
+      approvers: [${(opts.approvers ?? ['@omar']).map((a) => `'${a}'`).join(', ')}]
   audit:
     path: ${opts.auditPath}
 `;

@@ -523,6 +523,18 @@ export function ReviewStep(
             }}
           />
         </div>
+        {draft.console.enabled && (
+          <div className="mt-4 flex items-start justify-between gap-4">
+            <p className="text-sm text-ink-secondary">{t('review.consoleChat')}</p>
+            <Switch
+              checked={draft.console.chat}
+              label={t('review.consoleChatSwitch')}
+              onChange={(chat) => {
+                dispatch({ type: 'consoleChat', chat });
+              }}
+            />
+          </div>
+        )}
       </Section>
 
       <Section title={issues.length > 0 ? t('review.problems') : t('review.noProblems')}>

@@ -92,6 +92,25 @@ describe('validateDraft', () => {
     ]);
   });
 
+  it('accepts console approvers, which need the console, and writes chat', () => {
+    const draft = {
+      ...composeDraft(),
+      policy: { ...composeDraft().policy, approvers: '@omar, console:on-call' },
+      console: { enabled: true, chat: false },
+    };
+    expect(validateDraft(draft)).toEqual([]);
+    const result = parseAgentConfig(configYaml(draft));
+    expect(result.ok ? [] : result.issues).toEqual([]);
+    if (result.ok) {
+      expect(result.config.spec.policy.approvals.approvers).toEqual(['@omar', 'console:on-call']);
+      expect(result.config.spec.console.chat).toBe(false);
+    }
+    const off = { ...draft, console: { enabled: false, chat: true } };
+    expect(codes(validateDraft(off))).toEqual(['policy.approvers:approver-console-off']);
+    const bad = { ...draft, policy: { ...draft.policy, approvers: 'console:On_Call' } };
+    expect(codes(validateDraft(bad))).toEqual(['policy.approvers:approver-format']);
+  });
+
   it('checks provider-specific model fields', () => {
     const draft = {
       ...composeDraft(),

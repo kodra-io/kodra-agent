@@ -108,6 +108,19 @@ describe('compose bundle', () => {
     expect(readme).toContain('Destructive actions are blocked.');
     expect(readme).toContain('## Uninstall');
   });
+
+  it('README lists a console sign-in token per console approver', () => {
+    const draft = {
+      ...composeDraft(),
+      policy: { ...composeDraft().policy, approvers: '@omar, console:on-call' },
+    };
+    const readme = file(generateBundle(draft), 'README.md');
+    expect(readme).toContain('- `KODRA_CONSOLE_TOKEN`: the team: view and chat, cannot approve');
+    expect(readme).toContain('- `KODRA_CONSOLE_TOKEN_ON_CALL`: console:on-call: can approve');
+    expect(readme).toContain('lets you chat with the agent');
+    const k8s = file(generateBundle({ ...kubernetesDraft(), policy: draft.policy }), 'README.md');
+    expect(k8s).toContain("jsonpath='{.data.KODRA_CONSOLE_TOKEN_ON_CALL}' | base64 -d");
+  });
 });
 
 describe('kubernetes bundle', () => {

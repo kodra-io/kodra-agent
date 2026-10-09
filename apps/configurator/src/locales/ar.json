@@ -60,7 +60,7 @@
   "review.noSecrets": "لا شيء.",
   "review.policy": "الموافقات",
   "review.approvers": "المعتمدون",
-  "review.approversHint": "أسماء مستخدمي Slack مثل ‎@omar أو معرّفات مستخدمي Slack، مفصولة بفواصل.",
+  "review.approversHint": "معرفات Slack مثل ‎@omar، أو أرقام مستخدمي Slack، أو أصحاب موافقة في لوحة التحكم مثل console:omar، مفصولة بفواصل. يحصل كل صاحب موافقة في لوحة التحكم على رمز دخول خاص به.",
   "review.expires": "تنتهي صلاحية طلبات الموافقة بعد (دقائق)",
   "review.destructive": "الإجراءات المدمّرة",
   "destructive.deny": "محظورة",
@@ -85,11 +85,14 @@
   "error.pattern": "صيغة هذه القيمة غير صحيحة.",
   "error.integerRange": "أدخل عددا صحيحا من {min} إلى {max}.",
   "error.nameFormat": "استخدم أحرفا إنجليزية صغيرة وأرقاما وشرطات، تبدأ وتنتهي بحرف أو رقم، بحد أقصى 53 حرفا.",
-  "error.approverFormat": "‏{value} ليس اسم مستخدم Slack مثل ‎@omar ولا معرّف مستخدم Slack.",
+  "error.approverFormat": "{value} ليس معرف Slack مثل ‎@omar، ولا رقم مستخدم Slack، ولا صاحب موافقة في لوحة التحكم مثل console:omar.",
   "error.comingSoon": "هذا الموصل قادم قريبا ولا يمكن تفعيله بعد.",
   "error.schema": "{message}",
   "review.console": "لوحة التحكم على الويب",
   "review.consoleSwitch": "تفعيل لوحة التحكم على الويب",
-  "review.consoleCompose": "صفحة للقراءة فقط تعرض الحالة والنشاط والاستهلاك والموافقات. تعمل على هذا الجهاز فقط على العنوان http://localhost:8081، وتسجل الدخول برمز ينشئه الأمر init.",
-  "review.consoleKubernetes": "صفحة للقراءة فقط تعرض الحالة والنشاط والاستهلاك والموافقات. لا تُعرض خارج العنقود: تصل إليها عبر kubectl port-forward وتسجل الدخول برمز ينشئه الأمر init."
+  "review.consoleCompose": "صفحة فيها الحالة والنشاط والاستهلاك والموافقات. تعمل على هذا الجهاز فقط، على http://localhost:8081، وتسجل الدخول برمز ينشئه الأمر init.",
+  "review.consoleKubernetes": "صفحة فيها الحالة والنشاط والاستهلاك والموافقات. لا تظهر خارج العنقود: تصل إليها عبر kubectl port-forward وتسجل الدخول برمز ينشئه الأمر init.",
+  "error.approverConsoleOff": "{value} يوافق في لوحة التحكم. فعّل لوحة التحكم، أو احذف {value}.",
+  "review.consoleChat": "اسأل الوكيل من لوحة التحكم. التغييرات تنتظر موافقة كما هي. أصحاب الموافقة في لوحة التحكم (console:name) يوافقون هناك، والباقون في Slack.",
+  "review.consoleChatSwitch": "المحادثة في لوحة التحكم"
 }

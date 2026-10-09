@@ -60,7 +60,7 @@
   "review.noSecrets": "None.",
   "review.policy": "Approvals",
   "review.approvers": "Approvers",
-  "review.approversHint": "Slack handles like @omar, or Slack user ids, separated by commas.",
+  "review.approversHint": "Slack handles like @omar, Slack user ids, or console approvers like console:omar, separated by commas. Each console approver gets their own sign-in token.",
   "review.expires": "Approval requests expire after (minutes)",
   "review.destructive": "Destructive actions",
   "destructive.deny": "Blocked",
@@ -85,11 +85,14 @@
   "error.pattern": "This value has the wrong format.",
   "error.integerRange": "Enter a whole number from {min} to {max}.",
   "error.nameFormat": "Use lowercase letters, digits, and hyphens, starting and ending with a letter or digit, up to 53 characters.",
-  "error.approverFormat": "{value} is not a Slack handle like @omar or a Slack user id.",
+  "error.approverFormat": "{value} is not a Slack handle like @omar, a Slack user id, or a console approver like console:omar.",
   "error.comingSoon": "This connector is coming soon and cannot be enabled yet.",
   "error.schema": "{message}",
   "review.console": "Web console",
   "review.consoleSwitch": "Turn on the web console",
-  "review.consoleCompose": "A read-only page with status, activity, usage, and approvals. It listens on this machine only, at http://localhost:8081, and you sign in with a token that init creates.",
-  "review.consoleKubernetes": "A read-only page with status, activity, usage, and approvals. It is not exposed outside the cluster: you reach it with kubectl port-forward and sign in with a token that init creates."
+  "review.consoleCompose": "A page with status, activity, usage, and approvals. It listens on this machine only, at http://localhost:8081, and you sign in with a token that init creates.",
+  "review.consoleKubernetes": "A page with status, activity, usage, and approvals. It is not exposed outside the cluster: you reach it with kubectl port-forward and sign in with a token that init creates.",
+  "error.approverConsoleOff": "{value} approves in the web console. Turn the console on, or remove {value}.",
+  "review.consoleChat": "Ask the agent questions in the console. Changes still wait for an approver. Console approvers (console:name) approve there; others approve in Slack.",
+  "review.consoleChatSwitch": "Chat in the console"
 }

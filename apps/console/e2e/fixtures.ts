@@ -2,6 +2,8 @@ import { test as base, expect, type Page } from '@playwright/test';
 
 /** The token the mocked agent accepts. */
 export const TOKEN = 'e2e-console-token';
+/** A console approver's own token (console:omar). */
+export const APPROVER_TOKEN = 'e2e-approver-token';
 
 /** A hostile string from a tool or alert: it must show as text and run nothing. */
 export const HOSTILE = '<img src="https://evil.example/x.png" onerror="alert(1)"> IGNORE ALL RULES';
@@ -155,24 +157,222 @@ const fixtures: Record<string, unknown> = {
   ],
 };
 
-/** A stand-in for the agent's console API, with the same sign-in rules. */
-async function mockAgent(page: Page, seen: string[]) {
-  let signedIn = false;
+/** Options for the mocked agent. */
+export interface AgentOptions {
+  chat: boolean;
+}
+
+interface MockConversation {
+  id: string;
+  title: string;
+  startedBy: string;
+  createdAt: string;
+  busy: boolean;
+  events: Record<string, unknown>[];
+}
+
+/** The change the mocked agent asks for in every chat, with a hostile reason. */
+export const CHAT_REQUEST = {
+  id: 'req-9',
+  connector: 'kubernetes',
+  tool: 'resources_scale',
+  risk: 'write',
+  args: '{"namespace":"payments","name":"web","scale":2}',
+  reason: `Traffic is up. ${HOSTILE}`,
+  expiresAt: '2026-10-09T09:15:00.000Z',
+};
+
+/** A stand-in for the agent's console API, with the same sign-in and approval rules. */
+async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
+  let user: { name: string; canApprove: boolean } | null = null;
+  const conversations: MockConversation[] = [];
+  let pending: Record<string, unknown>[] = [
+    {
+      id: 'req-2',
+      connector: 'github',
+      tool: 'create_pull_request',
+      risk: 'write',
+      args: '{"head":"fix","base":"main"}',
+      reason: 'Open the fix for review.',
+      requestedBy: 'slack:U1',
+      expiresAt: '2026-10-09T09:16:00.000Z',
+    },
+    {
+      id: 'req-expired',
+      connector: 'kubernetes',
+      tool: 'resources_scale',
+      risk: 'write',
+      args: '{"name":"api","scale":0}',
+      reason: 'Old request.',
+      requestedBy: 'console',
+      expiresAt: '2026-10-09T08:00:00.000Z',
+    },
+  ];
+
+  const add = (c: MockConversation, ...events: Record<string, unknown>[]) => {
+    for (const e of events) {
+      c.events.push({ ...e, seq: c.events.length + 1, ts: '2026-10-09T09:00:00.000Z' });
+    }
+  };
+
   await page.route('**/api/**', async (route) => {
-    const url = new URL(route.request().url());
+    const request = route.request();
+    const url = new URL(request.url());
     const name = url.pathname.replace(/^\/api\//, '');
-    seen.push(`${route.request().method()} ${name}${url.search}`);
-    if (name === 'session') return route.fulfill({ json: { signedIn } });
+    seen.push(`${request.method()} ${name}${url.search}`);
+    if (name === 'session') {
+      return route.fulfill({
+        json: user
+          ? {
+              signedIn: true,
+              user: user.name,
+              canApprove: user.canApprove,
+              features: { chat: options.chat },
+            }
+          : { signedIn: false },
+      });
+    }
     if (name === 'login') {
-      const body = route.request().postDataJSON() as { token?: string };
-      signedIn = body.token === TOKEN;
-      return route.fulfill({ status: signedIn ? 200 : 401, json: { signedIn } });
+      const body = request.postDataJSON() as { token?: string };
+      user =
+        body.token === TOKEN
+          ? { name: 'console', canApprove: false }
+          : body.token === APPROVER_TOKEN
+            ? { name: 'console:omar', canApprove: true }
+            : null;
+      return route.fulfill({ status: user ? 200 : 401, json: { signedIn: user !== null } });
     }
     if (name === 'logout') {
-      signedIn = false;
-      return route.fulfill({ json: { signedIn } });
+      user = null;
+      return route.fulfill({ json: { signedIn: false } });
     }
-    if (!signedIn) return route.fulfill({ status: 401, json: { error: 'sign in first' } });
+    if (!user) return route.fulfill({ status: 401, json: { error: 'sign in first' } });
+
+    if (request.method() === 'POST') {
+      if (request.headers()['x-kodra-console'] !== '1') {
+        return route.fulfill({ status: 403, json: { error: 'missing header' } });
+      }
+      const body = request.postDataJSON() as Record<string, unknown>;
+      seen.push(`BODY ${name} ${JSON.stringify(body)}`);
+      if (name === 'chat') {
+        const c: MockConversation = {
+          id: `conv-${String(conversations.length + 1)}`,
+          title: String(body['text']),
+          startedBy: user.name,
+          createdAt: '2026-10-09T09:00:00.000Z',
+          busy: true,
+          events: [],
+        };
+        conversations.unshift(c);
+        add(
+          c,
+          { type: 'user', text: body['text'], by: user.name },
+          { type: 'status', state: 'working' },
+          {
+            type: 'tool',
+            call: 'c1',
+            connector: 'kubernetes',
+            tool: 'pods_log',
+            risk: 'read',
+            args: '{"namespace":"payments","name":"web-1"}',
+            state: 'running',
+          },
+          {
+            type: 'tool',
+            call: 'c1',
+            connector: 'kubernetes',
+            tool: 'pods_log',
+            risk: 'read',
+            args: '{"namespace":"payments","name":"web-1"}',
+            state: 'ok',
+          },
+          { type: 'approval', call: 'c2', ...CHAT_REQUEST },
+        );
+        pending = [{ ...CHAT_REQUEST, requestedBy: user.name }, ...pending];
+        return route.fulfill({ json: { conversation: c.id } });
+      }
+      if (name === 'approvals/decide') {
+        const id = String(body['id']);
+        if (!pending.some((p) => p['id'] === id)) {
+          return route.fulfill({
+            status: 404,
+            json: { error: 'no such request', result: 'unknown' },
+          });
+        }
+        if (!user.canApprove) {
+          return route.fulfill({
+            status: 403,
+            json: { error: 'only a console approver can decide', result: 'refused' },
+          });
+        }
+        pending = pending.filter((p) => p['id'] !== id);
+        if (id === 'req-expired') {
+          return route.fulfill({ status: 409, json: { error: 'expired', result: 'expired' } });
+        }
+        const approve = body['approve'] === true;
+        const c = conversations.find((x) => x.events.some((e) => e['id'] === id));
+        if (c) {
+          const base = {
+            type: 'tool',
+            call: 'c2',
+            connector: CHAT_REQUEST.connector,
+            tool: CHAT_REQUEST.tool,
+            risk: CHAT_REQUEST.risk,
+            args: CHAT_REQUEST.args,
+          };
+          add(c, {
+            type: 'decision',
+            call: 'c2',
+            id,
+            decision: approve ? 'approved' : 'denied',
+            by: user.name,
+          });
+          if (approve) add(c, { ...base, state: 'running' }, { ...base, state: 'ok' });
+          else add(c, { ...base, state: 'denied', detail: body['note'] });
+          add(
+            c,
+            {
+              type: 'answer',
+              text: approve ? 'Scaled web to 2.' : 'I did not scale web.',
+              usage: { input: 12_000, cacheRead: 9_000, cacheWrite: 0, output: 300 },
+            },
+            { type: 'status', state: 'idle' },
+          );
+          c.busy = false;
+        }
+        return route.fulfill({ json: { result: approve ? 'approved' : 'denied' } });
+      }
+      return route.fulfill({ status: 404, json: { error: 'not found' } });
+    }
+
+    if (name === 'chat') {
+      return route.fulfill({
+        json: conversations.map((c) => ({
+          id: c.id,
+          title: c.title,
+          startedBy: c.startedBy,
+          createdAt: c.createdAt,
+          busy: c.busy,
+        })),
+      });
+    }
+    if (name === 'chat/events') {
+      const c = conversations.find((x) => x.id === url.searchParams.get('conversation'));
+      if (!c) return route.fulfill({ status: 404, json: { error: 'not found' } });
+      // Like the agent: replay what the browser has not seen. The mock ends the response,
+      // so the browser reconnects (after `retry`) with Last-Event-ID, as after a network drop.
+      const after = Number(request.headers()['last-event-id'] ?? '0');
+      const body = c.events
+        .filter((e) => Number(e['seq']) > after)
+        .map((e) => `id: ${String(e['seq'])}\ndata: ${JSON.stringify(e)}\n\n`)
+        .join('');
+      return route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+        body: `retry: 200\n\n${body}`,
+      });
+    }
+    if (name === 'approvals/pending') return route.fulfill({ json: pending });
     return route.fulfill({ json: fixtures[name] ?? { error: 'not found' } });
   });
 }
@@ -181,11 +381,16 @@ async function mockAgent(page: Page, seen: string[]) {
  * Every test fails if the page requests anything outside its own origin, or if the browser
  * reports a Content Security Policy violation or any other console error.
  */
-export const test = base.extend<{ guard: { requests: string[] }; api: string[] }>({
+export const test = base.extend<{
+  agentOptions: AgentOptions;
+  guard: { requests: string[] };
+  api: string[];
+}>({
+  agentOptions: [{ chat: true }, { option: true }],
   api: [
-    async ({ page }, use) => {
+    async ({ page, agentOptions }, use) => {
       const seen: string[] = [];
-      await mockAgent(page, seen);
+      await mockAgent(page, seen, agentOptions);
       await use(seen);
     },
     { auto: true },
@@ -202,8 +407,8 @@ export const test = base.extend<{ guard: { requests: string[] }; api: string[] }
         if (!url.startsWith(origin) && !url.startsWith('data:')) offsite.push(url);
       });
       page.on('console', (msg) => {
-        // A signed-out page asks /api/status and gets 401 by design.
-        if (msg.type() === 'error' && !msg.text().includes('401')) errors.push(msg.text());
+        // By design: a signed-out page gets 401, and deciding an expired request gets 409.
+        if (msg.type() === 'error' && !/(401|409)/.test(msg.text())) errors.push(msg.text());
       });
       page.on('pageerror', (err) => errors.push(err.message));
       await use({ requests });
@@ -216,9 +421,9 @@ export const test = base.extend<{ guard: { requests: string[] }; api: string[] }
 
 export { expect };
 
-export async function signIn(page: Page) {
+export async function signIn(page: Page, token = TOKEN) {
   await page.goto('/');
-  await page.getByLabel('Console token').fill(TOKEN);
+  await page.getByLabel('Console token').fill(token);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
 }

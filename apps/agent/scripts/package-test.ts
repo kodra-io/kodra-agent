@@ -244,7 +244,39 @@ async function consoleCheck(dir: string): Promise<void> {
     version?: string;
   };
   if (!status.version) throw new Error('the console status has no version');
-  console.log(`console: signed in on ${base}, agent ${status.version}`);
+
+  // Writes (chat, approvals) need the session, this origin, and the console's header.
+  const write = (headers: Record<string, string>) =>
+    fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ text: 'hello' }),
+    });
+  const refused: [string, Record<string, string>, number][] = [
+    ['without a session', { 'x-kodra-console': '1' }, 401],
+    ['without the header', { cookie }, 403],
+    [
+      'from another origin',
+      { cookie, 'x-kodra-console': '1', origin: 'https://evil.example' },
+      403,
+    ],
+  ];
+  for (const [what, headers, expected] of refused) {
+    const res = await write(headers);
+    if (res.status !== expected) {
+      throw new Error(
+        `a console write ${what} got HTTP ${String(res.status)}, not ${String(expected)}`,
+      );
+    }
+  }
+  const session = (await (await fetch(`${base}/api/session`, { headers: { cookie } })).json()) as {
+    user?: string;
+    canApprove?: boolean;
+  };
+  if (session.user !== 'console' || session.canApprove !== false) {
+    throw new Error('the shared console token must not be able to approve');
+  }
+  console.log(`console: signed in on ${base}, agent ${status.version}; writes are guarded`);
 }
 
 async function untilAsync(what: string, check: () => Promise<boolean>, ms: number): Promise<void> {

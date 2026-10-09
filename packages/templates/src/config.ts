@@ -2,6 +2,7 @@ import { dependencyIssues, getModelProvider, parseAgentConfig } from '@kodra-age
 import {
   DEFAULT_AUDIT_PATH,
   formatSecretRef,
+  isConsoleApprover,
   isSecretRequired,
   SCHEMA_API_VERSION,
   type ConfigField,
@@ -22,13 +23,15 @@ export type DraftIssue = { field: string; step: StepId } & (
   | { code: 'integer-range'; min: number; max: number }
   | { code: 'name-format' }
   | { code: 'approver-format'; value: string }
+  | { code: 'approver-console-off'; value: string }
   | { code: 'dependency'; message: LocalizedText }
   | { code: 'coming-soon' }
   | { code: 'schema'; message: string }
 );
 
 const NAME = /^[a-z0-9]([-a-z0-9]{0,51}[a-z0-9])?$/;
-const APPROVER = /^(@[A-Za-z0-9][A-Za-z0-9._-]{0,79}|[UW][A-Z0-9]{2,})$/;
+const APPROVER =
+  /^(@[A-Za-z0-9][A-Za-z0-9._-]{0,79}|[UW][A-Z0-9]{2,}|console:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?)$/;
 
 /** The reference written into kodra-agent.yaml for a secret. */
 export function secretRefFor(secret: SecretSpec): string {
@@ -118,7 +121,7 @@ export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
       },
       audit: { path: DEFAULT_AUDIT_PATH },
       telemetry: { enabled: false },
-      console: { enabled: draft.console.enabled, port: CONSOLE_PORT },
+      console: { enabled: draft.console.enabled, port: CONSOLE_PORT, chat: draft.console.chat },
     },
   };
 }
@@ -220,6 +223,16 @@ export function validateDraft(draft: AgentDraft): DraftIssue[] {
   }
   for (const value of approvers.filter((a) => !APPROVER.test(a))) {
     issues.push({ field: 'policy.approvers', step: 'review', code: 'approver-format', value });
+  }
+  if (!draft.console.enabled) {
+    for (const value of approvers.filter((a) => APPROVER.test(a) && isConsoleApprover(a))) {
+      issues.push({
+        field: 'policy.approvers',
+        step: 'review',
+        code: 'approver-console-off',
+        value,
+      });
+    }
   }
   const expires = draft.policy.expiresAfterMinutes.trim();
   if (!/^\d+$/.test(expires) || Number(expires) < 1 || Number(expires) > 1440) {

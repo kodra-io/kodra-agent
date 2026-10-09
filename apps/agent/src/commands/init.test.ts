@@ -104,7 +104,9 @@ describe('init on compose', () => {
     expect(token).not.toBe('');
     expect(t.output()).not.toContain('existing-key-999');
     expect(t.output()).not.toContain(token);
-    expect(t.output()).toContain('Created a console sign-in token in .env (KODRA_CONSOLE_TOKEN)');
+    expect(t.output()).toContain(
+      'Created a console sign-in token for the team (view and chat) in .env (KODRA_CONSOLE_TOKEN)',
+    );
     // A second run keeps the same token.
     const again = testContext({ prompter: scriptedPrompter([true]) });
     expect(await init({ ...base, configPath: path }, again.ctx)).toBe(0);
@@ -202,6 +204,32 @@ describe('init with no secrets to ask for', () => {
     expect(await readFile(join(dir, '.env'), 'utf8')).toMatch(/^KODRA_CONSOLE_TOKEN=\S{43}$/m);
   });
 
+  it('creates one token per console approver, once', async () => {
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        approvers: ['@omar', 'console:on-call'],
+      }),
+      dir,
+    );
+    const t = testContext();
+    expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
+    const env = await readFile(join(dir, '.env'), 'utf8');
+    const shared = /^KODRA_CONSOLE_TOKEN=(\S{43})$/m.exec(env)?.[1];
+    const own = /^KODRA_CONSOLE_TOKEN_ON_CALL=(\S{43})$/m.exec(env)?.[1];
+    expect(shared).toBeDefined();
+    expect(own).toBeDefined();
+    expect(own).not.toBe(shared);
+    expect(t.output()).toContain('for console:on-call in .env (KODRA_CONSOLE_TOKEN_ON_CALL)');
+    expect(t.output()).not.toContain(own);
+
+    expect(await init({ ...base, configPath: path, nonInteractive: true }, testContext().ctx)).toBe(
+      0,
+    );
+    expect(await readFile(join(dir, '.env'), 'utf8')).toBe(env);
+  });
+
   it('has nothing to do with the console off', async () => {
     const { dir, path } = await noSecrets(false);
     const t = testContext();
@@ -267,6 +295,36 @@ describe('init on kubernetes', () => {
     expect(t.term.stdout).toContain('Created Secret kodra-agent/test-agent-secrets with 3 key(s).');
     expect(t.output()).not.toContain(data['KODRA_CONSOLE_TOKEN']);
     expect(t.output()).not.toContain('k-key-1234');
+  });
+
+  it("adds each console approver's token and says how to read it", async () => {
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        target: 'kubernetes',
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        approvers: ['console:omar'],
+      }),
+      dir,
+    );
+    const k8s = fakeKubernetes();
+    const t = testContext({ kubernetes: k8s });
+    expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
+    const data = (k8s.calls.find((c) => c.op === 'upsertSecret')?.args[2] ?? {}) as Record<
+      string,
+      string
+    >;
+    expect(Object.keys(data).sort()).toEqual(['KODRA_CONSOLE_TOKEN', 'KODRA_CONSOLE_TOKEN_OMAR']);
+    expect(t.output()).toContain(
+      "The console sign-in token for console:omar is key KODRA_CONSOLE_TOKEN_OMAR of that Secret: kubectl --namespace kodra-agent get secret test-agent-secrets -o jsonpath='{.data.KODRA_CONSOLE_TOKEN_OMAR}' | base64 -d",
+    );
+    expect(t.output()).not.toContain(data['KODRA_CONSOLE_TOKEN_OMAR']);
+
+    const dry = testContext();
+    expect(await init({ ...base, configPath: path, dryRun: true }, dry.ctx)).toBe(0);
+    expect(dry.output()).toContain(
+      'KODRA_CONSOLE_TOKEN_OMAR: "<a long random string: the sign-in token for console:omar>"',
+    );
   });
 
   it('--dry-run prints placeholders, asks nothing, and never reads values', async () => {

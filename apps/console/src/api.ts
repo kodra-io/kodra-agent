@@ -1,6 +1,6 @@
 /**
- * The agent's read-only console API (apps/agent/src/console). Same origin only; the session
- * is an HttpOnly cookie the page never sees.
+ * The agent's console API (apps/agent/src/console). Same origin only; the session is an
+ * HttpOnly cookie the page never sees. Writes send a JSON body and the x-kodra-console header.
  */
 
 export interface StatusView {
@@ -92,10 +92,102 @@ export async function get<T>(route: string, query: Record<string, string> = {}):
   return (await res.json()) as T;
 }
 
-export async function signedIn(): Promise<boolean> {
-  const res = await fetch('/api/session', { credentials: 'same-origin' });
-  return res.ok && ((await res.json()) as { signedIn?: boolean }).signedIn === true;
+/** Who is signed in. `user` is `console` (the shared token) or `console:<name>`. */
+export interface Session {
+  signedIn: boolean;
+  user?: string;
+  canApprove?: boolean;
+  features?: { chat?: boolean };
 }
+
+export async function session(): Promise<Session> {
+  const res = await fetch('/api/session', { credentials: 'same-origin' });
+  if (!res.ok) return { signedIn: false };
+  return (await res.json()) as Session;
+}
+
+/** An API error with the server's message. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function post<T>(route: string, body: unknown): Promise<T> {
+  const res = await fetch(`/api/${route}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', 'x-kodra-console': '1' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) throw new SignedOut();
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `HTTP ${String(res.status)}`);
+  return data as T;
+}
+
+/** A change waiting for a decision. Already redacted by the agent. */
+export interface PendingApproval {
+  id: string;
+  connector: string;
+  tool: string;
+  risk: string;
+  args: string;
+  reason: string;
+  requestedBy: string;
+  expiresAt: string;
+}
+
+export function decide(id: string, approve: boolean, note?: string): Promise<{ result: string }> {
+  return post('approvals/decide', { id, approve, ...(note ? { note } : {}) });
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  startedBy: string;
+  createdAt: string;
+  busy: boolean;
+}
+
+export type ToolState = 'running' | 'ok' | 'error' | 'blocked' | 'denied' | 'expired';
+
+/** One step of a conversation, from the agent's event stream. */
+export type ChatEvent = { seq: number; ts: string } & (
+  | { type: 'user'; text: string; by: string }
+  | { type: 'status'; state: 'queued' | 'working' | 'idle' }
+  | {
+      type: 'answer';
+      text: string;
+      usage: { input: number; cacheRead: number; cacheWrite: number; output: number };
+      stoppedBy?: string;
+    }
+  | { type: 'error'; message: string }
+  | {
+      type: 'tool';
+      call: string;
+      connector: string;
+      tool: string;
+      risk: string;
+      args: string;
+      state: ToolState;
+      detail?: string;
+    }
+  | {
+      type: 'approval';
+      call: string;
+      id: string;
+      connector: string;
+      tool: string;
+      risk: string;
+      args: string;
+      reason: string;
+      expiresAt: string;
+    }
+  | { type: 'decision'; call: string; id: string; decision: string; by?: string }
+);
 
 export async function signIn(token: string): Promise<'ok' | 'wrong' | 'too-many'> {
   const res = await fetch('/api/login', {

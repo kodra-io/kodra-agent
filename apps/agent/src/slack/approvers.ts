@@ -1,3 +1,4 @@
+import { isConsoleApprover } from '@kodra-agent/schema';
 import type { SlackUser } from './api.ts';
 
 export interface ResolvedApprovers {
@@ -19,6 +20,8 @@ export function resolveApprovers(
   const ids = new Set<string>();
   const unresolved: string[] = [];
   for (const entry of entries) {
+    // Console approvers sign in to the console; they are not Slack users.
+    if (isConsoleApprover(entry)) continue;
     if (/^[UW][A-Z0-9]{2,}$/.test(entry)) {
       ids.add(entry);
       continue;

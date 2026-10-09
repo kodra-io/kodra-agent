@@ -17,12 +17,41 @@ export interface ApprovalRequest {
 
 export type ApprovalOutcome =
   | { decision: 'approved'; by: string }
-  | { decision: 'denied'; by: string }
+  | { decision: 'denied'; by: string; note?: string }
   | { decision: 'expired' };
 
-/** Where approvals are asked: the CLI now, Slack buttons in M5. */
+/** Where approvals are asked: the terminal, Slack buttons, or the console. */
 export interface ApprovalChannel {
   request(req: ApprovalRequest): Promise<ApprovalOutcome>;
+}
+
+/** A channel that can also be told a request was decided elsewhere, to close it there. */
+export interface SettleableChannel extends ApprovalChannel {
+  settle(id: string, outcome: ApprovalOutcome): Promise<void>;
+}
+
+/**
+ * Asks every channel at once (Slack and the console); the first decision wins and the
+ * others are closed with it. A channel that fails to ask is ignored while another can
+ * still answer. With no channel at all, nobody can approve, so the request expires.
+ */
+export function fanOut(channels: readonly SettleableChannel[]): ApprovalChannel {
+  const [only] = channels;
+  if (channels.length === 1 && only) return only;
+  return {
+    async request(req) {
+      if (channels.length === 0) return { decision: 'expired' };
+      let outcome: ApprovalOutcome;
+      try {
+        outcome = await Promise.any(channels.map((c) => c.request(req)));
+      } catch (error) {
+        const first: unknown = error instanceof AggregateError ? error.errors[0] : error;
+        throw first instanceof Error ? first : new Error(String(first));
+      }
+      await Promise.all(channels.map((c) => c.settle(req.id, outcome).catch(() => undefined)));
+      return outcome;
+    },
+  };
 }
 
 export function newApprovalRequest(

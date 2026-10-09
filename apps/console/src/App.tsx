@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { signedIn, signIn, signOut } from './api.ts';
+import { session as loadSession, signIn, signOut, type Session } from './api.ts';
+import { ChatPage } from './chat.tsx';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import {
   ActivityPage,
@@ -12,6 +13,7 @@ import {
 
 const PAGES = [
   { path: '/', label: 'nav.overview', Page: OverviewPage },
+  { path: '/chat', label: 'nav.chat', Page: ChatPage },
   { path: '/connectors', label: 'nav.connectors', Page: ConnectorsPage },
   { path: '/activity', label: 'nav.activity', Page: ActivityPage },
   { path: '/investigations', label: 'nav.investigations', Page: InvestigationsPage },
@@ -20,23 +22,29 @@ const PAGES = [
 ] as const satisfies readonly { path: string; label: MessageKey; Page: unknown }[];
 
 function currentPath(): string {
-  const path = window.location.pathname.replace(/\/+$/, '') || '/';
-  return PAGES.some((p) => p.path === path) ? path : '/';
+  return window.location.pathname.replace(/\/+$/, '') || '/';
+}
+
+/** The pages this session can use: Chat only when the agent has it on. */
+function pagesFor(session: Session) {
+  return PAGES.filter((p) => p.path !== '/chat' || session.features?.chat === true);
 }
 
 export function App() {
   const { t, lang, setLang } = useI18n();
-  const [session, setSession] = useState<'unknown' | 'in' | 'out'>('unknown');
+  const [session, setSession] = useState<Session | null>(null);
   const [path, setPath] = useState(currentPath);
 
-  useEffect(() => {
-    signedIn()
-      .then((ok) => {
-        setSession(ok ? 'in' : 'out');
-      })
+  const refreshSession = useCallback(() => {
+    loadSession()
+      .then(setSession)
       .catch(() => {
-        setSession('out');
+        setSession({ signedIn: false });
       });
+  }, []);
+
+  useEffect(() => {
+    refreshSession();
     const onPop = () => {
       setPath(currentPath());
     };
@@ -44,7 +52,7 @@ export function App() {
     return () => {
       window.removeEventListener('popstate', onPop);
     };
-  }, []);
+  }, [refreshSession]);
 
   const go = useCallback((next: string) => {
     window.history.pushState(null, '', next);
@@ -53,10 +61,13 @@ export function App() {
   }, []);
 
   const onSignedOut = useCallback(() => {
-    setSession('out');
+    setSession({ signedIn: false });
   }, []);
 
-  const page = PAGES.find((p) => p.path === path) ?? PAGES[0];
+  const signedIn = session?.signedIn === true;
+  const pages = session ? pagesFor(session) : [];
+  const page = pages.find((p) => p.path === path) ?? PAGES[0];
+  const me = { user: session?.user ?? 'console', canApprove: session?.canApprove === true };
 
   return (
     <div className="min-h-screen">
@@ -83,7 +94,7 @@ export function App() {
             >
               {t('app.switchLanguage')}
             </button>
-            {session === 'in' && (
+            {signedIn && (
               <button
                 type="button"
                 className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-primary-tint"
@@ -96,10 +107,10 @@ export function App() {
             )}
           </div>
         </div>
-        {session === 'in' && (
+        {signedIn && (
           <nav aria-label={t('nav.label')} className="mx-auto max-w-6xl overflow-x-auto px-4">
             <ul className="flex gap-1">
-              {PAGES.map((p) => (
+              {pages.map((p) => (
                 <li key={p.path}>
                   <a
                     href={p.path}
@@ -124,20 +135,15 @@ export function App() {
       </header>
 
       <main id="main" className="mx-auto max-w-6xl px-4 py-6">
-        {session === 'unknown' && <p>{t('app.loading')}</p>}
-        {session === 'out' && (
-          <SignIn
-            onSignedIn={() => {
-              setSession('in');
-            }}
-          />
-        )}
-        {session === 'in' && <page.Page onSignedOut={onSignedOut} />}
+        {session === null && <p>{t('app.loading')}</p>}
+        {session?.signedIn === false && <SignIn onSignedIn={refreshSession} />}
+        {signedIn && <page.Page onSignedOut={onSignedOut} me={me} />}
       </main>
 
-      {session === 'in' && (
+      {signedIn && (
         <footer className="mx-auto max-w-6xl px-4 pb-8 text-sm text-ink-secondary">
-          {t('app.readOnly')}
+          {t('app.signedInAs', { user: me.user })}{' '}
+          {t(me.canApprove ? 'app.canApprove' : 'app.cannotApprove')}
         </footer>
       )}
     </div>

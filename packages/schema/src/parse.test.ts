@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildAgentConfigSchema, DEFAULT_AUDIT_PATH } from './agent-config.ts';
+import {
+  buildAgentConfigSchema,
+  consoleApproverTokenEnv,
+  DEFAULT_AUDIT_PATH,
+  isConsoleApprover,
+} from './agent-config.ts';
 import { formatIssue, parseAgentConfig, type ParseResult } from './parse.ts';
 import { fixtureList } from './test-fixtures.ts';
 
@@ -49,6 +54,22 @@ describe('parseAgentConfig', () => {
     });
     expect(result.config.spec.audit.path).toBe(DEFAULT_AUDIT_PATH);
     expect(result.config.spec.telemetry.enabled).toBe(false);
+  });
+
+  it('accepts console approvers, which need the console', () => {
+    const withConsole = valid.replace("['@omar']", "['@omar', 'console:on-call']");
+    const result = parse(withConsole);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.config.spec.console.chat).toBe(true);
+    expect(messages(parse(`${withConsole}  console:\n    enabled: false\n`)).join('\n')).toContain(
+      'console approvers need the console',
+    );
+    for (const bad of ['console:Omar', 'console:-x', 'console:', 'console:a_b']) {
+      expect(parse(valid.replace("'@omar'", `'${bad}'`)).ok).toBe(false);
+    }
+    expect(isConsoleApprover('console:on-call')).toBe(true);
+    expect(isConsoleApprover('@omar')).toBe(false);
+    expect(consoleApproverTokenEnv('console:on-call')).toBe('KODRA_CONSOLE_TOKEN_ON_CALL');
   });
 
   it('applies connector defaults', () => {

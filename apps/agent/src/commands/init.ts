@@ -1,7 +1,12 @@
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
-import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
+import {
+  consoleApproverTokenEnv,
+  isConsoleApprover,
+  isSecretRequired,
+  type AgentConfig,
+} from '@kodra-agent/schema';
 import { stringify } from 'yaml';
 import { components, loadConfig, secretLabel, type Component, type SecretUse } from '../config.ts';
 import { CONSOLE_TOKEN_ENV, newConsoleToken } from '../console/token.ts';
@@ -292,12 +297,13 @@ async function writeCompose(
   for (const [use, value] of collected) {
     if (use.ref.scheme === 'env') envValues.set(use.ref.name, value);
   }
-  // The console sign-in token: created once, kept on later runs.
-  const hasToken = parseEnvFile(existingText ?? '').get(CONSOLE_TOKEN_ENV);
-  if (config.spec.console.enabled && !hasToken) {
-    envValues.set(CONSOLE_TOKEN_ENV, newConsoleToken());
+  // Console sign-in tokens: created once, kept on later runs.
+  const existing = parseEnvFile(existingText ?? '');
+  for (const { env, who } of consoleTokens(config)) {
+    if (existing.get(env)) continue;
+    envValues.set(env, newConsoleToken());
     ctx.term.out(
-      `Created a console sign-in token in .env (${CONSOLE_TOKEN_ENV}). After docker compose up, open http://localhost:${String(config.spec.console.port)} and sign in with it.`,
+      `Created a console sign-in token for ${who} in .env (${env}). After docker compose up, open http://localhost:${String(config.spec.console.port)} and sign in with it.`,
     );
   }
   if (envValues.size > 0) {
@@ -334,8 +340,9 @@ async function writeKubernetes(
   for (const [use, value] of collected) {
     data[use.ref.scheme === 'env' ? use.ref.name : use.spec.key] = value;
   }
-  // The console sign-in token. The Secret is rewritten as a whole, so each run makes a new one.
-  if (config.spec.console.enabled) data[CONSOLE_TOKEN_ENV] = newConsoleToken();
+  // Console sign-in tokens. The Secret is rewritten as a whole, so each run makes new ones.
+  const tokens = consoleTokens(config);
+  for (const { env } of tokens) data[env] = newConsoleToken();
   if (Object.keys(data).length === 0) {
     ctx.term.out('No values entered. Nothing was written.');
     return 0;
@@ -346,9 +353,9 @@ async function writeKubernetes(
     ctx.term.out(
       `${action === 'created' ? 'Created' : 'Updated'} Secret ${namespace}/${name} with ${String(Object.keys(data).length)} key(s).`,
     );
-    if (config.spec.console.enabled) {
+    for (const { env, who } of tokens) {
       ctx.term.out(
-        `The console sign-in token is key ${CONSOLE_TOKEN_ENV} of that Secret: kubectl --namespace ${namespace} get secret ${name} -o jsonpath='{.data.${CONSOLE_TOKEN_ENV}}' | base64 -d`,
+        `The console sign-in token for ${who} is key ${env} of that Secret: kubectl --namespace ${namespace} get secret ${name} -o jsonpath='{.data.${env}}' | base64 -d`,
       );
     }
   } catch (error) {
@@ -372,8 +379,11 @@ export function dryRunManifest(
   const stringData: Record<string, string> = {};
   const envNames: string[] = [];
   const files: string[] = [];
-  if (config.spec.console.enabled) {
-    stringData[CONSOLE_TOKEN_ENV] = '<a long random string: the console sign-in token>';
+  for (const { env, who } of consoleTokens(config)) {
+    stringData[env] =
+      env === CONSOLE_TOKEN_ENV
+        ? '<a long random string: the console sign-in token>'
+        : `<a long random string: the sign-in token for ${who}>`;
   }
   for (const use of uses) {
     if (use.ref.scheme === 'env') {
@@ -403,4 +413,15 @@ export function dryRunManifest(
     ...create.split('\n').map((l) => `#   ${l}`),
     manifest.trimEnd(),
   ].join('\n');
+}
+
+/** The console's sign-in tokens: the shared one (view and chat), and one per console approver. */
+function consoleTokens(config: AgentConfig): { env: string; who: string }[] {
+  if (!config.spec.console.enabled) return [];
+  return [
+    { env: CONSOLE_TOKEN_ENV, who: 'the team (view and chat)' },
+    ...config.spec.policy.approvals.approvers
+      .filter(isConsoleApprover)
+      .map((entry) => ({ env: consoleApproverTokenEnv(entry), who: entry })),
+  ];
 }

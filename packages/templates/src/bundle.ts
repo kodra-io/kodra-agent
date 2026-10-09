@@ -1,5 +1,12 @@
 import { getConnector, getModelProvider } from '@kodra-agent/connectors';
-import type { AccessLevel, LocalizedText, Manifest, SecretSpec } from '@kodra-agent/schema';
+import {
+  consoleApproverTokenEnv,
+  isConsoleApprover,
+  type AccessLevel,
+  type LocalizedText,
+  type Manifest,
+  type SecretSpec,
+} from '@kodra-agent/schema';
 import { CONSOLE_PORT, configYaml, includedSecrets, secretRefFor } from './config.ts';
 import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
@@ -157,7 +164,7 @@ services:
         required: false
 ${
   draft.console.enabled
-    ? `    # The read-only web console, on this machine only. Sign in with KODRA_CONSOLE_TOKEN.
+    ? `    # The web console, on this machine only. Sign in with a token from .env.
     ports: ["127.0.0.1:${String(CONSOLE_PORT)}:${String(CONSOLE_PORT)}"]
 `
     : ''
@@ -210,7 +217,7 @@ serviceAccount:
 rbac:
   create: false
 
-# The read-only web console: reach it with kubectl port-forward (see the README).
+# The web console: reach it with kubectl port-forward (see the README).
 console:
   enabled: ${String(draft.console.enabled)}
 
@@ -389,24 +396,42 @@ function readme(draft: AgentDraft): string {
   }
   if (draft.console.enabled) {
     const name = agentName(draft);
+    const consoleApprovers = splitList(draft.policy.approvers).filter(isConsoleApprover);
+    const tokens = [
+      { env: 'KODRA_CONSOLE_TOKEN', who: 'the team: view and chat, cannot approve' },
+      ...consoleApprovers.map((a) => ({
+        env: consoleApproverTokenEnv(a),
+        who: `${a}: can approve`,
+      })),
+    ];
     lines.push(
       '### Web console',
       '',
+      draft.console.chat
+        ? 'The console shows status, activity, usage, and approvals, and lets you chat with the agent. Changes still need an approver.'
+        : 'The console shows status, activity, usage, and approvals. Chat is off.',
+      '',
+      '`init` creates one sign-in token per person or group:',
+      '',
+      ...tokens.map((tk) => `- \`${tk.env}\`: ${tk.who}`),
+      '',
       ...(draft.target === 'compose'
         ? [
-            `Open http://localhost:${String(CONSOLE_PORT)} on this machine and sign in with the console token:`,
-            'the value of `KODRA_CONSOLE_TOKEN` in `.env`, which `init` created. It is read-only and',
-            'listens on this machine only.',
+            `Open http://localhost:${String(CONSOLE_PORT)} on this machine and sign in with a token from \`.env\`.`,
+            'The console listens on this machine only.',
           ]
         : [
             'The console is not exposed outside the cluster. Reach it with:',
             '',
             '```sh',
             `kubectl --namespace ${AGENT_NAMESPACE} port-forward svc/${name}-kodra-agent-console ${String(CONSOLE_PORT)}:${String(CONSOLE_PORT)}`,
-            `kubectl --namespace ${AGENT_NAMESPACE} get secret ${name}-secrets -o jsonpath='{.data.KODRA_CONSOLE_TOKEN}' | base64 -d`,
+            ...tokens.map(
+              (tk) =>
+                `kubectl --namespace ${AGENT_NAMESPACE} get secret ${name}-secrets -o jsonpath='{.data.${tk.env}}' | base64 -d`,
+            ),
             '```',
             '',
-            `Then open http://localhost:${String(CONSOLE_PORT)} and sign in with that token. It is read-only.`,
+            `Then open http://localhost:${String(CONSOLE_PORT)} and sign in with one of those tokens.`,
           ]),
       '',
     );

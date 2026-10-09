@@ -20,6 +20,8 @@ export function useIssueText() {
         return t('error.nameFormat');
       case 'approver-format':
         return t('error.approverFormat', { value: issue.value });
+      case 'approver-console-off':
+        return t('error.approverConsoleOff', { value: issue.value });
       case 'dependency':
         return lt(issue.message);
       case 'coming-soon':

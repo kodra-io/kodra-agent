@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import pkg from '../../package.json' with { type: 'json' };
 import { formatUsage, runTurn } from '../agent.ts';
-import type { ApprovalChannel } from '../approvals.ts';
+import { consoleApproverTokenEnv, isConsoleApprover } from '@kodra-agent/schema';
+import { fanOut, type ApprovalChannel, type SettleableChannel } from '../approvals.ts';
+import { ConsoleApprovals } from '../console/approvals.ts';
+import { ConsoleChat } from '../console/chat.ts';
 import { InvestigationLog } from '../console/data.ts';
-import { consoleRoutes } from '../console/routes.ts';
-import { startConsoleServer } from '../console/server.ts';
+import { consoleApi } from '../console/routes.ts';
+import { startConsoleServer, type ConsoleAccount } from '../console/server.ts';
 import { CONSOLE_TOKEN_ENV } from '../console/token.ts';
 import type { Context } from '../context.ts';
 import { fetchFiringAlerts } from '../monitoring/alerts.ts';
@@ -50,6 +53,24 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   const startedAt = new Date();
   const investigationLog = new InvestigationLog(runtime.config.spec.audit.path, ctx.redactor);
   let consoleServer: Server | null = null;
+  const consoleOn = runtime.config.spec.console.enabled;
+  const consoleApprovals = new ConsoleApprovals({ audit: runtime.audit });
+  let consoleChat: ConsoleChat | null = null;
+  // Console approvers who can sign in: each needs their own token.
+  const consoleAccounts: ConsoleAccount[] = [];
+  if (consoleOn) {
+    for (const entry of runtime.config.spec.policy.approvals.approvers.filter(isConsoleApprover)) {
+      const token = runtime.env[consoleApproverTokenEnv(entry)];
+      if (token) consoleAccounts.push({ token, user: { name: entry, canApprove: true } });
+      else {
+        ctx.term.err(
+          `${entry} cannot sign in to the console: ${consoleApproverTokenEnv(entry)} is not set. Run \`kodra-agent init\`.`,
+        );
+      }
+    }
+  }
+  const consoleChannels: SettleableChannel[] =
+    consoleAccounts.length > 0 ? [consoleApprovals.channel] : [];
   let slack: SlackConnection | null = null;
   let approvals: SlackApprovals | null = null;
   let conversations: SlackConversations | null = null;
@@ -94,6 +115,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         channelId,
         approverIds: approvers.ids,
         deps: runtime.deps,
+        alsoAsk: consoleChannels,
       });
       const conv = conversations;
       const appr = approvals;
@@ -161,27 +183,36 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       timer = setInterval(() => void m.poll(), intervalMs);
     }
 
-    if (runtime.config.spec.console.enabled) {
+    if (consoleOn) {
       const token = runtime.env[CONSOLE_TOKEN_ENV];
       if (!token) {
         ctx.term.err(
           `The console is off: ${CONSOLE_TOKEN_ENV} is not set. Run \`kodra-agent init\` to create it.`,
         );
       } else {
+        if (runtime.config.spec.console.chat) {
+          // A console question asks for approval in the console and in Slack's channel.
+          const slackChannel =
+            approvals && channelId ? [approvals.channelFor(channelId, undefined)] : [];
+          consoleChat = new ConsoleChat({
+            deps: runtime.deps,
+            approvals: fanOut([...consoleChannels, ...slackChannel]),
+            redactor: ctx.redactor,
+          });
+        }
+        const api = consoleApi(
+          runtime,
+          { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },
+          investigationLog,
+          consoleApprovals,
+          consoleChat,
+        );
         consoleServer = await startConsoleServer({
           port: ctx.consolePort ?? runtime.config.spec.console.port,
-          token,
+          accounts: [{ token, user: { name: 'console', canApprove: false } }, ...consoleAccounts],
+          ...api,
+          features: { chat: consoleChat !== null },
           ...(ctx.consoleStaticDir ? { staticDir: ctx.consoleStaticDir } : {}),
-          routes: consoleRoutes(
-            runtime,
-            {
-              version: pkg.version,
-              startedAt,
-              slack: slack !== null,
-              monitoring: monitor !== null,
-            },
-            investigationLog,
-          ),
         });
         ctx.term.out(
           `Console on port ${String(portOf(consoleServer))}: sign in with ${CONSOLE_TOKEN_ENV}.`,
@@ -204,9 +235,11 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     ready = false;
     clearInterval(timer);
     await approvals?.cancelAll();
+    consoleApprovals.cancelAll();
     await slack?.stop().catch(() => undefined);
     await monitor?.idle();
     await conversations?.idle();
+    await consoleChat?.idle();
     await runtime.close();
     if (consoleServer) await closeServer(consoleServer);
     await closeServer(health);
@@ -265,11 +298,13 @@ async function startHealthServer(
 }
 
 function closeServer(server: Server): Promise<void> {
-  return new Promise((resolve) =>
+  return new Promise((resolve) => {
     server.close(() => {
       resolve();
-    }),
-  );
+    });
+    // Open event streams would otherwise keep the server from closing.
+    server.closeAllConnections();
+  });
 }
 
 function waitForStop(ctx: Context): Promise<void> {
