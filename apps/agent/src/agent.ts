@@ -345,6 +345,8 @@ export async function runTurn(
       event: 'model.call',
       actor,
       task,
+      model: deps.modelLabel,
+      usage: u,
       detail: `${deps.modelLabel}; ${String(u.input)} in (${String(u.cacheRead)} cached), ${String(u.output)} out; finish ${finish}`,
     });
   };

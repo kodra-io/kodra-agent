@@ -864,6 +864,50 @@
             }
           },
           "additionalProperties": false
+        },
+        "console": {
+          "description": "The read-only web console.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "port": {
+              "default": 8081,
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "pricing": {
+              "type": "object",
+              "properties": {
+                "inputPerMTok": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "outputPerMTok": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "cacheReadPerMTok": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "cacheWritePerMTok": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "inputPerMTok",
+                "outputPerMTok"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

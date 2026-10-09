@@ -294,6 +294,76 @@ describe('kodra-agent run', () => {
     expect(await running).toBe(0);
   });
 
+  it('serves the console: token sign-in, then status and connectors, read-only', async () => {
+    const CONSOLE_TOKEN = 'run-console-token-canary-91b2'; // gitleaks:allow
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model:
+          '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        connectors: '    kubernetes:\n      enabled: true\n      config: {namespaces: [payments]}',
+      }),
+      dir,
+    );
+    const stop = new AbortController();
+    let consolePort = 0;
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN: CONSOLE_TOKEN },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      stopSignal: stop.signal,
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+      onReady: (info) => {
+        consolePort = info.consolePort ?? 0;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (consolePort ? true : undefined));
+    const base = `http://127.0.0.1:${String(consolePort)}`;
+
+    expect((await fetch(`${base}/api/status`)).status).toBe(401);
+    const login = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: CONSOLE_TOKEN }),
+    });
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    const get = async (route: string): Promise<unknown> =>
+      (await fetch(`${base}/api/${route}`, { headers: { cookie } })).json();
+
+    expect(await get('status')).toMatchObject({
+      model: 'anthropic/claude-sonnet-5-5',
+      target: 'compose',
+      slack: false,
+      connectors: [{ id: 'kubernetes', available: true }],
+    });
+    expect(await get('connectors')).toEqual([
+      expect.objectContaining({
+        id: 'kubernetes',
+        access: 'read-only',
+        tools: [
+          {
+            name: 'pods_log',
+            risk: 'read',
+            limits: ['namespace is required and must be one of: payments'],
+          },
+        ],
+      }),
+    ]);
+    expect(await get('usage')).toMatchObject({
+      model: 'anthropic/claude-sonnet-5-5',
+      pricing: { asOf: '2026-09-25' },
+    });
+
+    stop.abort();
+    expect(await running).toBe(0);
+    expect(t.output()).toContain('Console on port');
+    expect(t.output()).not.toContain(CONSOLE_TOKEN);
+  });
+
   it('refuses direct messages from people who are not approvers', async () => {
     const dir = await tempDir();
     const path = await writeConfig(

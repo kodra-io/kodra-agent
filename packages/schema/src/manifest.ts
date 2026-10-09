@@ -255,6 +255,15 @@ const runtime = z.union([
   z.strictObject({ type: z.literal('builtin'), module: z.string() }),
 ]);
 
+/** US dollars per million tokens. */
+export const modelPrice = z.strictObject({
+  inputPerMTok: z.number().nonnegative(),
+  outputPerMTok: z.number().nonnegative(),
+  cacheReadPerMTok: z.number().nonnegative().optional(),
+  cacheWritePerMTok: z.number().nonnegative().optional(),
+});
+export type ModelPrice = z.infer<typeof modelPrice>;
+
 export const manifestSchema = z
   .strictObject({
     id: z.string().regex(ID),
@@ -283,6 +292,17 @@ export const manifestSchema = z
     guards: z.record(z.string(), z.array(toolGuard)).optional(),
     /** How the agent finds each configured repo's default branch, for not-default-branch guards. */
     defaultBranchLookup: z.enum(['github', 'gitlab']).optional(),
+    /**
+     * Model providers: list prices per model, for the console's estimated cost. Dated and
+     * sourced, because prices change; the config can override them (spec.console.pricing).
+     */
+    pricing: z
+      .strictObject({
+        asOf: z.iso.date(),
+        source: z.url(),
+        models: z.record(z.string().min(1), modelPrice),
+      })
+      .optional(),
     /** null until the MCP server is chosen and documented (M4). */
     runtime: runtime.nullable(),
     permissionsSummary: z.strictObject({

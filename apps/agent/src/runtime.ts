@@ -5,6 +5,7 @@ import { alwaysBlocked, type AgentDeps } from './agent.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
 import { components, loadConfig, secretLabel } from './config.ts';
+import { CONSOLE_TOKEN_ENV } from './console/token.ts';
 import type { Context } from './context.ts';
 import { lookupDefaultBranches } from './default-branches.ts';
 import { parseEnvFile } from './env-file.ts';
@@ -55,6 +56,9 @@ export async function startRuntime(
   // Inside the container compose already loads .env; outside it, read it too.
   const dotenvText = await readFile(join(dir, '.env'), 'utf8').catch(() => '');
   const env = { ...Object.fromEntries(parseEnvFile(dotenvText)), ...ctx.env };
+  // The console sign-in token is a secret like any other.
+  const consoleToken = env[CONSOLE_TOKEN_ENV];
+  if (consoleToken) ctx.redactor.add(consoleToken);
 
   const inputs: ConnectorInput[] = [];
   let modelSecrets: Record<string, string> = {};
