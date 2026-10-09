@@ -1,5 +1,5 @@
 {{- if .Values.console.enabled }}
-# The read-only web console. ClusterIP only: kubectl port-forward to reach it.
+# The web console. ClusterIP only: kubectl port-forward to reach it.
 apiVersion: v1
 kind: Service
 metadata:

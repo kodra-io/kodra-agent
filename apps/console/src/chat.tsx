@@ -16,6 +16,25 @@ import { Badge, Ltr } from './ui.tsx';
 const MAX_MESSAGE = 8_000;
 /** How long the stream may be down before the page says so (it reconnects on its own). */
 const OFFLINE_AFTER_MS = 4_000;
+/** The open conversation, kept for this tab so leaving the page does not lose it. */
+const OPEN_KEY = 'kodra-agent.console.conversation';
+
+function remembered(): string | null {
+  try {
+    return sessionStorage.getItem(OPEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function remember(id: string | null): void {
+  try {
+    if (id) sessionStorage.setItem(OPEN_KEY, id);
+    else sessionStorage.removeItem(OPEN_KEY);
+  } catch {
+    // A convenience only.
+  }
+}
 
 type Of<T extends ChatEvent['type']> = Extract<ChatEvent, { type: T }>;
 interface Call {
@@ -54,9 +73,9 @@ function transcript(events: readonly ChatEvent[]) {
 }
 
 export function ChatPage({ onSignedOut, me }: PageProps) {
-  const { t, time } = useI18n();
+  const { t, time, num } = useI18n();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(remembered);
   const [events, setEvents] = useState<ChatEvent[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -73,7 +92,17 @@ export function ChatPage({ onSignedOut, me }: PageProps) {
   );
 
   const refreshList = useCallback(() => {
-    get<ConversationSummary[]>('chat').then(setConversations).catch(failed);
+    get<ConversationSummary[]>('chat')
+      .then((list) => {
+        setConversations(list);
+        // A conversation from before the agent restarted is gone.
+        const open = remembered();
+        if (open && !list.some((c) => c.id === open)) {
+          remember(null);
+          setSelected((current) => (current === open ? null : current));
+        }
+      })
+      .catch(failed);
   }, [failed]);
 
   useEffect(() => {
@@ -126,6 +155,7 @@ export function ChatPage({ onSignedOut, me }: PageProps) {
     setProblem(null);
     setOffline(false);
     setSelected(id);
+    remember(id);
   };
 
   const send = async () => {
@@ -199,7 +229,7 @@ export function ChatPage({ onSignedOut, me }: PageProps) {
                       {c.title}
                     </span>
                     <span className="block text-xs text-ink-secondary">
-                      {t('chat.startedBy', { who: c.startedBy, time: time(c.createdAt) })}
+                      <Ltr>{c.startedBy}</Ltr> · {time(c.createdAt)}
                       {c.busy && (
                         <>
                           {' '}
@@ -296,7 +326,7 @@ export function ChatPage({ onSignedOut, me }: PageProps) {
               }}
             />
             <p id={`${messageId}-hint`} className="text-xs text-ink-secondary">
-              {t('chat.tooLong', { n: MAX_MESSAGE })}
+              {t('chat.tooLong', { n: num(MAX_MESSAGE) })}
             </p>
             {problem && (
               <p role="alert" className="mt-2 text-sm font-semibold">

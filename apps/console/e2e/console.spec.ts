@@ -169,6 +169,19 @@ test('denies a change with a reason the agent sees', async ({ page, api }) => {
   );
 });
 
+test('keeps the open conversation when you leave the Chat page and come back', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
+  await page.getByLabel('Message').fill('Why does web keep restarting?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByRole('log')).toContainText('kubernetes/pods_log');
+  await page.getByRole('navigation').getByRole('link', { name: 'Usage' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
+  await expect(page.getByRole('log')).toContainText('Why does web keep restarting?');
+  await page.getByRole('button', { name: 'New conversation' }).click();
+  await expect(page.getByRole('log')).toHaveText('Start by asking a question below.');
+});
+
 test.describe('with chat turned off', () => {
   test.use({ agentOptions: { chat: false } });
   test('has no Chat page', async ({ page }) => {

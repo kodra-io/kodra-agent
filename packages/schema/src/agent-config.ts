@@ -168,7 +168,7 @@ const limitsSchema = z
   .prefault({})
   .meta({ description: 'Limits for each question the agent answers.' });
 
-/** The read-only web console the agent serves (M8a). */
+/** The web console the agent serves (M8): status, chat, and approvals. */
 const consoleSchema = z
   .strictObject({
     enabled: z.boolean().default(true),

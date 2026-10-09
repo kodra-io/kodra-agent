@@ -113,7 +113,6 @@
   "chat.conversations": "المحادثات",
   "chat.new": "محادثة جديدة",
   "chat.none": "لا توجد محادثات بعد.",
-  "chat.startedBy": "{who}، {time}",
   "chat.busy": "يعمل",
   "chat.message": "الرسالة",
   "chat.placeholder": "مثلا: لماذا يعيد web التشغيل باستمرار؟",

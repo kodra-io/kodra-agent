@@ -355,8 +355,8 @@ Done when someone on a fresh machine can go from a downloaded bundle to a runnin
 
 **M8: Web console (after the MVP)**
 M8a: a read-only console served by `kodra-agent run`: overview, connectors with their tools and limits, activity from the audit log, investigations, usage with an estimated cost, and approvals. Local access only (localhost on Compose, port-forward on Kubernetes), signed in with a token that `init` creates.
-M8b: chat and approvals in the browser. Planned separately.
-Done (M8a) when the image serves the console, sign-in is required for every API route, and the pages show a real agent's data.
+M8b: chat and approvals in the browser. Console approvers (`console:<name>`) sign in with their own token; approval requests go to the console and Slack, and the first decision wins.
+Done (M8a) when the image serves the console, sign-in is required for every API route, and the pages show a real agent's data. Done (M8b) when a question asked in the console shows its tool calls live, a console approver approves or denies a change there, and the decision is audited with their name.
 
 ---
 
@@ -367,7 +367,7 @@ Done (M8a) when the image serves the console, sign-in is required for every API 
 - Teams, Azure, GCP, Jenkins, Azure DevOps, and Bitbucket connectors (shown as coming soon)
 - Vault, AWS Secrets Manager, and Azure Key Vault secret references
 - Autonomous remediation without approval
-- A web console beyond the read-only M8a console (chat and approvals in the browser come in M8b)
+- User accounts or single sign-on for the web console (it signs in with tokens)
 
 ---
 

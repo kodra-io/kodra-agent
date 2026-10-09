@@ -39,7 +39,7 @@ rbac:
   # Allows patching and scaling deployments. Every change still needs an approval in Slack.
   write: false
 
-# The read-only web console (spec.console in kodra-agent.yaml; keep the ports the same).
+# The web console (spec.console in kodra-agent.yaml; keep the ports the same).
 # A ClusterIP service only: reach it with kubectl port-forward. No Ingress is created.
 console:
   enabled: true

@@ -24,7 +24,7 @@ approval before it changes anything.
 ```
 apps/configurator     static "Create your agent" site (served at build.kodra.io/agent)
 apps/agent            runtime and CLI: init, doctor, run, chat, ship
-apps/console          read-only web console served by kodra-agent run
+apps/console          web console served by kodra-agent run: status, chat, approvals
 packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests, registry, dependency rules
 packages/templates    bundle templates and ship-flow templates

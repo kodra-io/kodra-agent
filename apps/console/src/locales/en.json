@@ -113,7 +113,6 @@
   "chat.conversations": "Conversations",
   "chat.new": "New conversation",
   "chat.none": "No conversations yet.",
-  "chat.startedBy": "{who}, {time}",
   "chat.busy": "working",
   "chat.message": "Message",
   "chat.placeholder": "For example: why does the web pod keep restarting?",
