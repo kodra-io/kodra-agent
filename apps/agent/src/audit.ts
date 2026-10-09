@@ -22,6 +22,17 @@ export const auditRecordSchema = z.strictObject({
   risk: z.enum(['read', 'write', 'destructive', 'unclassified']).optional(),
   decision: z.enum(['allowed', 'approved', 'denied', 'blocked', 'expired']).optional(),
   detail: z.string().max(4000).optional(),
+  /** model.call records: tokens used, for the console's usage view. */
+  usage: z
+    .strictObject({
+      input: z.int().nonnegative(),
+      cacheRead: z.int().nonnegative(),
+      cacheWrite: z.int().nonnegative(),
+      output: z.int().nonnegative(),
+    })
+    .optional(),
+  /** The model, for model.call records (provider/name). */
+  model: z.string().max(200).optional(),
 });
 export type AuditRecord = z.infer<typeof auditRecordSchema>;
 export type AuditInput = Omit<AuditRecord, 'ts'>;

@@ -3,6 +3,12 @@ Kodra AI Agent is starting in {{ .Release.Namespace }}.
 Check it:
   kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "kodra-agent.fullname" . }}
   kubectl --namespace {{ .Release.Namespace }} logs deployment/{{ include "kodra-agent.fullname" . }}
+{{- if .Values.console.enabled }}
+
+Open the read-only console:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kodra-agent.fullname" . }}-console {{ .Values.console.port }}:{{ .Values.console.port }}
+  then http://localhost:{{ .Values.console.port }}, signing in with KODRA_CONSOLE_TOKEN from the agent's Secret.
+{{- end }}
 {{- if not .Values.existingSecret }}
 
 No existingSecret is set, so the agent has no secrets. Create them with

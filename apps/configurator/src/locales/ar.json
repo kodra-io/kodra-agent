@@ -7,7 +7,6 @@
   "app.switchLanguageLabel": "التبديل إلى الإنجليزية",
   "app.skip": "انتقل إلى الخطوات",
   "app.invalidLink": "تعذرت قراءة الرابط المشترك، لذلك بدأ الإعداد من جديد.",
-
   "steps.label": "الخطوات",
   "steps.start": "البداية",
   "steps.model": "النموذج",
@@ -17,7 +16,6 @@
   "steps.hasProblems": "فيها مشكلات يجب إصلاحها",
   "nav.back": "السابق",
   "nav.next": "التالي",
-
   "start.heading": "سمّ وكيلك واختر مكان تشغيله",
   "start.name": "اسم الوكيل",
   "start.nameHint": "أحرف إنجليزية صغيرة وأرقام وشرطات. يُستخدم لاسم الحزمة ولموارد Kubernetes.",
@@ -26,14 +24,12 @@
   "target.composeDesc": "جهاز واحد، يُشغَّل بالأمر docker compose.",
   "target.kubernetes": "Kubernetes (Helm)",
   "target.kubernetesDesc": "عنقود يُثبَّت عليه الوكيل باستخدام Helm. البناء يتم عبر CI الخاص بك.",
-
   "model.heading": "اختر مزوّد النموذج",
   "model.provider": "المزوّد",
   "model.name": "معرّف النموذج",
   "model.nameHint": "انسخ معرّف النموذج من وثائق المزوّد.",
   "model.asks": "سيطلب معالج الإعداد",
   "model.noKey": "لا حاجة إلى مفتاح.",
-
   "connectors.heading": "اختر ما يمكن للوكيل العمل معه",
   "connectors.intro": "كل شيء للقراءة فقط ما لم تسمح بغير ذلك. كل عملية كتابة تحتاج إلى موافقتك. الإجراءات المدمّرة محظورة.",
   "connectors.enable": "تفعيل {name}",
@@ -47,7 +43,6 @@
   "connectors.scopes": "الحد الأدنى من الصلاحيات: {scopes}",
   "connectors.fileSecret": "ملف",
   "connectors.settings": "الإعدادات",
-
   "category.source": "الشيفرة المصدرية",
   "category.build": "البناء",
   "category.deploy": "النشر",
@@ -55,10 +50,8 @@
   "category.monitoring": "المراقبة",
   "category.cloud": "السحابة",
   "category.chat": "المحادثة",
-
   "access.read-only": "قراءة فقط",
   "access.read-write-approved": "قراءة وكتابة، بموافقة",
-
   "review.heading": "راجع الصلاحيات",
   "review.permissions": "ما يمكن لهذا الوكيل فعله",
   "review.model": "النموذج",
@@ -75,7 +68,6 @@
   "review.problems": "أصلح ما يلي قبل التنزيل",
   "review.noProblems": "كل شيء سليم. يمكنك تنزيل وكيلك.",
   "review.goTo": "انتقل إلى {step}",
-
   "download.heading": "نزّل وكيلك",
   "download.button": "تنزيل {file}",
   "download.working": "جارٍ التحضير…",
@@ -86,10 +78,8 @@
   "download.share": "شارك هذا الإعداد",
   "download.shareHint": "يحتوي الرابط على اختياراتك فقط، ولا يحتوي على أي مفاتيح.",
   "download.copyLink": "نسخ الرابط",
-
   "preview.heading": "معاينة",
   "preview.files": "الملفات المُنشأة",
-
   "error.required": "هذا الحقل مطلوب.",
   "error.url": "أدخل عنوانا يبدأ بـ http أو https.",
   "error.pattern": "صيغة هذه القيمة غير صحيحة.",
@@ -97,5 +87,9 @@
   "error.nameFormat": "استخدم أحرفا إنجليزية صغيرة وأرقاما وشرطات، تبدأ وتنتهي بحرف أو رقم، بحد أقصى 53 حرفا.",
   "error.approverFormat": "‏{value} ليس اسم مستخدم Slack مثل ‎@omar ولا معرّف مستخدم Slack.",
   "error.comingSoon": "هذا الموصل قادم قريبا ولا يمكن تفعيله بعد.",
-  "error.schema": "{message}"
+  "error.schema": "{message}",
+  "review.console": "لوحة التحكم على الويب",
+  "review.consoleSwitch": "تفعيل لوحة التحكم على الويب",
+  "review.consoleCompose": "صفحة للقراءة فقط تعرض الحالة والنشاط والاستهلاك والموافقات. تعمل على هذا الجهاز فقط على العنوان http://localhost:8081، وتسجل الدخول برمز ينشئه الأمر init.",
+  "review.consoleKubernetes": "صفحة للقراءة فقط تعرض الحالة والنشاط والاستهلاك والموافقات. لا تُعرض خارج العنقود: تصل إليها عبر kubectl port-forward وتسجل الدخول برمز ينشئه الأمر init."
 }

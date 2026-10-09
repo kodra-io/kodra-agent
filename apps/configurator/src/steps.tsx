@@ -510,6 +510,21 @@ export function ReviewStep(
         />
       </Section>
 
+      <Section title={t('review.console')}>
+        <div className="flex items-start justify-between gap-4">
+          <p className="text-sm text-ink-secondary">
+            {t(draft.target === 'compose' ? 'review.consoleCompose' : 'review.consoleKubernetes')}
+          </p>
+          <Switch
+            checked={draft.console.enabled}
+            label={t('review.consoleSwitch')}
+            onChange={(enabled) => {
+              dispatch({ type: 'console', enabled });
+            }}
+          />
+        </div>
+      </Section>
+
       <Section title={issues.length > 0 ? t('review.problems') : t('review.noProblems')}>
         {issues.length > 0 ? (
           <ul data-testid="problems" className="flex flex-col gap-2">

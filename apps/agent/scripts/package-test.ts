@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -197,11 +205,53 @@ async function compose(): Promise<void> {
     await until('/healthz in compose', () => probe('/healthz'), 90_000);
     await until('/readyz in compose', () => probe('/readyz'), 30_000);
     console.log('compose: /healthz and /readyz answer');
+    await consoleCheck(dir);
   } catch (error) {
     spawnSync('docker', ['compose', 'logs', '--no-color'], { cwd: dir, stdio: 'inherit' });
     throw error;
   } finally {
     spawnSync('docker', ['compose', 'down', '-v'], { cwd: dir, stdio: 'inherit' });
+  }
+}
+
+/**
+ * The console from the bundle README: http://localhost:8081 on this machine, signed in with
+ * KODRA_CONSOLE_TOKEN from the .env that init wrote.
+ */
+async function consoleCheck(dir: string): Promise<void> {
+  const env = readFileSync(join(dir, '.env'), 'utf8');
+  const token = /^KODRA_CONSOLE_TOKEN=(.+)$/m.exec(env)?.[1]?.trim();
+  if (!token) throw new Error('init did not create KODRA_CONSOLE_TOKEN');
+  const base = 'http://127.0.0.1:8081';
+  await untilAsync(
+    'the console page',
+    async () => {
+      const res = await fetch(`${base}/`).catch(() => null);
+      return res?.status === 200 && (await res.text()).includes('<div id="root">');
+    },
+    60_000,
+  );
+  if ((await fetch(`${base}/api/status`)).status !== 401)
+    throw new Error('the console API is open without a sign-in');
+  const login = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (login.status !== 200) throw new Error(`console sign-in failed: HTTP ${String(login.status)}`);
+  const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+  const status = (await (await fetch(`${base}/api/status`, { headers: { cookie } })).json()) as {
+    version?: string;
+  };
+  if (!status.version) throw new Error('the console status has no version');
+  console.log(`console: signed in on ${base}, agent ${status.version}`);
+}
+
+async function untilAsync(what: string, check: () => Promise<boolean>, ms: number): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 2000));
   }
 }
 

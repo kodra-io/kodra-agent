@@ -1,0 +1,18 @@
+{{- if .Values.console.enabled }}
+# The read-only web console. ClusterIP only: kubectl port-forward to reach it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kodra-agent.fullname" . }}-console
+  labels:
+    {{- include "kodra-agent.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: console
+      port: {{ .Values.console.port }}
+      targetPort: console
+      protocol: TCP
+  selector:
+    {{- include "kodra-agent.selectorLabels" . | nindent 4 }}
+{{- end }}

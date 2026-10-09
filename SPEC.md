@@ -353,6 +353,11 @@ Done when, on four sample repos (one per stack), the flow produces a successful 
 Agent Dockerfile, compose template, Helm chart with generated RBAC, release workflow with SBOM and cosign signing.
 Done when someone on a fresh machine can go from a downloaded bundle to a running agent by following the bundle README alone.
 
+**M8: Web console (after the MVP)**
+M8a: a read-only console served by `kodra-agent run`: overview, connectors with their tools and limits, activity from the audit log, investigations, usage with an estimated cost, and approvals. Local access only (localhost on Compose, port-forward on Kubernetes), signed in with a token that `init` creates.
+M8b: chat and approvals in the browser. Planned separately.
+Done (M8a) when the image serves the console, sign-in is required for every API route, and the pages show a real agent's data.
+
 ---
 
 ## 13. Out of scope for the MVP
@@ -362,7 +367,7 @@ Done when someone on a fresh machine can go from a downloaded bundle to a runnin
 - Teams, Azure, GCP, Jenkins, Azure DevOps, and Bitbucket connectors (shown as coming soon)
 - Vault, AWS Secrets Manager, and Azure Key Vault secret references
 - Autonomous remediation without approval
-- A web console for the agent (CLI and Slack only)
+- A web console beyond the read-only M8a console (chat and approvals in the browser come in M8b)
 
 ---
 

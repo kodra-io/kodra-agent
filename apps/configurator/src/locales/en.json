@@ -7,7 +7,6 @@
   "app.switchLanguageLabel": "Switch to Arabic",
   "app.skip": "Skip to the steps",
   "app.invalidLink": "That shared link could not be read, so the configurator started fresh.",
-
   "steps.label": "Steps",
   "steps.start": "Start",
   "steps.model": "Model",
@@ -17,7 +16,6 @@
   "steps.hasProblems": "has problems to fix",
   "nav.back": "Back",
   "nav.next": "Next",
-
   "start.heading": "Name your agent and choose where it runs",
   "start.name": "Agent name",
   "start.nameHint": "Lowercase letters, digits, and hyphens. Used for the bundle and for Kubernetes resources.",
@@ -26,14 +24,12 @@
   "target.composeDesc": "One machine, started with docker compose.",
   "target.kubernetes": "Kubernetes (Helm)",
   "target.kubernetesDesc": "A cluster, installed with Helm. Builds go through your CI.",
-
   "model.heading": "Choose a model provider",
   "model.provider": "Provider",
   "model.name": "Model id",
   "model.nameHint": "Copy the model id from your provider's documentation.",
   "model.asks": "The setup will ask for",
   "model.noKey": "No key needed.",
-
   "connectors.heading": "Choose what the agent can work with",
   "connectors.intro": "Everything is read-only unless you allow more. Every write needs your approval. Destructive actions are blocked.",
   "connectors.enable": "Enable {name}",
@@ -47,7 +43,6 @@
   "connectors.scopes": "Minimum access: {scopes}",
   "connectors.fileSecret": "a file",
   "connectors.settings": "Settings",
-
   "category.source": "Source code",
   "category.build": "Build",
   "category.deploy": "Deploy",
@@ -55,10 +50,8 @@
   "category.monitoring": "Monitoring",
   "category.cloud": "Cloud",
   "category.chat": "Chat",
-
   "access.read-only": "Read-only",
   "access.read-write-approved": "Read and write, with approval",
-
   "review.heading": "Review permissions",
   "review.permissions": "What this agent can do",
   "review.model": "Model",
@@ -75,7 +68,6 @@
   "review.problems": "Fix these before downloading",
   "review.noProblems": "Everything checks out. You can download your agent.",
   "review.goTo": "Go to {step}",
-
   "download.heading": "Download your agent",
   "download.button": "Download {file}",
   "download.working": "Preparing…",
@@ -86,10 +78,8 @@
   "download.share": "Share this setup",
   "download.shareHint": "The link holds your choices only. It never holds keys.",
   "download.copyLink": "Copy link",
-
   "preview.heading": "Preview",
   "preview.files": "Generated files",
-
   "error.required": "This field is required.",
   "error.url": "Enter an http or https URL.",
   "error.pattern": "This value has the wrong format.",
@@ -97,5 +87,9 @@
   "error.nameFormat": "Use lowercase letters, digits, and hyphens, starting and ending with a letter or digit, up to 53 characters.",
   "error.approverFormat": "{value} is not a Slack handle like @omar or a Slack user id.",
   "error.comingSoon": "This connector is coming soon and cannot be enabled yet.",
-  "error.schema": "{message}"
+  "error.schema": "{message}",
+  "review.console": "Web console",
+  "review.consoleSwitch": "Turn on the web console",
+  "review.consoleCompose": "A read-only page with status, activity, usage, and approvals. It listens on this machine only, at http://localhost:8081, and you sign in with a token that init creates.",
+  "review.consoleKubernetes": "A read-only page with status, activity, usage, and approvals. It is not exposed outside the cluster: you reach it with kubectl port-forward and sign in with a token that init creates."
 }

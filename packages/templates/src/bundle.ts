@@ -1,6 +1,6 @@
 import { getConnector, getModelProvider } from '@kodra-agent/connectors';
 import type { AccessLevel, LocalizedText, Manifest, SecretSpec } from '@kodra-agent/schema';
-import { configYaml, includedSecrets, secretRefFor } from './config.ts';
+import { CONSOLE_PORT, configYaml, includedSecrets, secretRefFor } from './config.ts';
 import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
 /** The published image and chart. A test checks these against the chart and the agent version. */
@@ -155,7 +155,13 @@ services:
     env_file:
       - path: .env
         required: false
-    volumes:
+${
+  draft.console.enabled
+    ? `    # The read-only web console, on this machine only. Sign in with KODRA_CONSOLE_TOKEN.
+    ports: ["127.0.0.1:${String(CONSOLE_PORT)}:${String(CONSOLE_PORT)}"]
+`
+    : ''
+}    volumes:
 ${volumes.join('\n')}
 ${
   socket
@@ -203,6 +209,10 @@ serviceAccount:
 # rbac.yaml in this bundle grants namespace access. Review it and apply it yourself.
 rbac:
   create: false
+
+# The read-only web console: reach it with kubectl port-forward (see the README).
+console:
+  enabled: ${String(draft.console.enabled)}
 
 resources:
   requests:
@@ -374,6 +384,30 @@ function readme(draft: AgentDraft): string {
       '`slack-app-manifest.yaml`, and install the app. Then, under **Basic Information > App-Level',
       'Tokens**, create a token with `connections:write`. `init` asks for both tokens. Invite the app',
       'to your channel with `/invite @<app name>`.',
+      '',
+    );
+  }
+  if (draft.console.enabled) {
+    const name = agentName(draft);
+    lines.push(
+      '### Web console',
+      '',
+      ...(draft.target === 'compose'
+        ? [
+            `Open http://localhost:${String(CONSOLE_PORT)} on this machine and sign in with the console token:`,
+            'the value of `KODRA_CONSOLE_TOKEN` in `.env`, which `init` created. It is read-only and',
+            'listens on this machine only.',
+          ]
+        : [
+            'The console is not exposed outside the cluster. Reach it with:',
+            '',
+            '```sh',
+            `kubectl --namespace ${AGENT_NAMESPACE} port-forward svc/${name}-kodra-agent-console ${String(CONSOLE_PORT)}:${String(CONSOLE_PORT)}`,
+            `kubectl --namespace ${AGENT_NAMESPACE} get secret ${name}-secrets -o jsonpath='{.data.KODRA_CONSOLE_TOKEN}' | base64 -d`,
+            '```',
+            '',
+            `Then open http://localhost:${String(CONSOLE_PORT)} and sign in with that token. It is read-only.`,
+          ]),
       '',
     );
   }

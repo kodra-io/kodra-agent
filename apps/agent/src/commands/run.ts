@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import pkg from '../../package.json' with { type: 'json' };
 import { formatUsage, runTurn } from '../agent.ts';
 import type { ApprovalChannel } from '../approvals.ts';
+import { InvestigationLog } from '../console/data.ts';
+import { consoleRoutes } from '../console/routes.ts';
+import { startConsoleServer } from '../console/server.ts';
+import { CONSOLE_TOKEN_ENV } from '../console/token.ts';
 import type { Context } from '../context.ts';
 import { fetchFiringAlerts } from '../monitoring/alerts.ts';
 import { AlertMonitor, investigationPrompt } from '../monitoring/monitor.ts';
@@ -42,6 +47,9 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   }
   unavailable = [...new Set(runtime.host.failures().map((f) => f.displayName))];
 
+  const startedAt = new Date();
+  const investigationLog = new InvestigationLog(runtime.config.spec.audit.path, ctx.redactor);
+  let consoleServer: Server | null = null;
   let slack: SlackConnection | null = null;
   let approvals: SlackApprovals | null = null;
   let conversations: SlackConversations | null = null;
@@ -129,6 +137,16 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             investigationPrompt(alert),
             `alert-${randomUUID().slice(0, 8)}`,
           );
+          await investigationLog
+            .append({
+              ts: new Date().toISOString(),
+              alert: alert.name,
+              severity: alert.severity,
+              summary: alert.annotations['summary'] ?? alert.annotations['description'] ?? '',
+              findings: result.text,
+              ...(result.stoppedBy ? { stoppedBy: result.stoppedBy } : {}),
+            })
+            .catch(() => undefined);
           return {
             text: `${result.text}\n_${formatUsage(result.usage)}_`,
             stoppedBy: result.stoppedBy,
@@ -143,12 +161,42 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       timer = setInterval(() => void m.poll(), intervalMs);
     }
 
+    if (runtime.config.spec.console.enabled) {
+      const token = runtime.env[CONSOLE_TOKEN_ENV];
+      if (!token) {
+        ctx.term.err(
+          `The console is off: ${CONSOLE_TOKEN_ENV} is not set. Run \`kodra-agent init\` to create it.`,
+        );
+      } else {
+        consoleServer = await startConsoleServer({
+          port: ctx.consolePort ?? runtime.config.spec.console.port,
+          token,
+          ...(ctx.consoleStaticDir ? { staticDir: ctx.consoleStaticDir } : {}),
+          routes: consoleRoutes(
+            runtime,
+            {
+              version: pkg.version,
+              startedAt,
+              slack: slack !== null,
+              monitoring: monitor !== null,
+            },
+            investigationLog,
+          ),
+        });
+        ctx.term.out(
+          `Console on port ${String(portOf(consoleServer))}: sign in with ${CONSOLE_TOKEN_ENV}.`,
+        );
+      }
+    }
+
     ready = true;
-    const address = health.address();
     ctx.term.out(
       `Kodra AI Agent is running (${slack ? 'Slack' : 'no chat surface'}${monitor ? ', monitoring alerts' : ''}).`,
     );
-    ctx.onReady?.({ healthPort: typeof address === 'object' && address ? address.port : 0 });
+    ctx.onReady?.({
+      healthPort: portOf(health),
+      ...(consoleServer ? { consolePort: portOf(consoleServer) } : {}),
+    });
     await waitForStop(ctx);
     ctx.term.out('Stopping.');
     return 0;
@@ -160,8 +208,14 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     await monitor?.idle();
     await conversations?.idle();
     await runtime.close();
+    if (consoleServer) await closeServer(consoleServer);
     await closeServer(health);
   }
+}
+
+function portOf(server: Server): number {
+  const address = server.address();
+  return typeof address === 'object' && address ? address.port : 0;
 }
 
 function helloText(runtime: Runtime): string {

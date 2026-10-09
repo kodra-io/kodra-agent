@@ -4,6 +4,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
 import { stringify } from 'yaml';
 import { components, loadConfig, secretLabel, type Component, type SecretUse } from '../config.ts';
+import { CONSOLE_TOKEN_ENV, newConsoleToken } from '../console/token.ts';
 import { AGENT_NAMESPACE, type Context } from '../context.ts';
 import { parseEnvFile, renderEnvFile, writePrivateFile } from '../env-file.ts';
 import { runProbe, type ProbeResult } from '../probes.ts';
@@ -40,11 +41,12 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
     ctx.term.out(dryRunManifest(config, uses, opts.namespace ?? AGENT_NAMESPACE));
     return 0;
   }
-  if (uses.length === 0) {
+  // With the console on, there is always one value to store: its sign-in token.
+  if (uses.length === 0 && !config.spec.console.enabled) {
     ctx.term.out('This configuration needs no secrets. Nothing to do.');
     return 0;
   }
-  if (!opts.nonInteractive && !ctx.prompter) {
+  if (uses.length > 0 && !opts.nonInteractive && !ctx.prompter) {
     ctx.term.err(
       'No terminal to ask questions on. Run with --non-interactive to read values from the environment.',
     );
@@ -56,10 +58,12 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
   const existing = existingText === null ? new Map<string, string>() : parseEnvFile(existingText);
   for (const value of existing.values()) ctx.redactor.add(value);
 
-  ctx.term.out(
-    `Setting up ${String(uses.length)} secret${uses.length === 1 ? '' : 's'} for ${config.metadata.name} (${target}).`,
-  );
-  ctx.term.out('Values are hidden as you type and are never shown again.');
+  if (uses.length > 0) {
+    ctx.term.out(
+      `Setting up ${String(uses.length)} secret${uses.length === 1 ? '' : 's'} for ${config.metadata.name} (${target}).`,
+    );
+    ctx.term.out('Values are hidden as you type and are never shown again.');
+  }
 
   const collected: Collected = new Map();
   const failures: string[] = [];
@@ -87,7 +91,7 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
   }
 
   return target === 'compose'
-    ? writeCompose(collected, envPath, existingText, dir, ctx)
+    ? writeCompose(collected, envPath, existingText, dir, config, ctx)
     : writeKubernetes(config, collected, opts.namespace ?? AGENT_NAMESPACE, ctx);
 }
 
@@ -281,11 +285,20 @@ async function writeCompose(
   envPath: string,
   existingText: string | null,
   dir: string,
+  config: AgentConfig,
   ctx: Context,
 ): Promise<number> {
   const envValues = new Map<string, string>();
   for (const [use, value] of collected) {
     if (use.ref.scheme === 'env') envValues.set(use.ref.name, value);
+  }
+  // The console sign-in token: created once, kept on later runs.
+  const hasToken = parseEnvFile(existingText ?? '').get(CONSOLE_TOKEN_ENV);
+  if (config.spec.console.enabled && !hasToken) {
+    envValues.set(CONSOLE_TOKEN_ENV, newConsoleToken());
+    ctx.term.out(
+      `Created a console sign-in token in .env (${CONSOLE_TOKEN_ENV}). After docker compose up, open http://localhost:${String(config.spec.console.port)} and sign in with it.`,
+    );
   }
   if (envValues.size > 0) {
     await writePrivateFile(envPath, renderEnvFile(existingText, envValues, ENV_HEADER));
@@ -321,6 +334,8 @@ async function writeKubernetes(
   for (const [use, value] of collected) {
     data[use.ref.scheme === 'env' ? use.ref.name : use.spec.key] = value;
   }
+  // The console sign-in token. The Secret is rewritten as a whole, so each run makes a new one.
+  if (config.spec.console.enabled) data[CONSOLE_TOKEN_ENV] = newConsoleToken();
   if (Object.keys(data).length === 0) {
     ctx.term.out('No values entered. Nothing was written.');
     return 0;
@@ -331,6 +346,11 @@ async function writeKubernetes(
     ctx.term.out(
       `${action === 'created' ? 'Created' : 'Updated'} Secret ${namespace}/${name} with ${String(Object.keys(data).length)} key(s).`,
     );
+    if (config.spec.console.enabled) {
+      ctx.term.out(
+        `The console sign-in token is key ${CONSOLE_TOKEN_ENV} of that Secret: kubectl --namespace ${namespace} get secret ${name} -o jsonpath='{.data.${CONSOLE_TOKEN_ENV}}' | base64 -d`,
+      );
+    }
   } catch (error) {
     const code = (error as { code?: unknown }).code;
     ctx.term.err(
@@ -352,6 +372,9 @@ export function dryRunManifest(
   const stringData: Record<string, string> = {};
   const envNames: string[] = [];
   const files: string[] = [];
+  if (config.spec.console.enabled) {
+    stringData[CONSOLE_TOKEN_ENV] = '<a long random string: the console sign-in token>';
+  }
   for (const use of uses) {
     if (use.ref.scheme === 'env') {
       stringData[use.ref.name] = `<${use.ref.name}>`;

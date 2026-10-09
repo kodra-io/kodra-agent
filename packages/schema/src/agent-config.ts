@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { checkDependencies } from './dependencies.ts';
-import type { ConfigField, Manifest } from './manifest.ts';
+import { modelPrice, type ConfigField, type Manifest, type ModelPrice } from './manifest.ts';
 import { secretRefSchema } from './secret-ref.ts';
 
 export const API_GROUP = 'kodra.io';
@@ -154,6 +154,17 @@ const limitsSchema = z
   .prefault({})
   .meta({ description: 'Limits for each question the agent answers.' });
 
+/** The read-only web console the agent serves (M8a). */
+const consoleSchema = z
+  .strictObject({
+    enabled: z.boolean().default(true),
+    port: z.int().min(1024).max(65535).default(8081),
+    /** Overrides the model's list prices for estimated cost, in US dollars per million tokens. */
+    pricing: modelPrice.optional(),
+  })
+  .prefault({})
+  .meta({ description: 'The read-only web console.' });
+
 function fieldSchema(field: ConfigField): z.ZodType {
   const description = field.description.en;
   switch (field.kind) {
@@ -275,6 +286,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         telemetry: telemetrySchema,
         monitoring: monitoringSchema,
         limits: limitsSchema,
+        console: consoleSchema,
       }),
     })
     .superRefine((config, ctx) => {
@@ -338,6 +350,7 @@ export interface AgentConfig {
     telemetry: { enabled: boolean };
     monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
     limits: { maxSteps: number; tokenBudget: number; timeoutMinutes: number };
+    console: { enabled: boolean; port: number; pricing?: ModelPrice | undefined };
   };
 }
 

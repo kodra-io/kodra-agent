@@ -24,6 +24,7 @@ approval before it changes anything.
 ```
 apps/configurator     static "Create your agent" site (served at build.kodra.io/agent)
 apps/agent            runtime and CLI: init, doctor, run, chat, ship
+apps/console          read-only web console served by kodra-agent run
 packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests, registry, dependency rules
 packages/templates    bundle templates and ship-flow templates
@@ -50,7 +51,8 @@ pnpm --filter @kodra-agent/agent cli --help
 ```
 
 The agent image, the Helm chart, and releases are described in
-[docs/packaging.md](docs/packaging.md); the ship flow in [docs/ship.md](docs/ship.md).
+[docs/packaging.md](docs/packaging.md); the ship flow in [docs/ship.md](docs/ship.md); the web console in
+[docs/console.md](docs/console.md).
 
 ## License
 

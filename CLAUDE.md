@@ -75,6 +75,7 @@ pnpm --filter @kodra-agent/agent cli run --config <file>   # the service: Slack,
 - Packaging (M7): see `docs/packaging.md`. One version in `apps/agent/package.json`, `Chart.yaml`, and `AGENT_VERSION` (`src/release.test.ts`). A manifest version bump for a PyPI or npm server needs its lockfile in `docker/mcp` regenerated (`src/mcp/preinstall.test.ts` fails otherwise). Releases come from `v*` tags (`.github/workflows/release.yml`).
 - EKS: the image's `aws` (`docker/aws` -> `src/aws-bin.ts`) only does `eks get-token` (`src/eks-token.ts`, SigV4 via `@smithy/signature-v4`), so EKS kubeconfigs work unchanged. The Kubernetes manifest inherits `AWS_*`; the host registers inherited secret-like values with the redactor.
 - Since 0.1.2: a connector that fails to start is skipped, not fatal (`host.failures()`, hints in `failureHint`). Secrets can be `requiredOn` one target (kubeconfig on compose); check with `isSecretRequired`. Tool descriptions list guard limits (`describeGuards`). `runTurn` caches (explicit breakpoint after the last tool + Anthropic top-level `cacheControl`), stops on `spec.limits` with a price-weighted token budget, and always ends with an answer (summary call with `toolChoice: 'none'`). AWS servers are gated by `services` via `onlyIf`.
+- Console (M8a): see `docs/console.md`. API in `apps/agent/src/console` (GET only, token sign-in, HttpOnly cookie); the app in `apps/console` is tested against a mocked API. Usage cost comes from `pricing` in the model manifest or `spec.console.pricing`.
 - AI SDK v7: `generateText({ instructions, messages, tools, stopWhen: stepCountIs(n) })`, `dynamicTool` + `jsonSchema`, accumulated messages are `result.responseMessages`; tests use `MockLanguageModelV4` from `ai/test`.
 - CI pins actions by commit SHA and runs the gitleaks binary (the gitleaks Action needs a
   license key for org repos).
@@ -84,6 +85,7 @@ pnpm --filter @kodra-agent/agent cli run --config <file>   # the service: Slack,
 ```
 apps/configurator     static "Create your agent" site
 apps/agent            runtime and CLI: init, doctor, run, chat, ship
+apps/console          read-only web console (React, Vite), served by `run` from apps/console/dist
 packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests (src/<id>/manifest.ts, models.ts, coming-soon.ts), registry, parseAgentConfig
 schema                generated JSON Schema for kodra-agent.yaml (committed)

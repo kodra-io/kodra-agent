@@ -34,7 +34,11 @@ export interface Context {
   /** Port for /healthz and /readyz (0 picks a free port). */
   healthPort?: number;
   /** Called once `run` is ready, with the health server's port (tests). */
-  onReady?: (info: { healthPort: number }) => void;
+  onReady?: (info: { healthPort: number; consolePort?: number }) => void;
+  /** Port for the console (0 picks a free port); defaults to spec.console.port. */
+  consolePort?: number;
+  /** Where the built console is (tests). */
+  consoleStaticDir?: string;
   /** Runs git, docker, and helm for `ship`; tests pass a fake. */
   exec?: Exec;
   /** Clone address for a repo (tests point it at a local bare repo). */

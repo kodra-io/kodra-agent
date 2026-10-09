@@ -97,10 +97,18 @@ describe('init on compose', () => {
     expect(prompter.asked).toEqual([
       'Anthropic apiKey (ANTHROPIC_API_KEY) is already set. Keep it?',
     ]);
-    expect(await readFile(join(dir, '.env'), 'utf8')).toBe(
-      'MY_OWN=stay\nANTHROPIC_API_KEY=existing-key-999\n',
-    );
+    const env = await readFile(join(dir, '.env'), 'utf8');
+    // Existing keys untouched; a console sign-in token is added once, never printed.
+    expect(env.startsWith('MY_OWN=stay\nANTHROPIC_API_KEY=existing-key-999\n')).toBe(true);
+    const token = /^KODRA_CONSOLE_TOKEN=([A-Za-z0-9_-]{43})$/m.exec(env)?.[1] ?? '';
+    expect(token).not.toBe('');
     expect(t.output()).not.toContain('existing-key-999');
+    expect(t.output()).not.toContain(token);
+    expect(t.output()).toContain('Created a console sign-in token in .env (KODRA_CONSOLE_TOKEN)');
+    // A second run keeps the same token.
+    const again = testContext({ prompter: scriptedPrompter([true]) });
+    expect(await init({ ...base, configPath: path }, again.ctx)).toBe(0);
+    expect(await readFile(join(dir, '.env'), 'utf8')).toContain(`KODRA_CONSOLE_TOKEN=${token}`);
   });
 
   it('copies a file secret into ./secrets with owner-only permissions', async () => {
@@ -176,6 +184,33 @@ describe('init on compose', () => {
   });
 });
 
+describe('init with no secrets to ask for', () => {
+  const noSecrets = async (console: boolean) => {
+    const dir = await tempDir();
+    const yaml = configYaml({
+      auditPath: posixPath(join(dir, 'audit.jsonl')),
+      model: '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.1:9',
+    });
+    const path = await writeConfig(console ? yaml : `${yaml}  console:\n    enabled: false\n`, dir);
+    return { dir, path };
+  };
+
+  it('still creates the console token, without asking anything', async () => {
+    const { dir, path } = await noSecrets(true);
+    const t = testContext({ prompter: scriptedPrompter([]) });
+    expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
+    expect(await readFile(join(dir, '.env'), 'utf8')).toMatch(/^KODRA_CONSOLE_TOKEN=\S{43}$/m);
+  });
+
+  it('has nothing to do with the console off', async () => {
+    const { dir, path } = await noSecrets(false);
+    const t = testContext();
+    expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
+    expect(t.output()).toContain('This configuration needs no secrets. Nothing to do.');
+    await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
+  });
+});
+
 describe('init --non-interactive', () => {
   it('reads values from the environment and checks them', async () => {
     server = await anthropicServer('ci-key-1234');
@@ -225,12 +260,12 @@ describe('init on kubernetes', () => {
 
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
     const upsert = k8s.calls.find((c) => c.op === 'upsertSecret');
-    expect(upsert?.args).toEqual([
-      'kodra-agent',
-      'test-agent-secrets',
-      { ANTHROPIC_API_KEY: 'k-key-1234', kubeconfig: 'kube-contents' },
-    ]);
-    expect(t.term.stdout).toContain('Created Secret kodra-agent/test-agent-secrets with 2 key(s).');
+    const [ns, name, data] = (upsert?.args ?? []) as [string, string, Record<string, string>];
+    expect([ns, name]).toEqual(['kodra-agent', 'test-agent-secrets']);
+    expect(data).toMatchObject({ ANTHROPIC_API_KEY: 'k-key-1234', kubeconfig: 'kube-contents' });
+    expect(data['KODRA_CONSOLE_TOKEN']).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(t.term.stdout).toContain('Created Secret kodra-agent/test-agent-secrets with 3 key(s).');
+    expect(t.output()).not.toContain(data['KODRA_CONSOLE_TOKEN']);
     expect(t.output()).not.toContain('k-key-1234');
   });
 

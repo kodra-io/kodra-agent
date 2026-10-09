@@ -50,6 +50,56 @@ export const anthropic = defineManifest({
   ],
   tools: {},
   runtime: null,
+  // List prices, US dollars per million tokens (cache writes are 1.25x input for the
+  // 5-minute cache). Only used for the console's estimated cost; override in the config.
+  pricing: {
+    asOf: '2026-09-25',
+    source: 'https://platform.claude.com/docs/en/about-claude/pricing',
+    models: {
+      'claude-fable-5-1': {
+        inputPerMTok: 10,
+        outputPerMTok: 50,
+        cacheReadPerMTok: 0.25,
+        cacheWritePerMTok: 12.5,
+      },
+      'claude-opus-5-5': {
+        inputPerMTok: 4,
+        outputPerMTok: 20,
+        cacheReadPerMTok: 0.2,
+        cacheWritePerMTok: 5,
+      },
+      'claude-opus-5': {
+        inputPerMTok: 5,
+        outputPerMTok: 25,
+        cacheReadPerMTok: 0.5,
+        cacheWritePerMTok: 6.25,
+      },
+      'claude-opus-4-8': {
+        inputPerMTok: 5,
+        outputPerMTok: 25,
+        cacheReadPerMTok: 0.5,
+        cacheWritePerMTok: 6.25,
+      },
+      'claude-sonnet-5-5': {
+        inputPerMTok: 2,
+        outputPerMTok: 10,
+        cacheReadPerMTok: 0.2,
+        cacheWritePerMTok: 2.5,
+      },
+      'claude-sonnet-5': {
+        inputPerMTok: 2,
+        outputPerMTok: 10,
+        cacheReadPerMTok: 0.2,
+        cacheWritePerMTok: 2.5,
+      },
+      'claude-haiku-4-5': {
+        inputPerMTok: 1,
+        outputPerMTok: 5,
+        cacheReadPerMTok: 0.1,
+        cacheWritePerMTok: 1.25,
+      },
+    },
+  },
   permissionsSummary: {
     always: [
       t(

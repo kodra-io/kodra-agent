@@ -33,7 +33,7 @@ jobs:
         run: pnpm audit --prod
 
   e2e:
-    name: Configurator end-to-end (Playwright)
+    name: Configurator and console end-to-end (Playwright)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,12 +45,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium
         run: pnpm --filter @kodra-agent/configurator exec playwright install --with-deps chromium
+      # The configurator and the console, each against its production build.
       - run: pnpm test:e2e
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-traces
-          path: apps/configurator/test-results/
+          path: |
+            apps/configurator/test-results/
+            apps/console/test-results/
           retention-days: 7
 
   kind:
