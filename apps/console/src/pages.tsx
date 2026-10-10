@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   get,
+  pauseAgent,
+  resumeAgent,
   SignedOut,
   type ApprovalView,
   type AuditRecord,
   type ConnectorView,
   type Investigation,
+  type OverviewView,
   type PendingApproval,
-  type StatusView,
   type UsageTotals,
   type UsageView,
 } from './api.ts';
 import { ApprovalCard } from './approval.tsx';
 import { useI18n, type MessageKey } from './i18n.tsx';
+import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
+import { useStatus } from './status.ts';
 import { Badge, Cell, Ltr, Page, Table } from './ui.tsx';
 
 /** Who is signed in: `console` (the shared token) or `console:<name>`. */
@@ -36,51 +40,241 @@ function uptime(seconds: number, t: ReturnType<typeof useI18n>['t']): string {
   return t('overview.minutes', { n: Math.max(m, 0) });
 }
 
-export function OverviewPage({ onSignedOut }: PageProps) {
-  const { t } = useI18n();
-  const load = useCallback(() => get<StatusView>('status'), []);
+export function OverviewPage({ onSignedOut, me }: PageProps) {
+  const { t, has, num, time } = useI18n();
+  const { status, pending, refresh } = useStatus();
+  const load = useCallback(() => get<OverviewView>('overview'), []);
   const { data, error, loading, reload } = useLoad(load, onSignedOut);
+  const paused = status?.paused ?? null;
+  const budget = status?.budget;
+  const money = (n: number) => num(n, { style: 'currency', currency: 'USD' });
+  const spentShare =
+    budget?.limit && budget.spent !== null ? Math.min(1, budget.spent / budget.limit) : null;
+
+  const toggle = () => {
+    (paused ? resumeAgent() : pauseAgent()).then(refresh).catch((e: unknown) => {
+      if (e instanceof SignedOut) onSignedOut();
+    });
+  };
+
   return (
-    <Page title="overview.title" onRefresh={reload} loading={loading} error={error}>
-      {data && (
-        <div className="grid gap-6 md:grid-cols-2">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl border border-line bg-raised p-4 text-sm">
-            <dt className="text-ink-secondary">{t('overview.model')}</dt>
-            <dd>
-              <Ltr>{data.model}</Ltr>
-            </dd>
-            <dt className="text-ink-secondary">{t('overview.version')}</dt>
-            <dd>
-              <Ltr>{data.version}</Ltr>
-            </dd>
-            <dt className="text-ink-secondary">{t('overview.target')}</dt>
-            <dd>
-              <Ltr>{data.target}</Ltr>
-            </dd>
-            <dt className="text-ink-secondary">{t('overview.uptime')}</dt>
-            <dd>{uptime(data.uptimeSeconds, t)}</dd>
-            <dt className="text-ink-secondary">{t('overview.slack')}</dt>
-            <dd>{t(data.slack ? 'overview.on' : 'overview.off')}</dd>
-            <dt className="text-ink-secondary">{t('overview.monitoring')}</dt>
-            <dd>{t(data.monitoring ? 'overview.on' : 'overview.off')}</dd>
-          </dl>
-          <div className="rounded-xl border border-line bg-raised p-4">
-            <h2 className="font-bold">{t('overview.connectors')}</h2>
-            <ul className="mt-2 space-y-2 text-sm">
-              {data.connectors.map((c) => (
-                <li key={c.id} className="flex items-center justify-between gap-2">
-                  <span>{c.name}</span>
-                  <Badge tone={c.available ? 'accent' : 'plain'}>
-                    {t(c.available ? 'overview.available' : 'overview.unavailable')}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
+    <Page
+      title="overview.title"
+      onRefresh={() => {
+        reload();
+        refresh();
+      }}
+      loading={loading}
+      error={error}
+    >
+      {status && (
+        <div className="flex flex-col gap-6">
+          <p className="-mt-4 text-ink-secondary">
+            <Ltr>{status.model}</Ltr> · {t('overview.version')} <Ltr>{status.version}</Ltr> ·{' '}
+            {t('overview.uptime')} {uptime(status.uptimeSeconds, t)}
+          </p>
+
+          <section
+            aria-labelledby="state-title"
+            className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-raised p-5 shadow-sm"
+          >
+            <div className="flex min-w-0 items-start gap-3.5">
+              <span
+                aria-hidden="true"
+                className={`inline-flex size-10 shrink-0 items-center justify-center rounded-lg ${
+                  paused ? 'bg-bad-tint text-bad-text' : 'bg-ok-tint text-ok-text'
+                }`}
+              >
+                <Icon name={paused ? 'pause' : 'activity'} size={20} />
+              </span>
+              <div>
+                <h2 id="state-title" className="text-lg font-semibold">
+                  {t(paused ? 'pause.pausedTitle' : 'overview.running')}
+                </h2>
+                <p className="text-ink-secondary">
+                  {paused
+                    ? t('pause.pausedBy', { who: paused.by, time: time(paused.at) })
+                    : t('overview.runningText')}
+                </p>
+              </div>
+            </div>
+            {(!paused || me.canApprove) && (
+              <button
+                type="button"
+                className={`inline-flex h-10 items-center gap-2 rounded-lg px-4 font-semibold ${
+                  paused
+                    ? 'bg-primary text-white shadow-md hover:bg-primary-deep'
+                    : 'border border-bad-text bg-raised text-bad-text hover:bg-bad-tint'
+                }`}
+                onClick={toggle}
+              >
+                <Icon name={paused ? 'activity' : 'pause'} size={16} />
+                {t(paused ? 'pause.resume' : 'pause.pauseAll')}
+              </button>
+            )}
+          </section>
+
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3.5">
+            <Tile label={t('overview.approvalsWaiting')} value={num(pending)}>
+              {pending > 0 ? t('overview.review') : t('approvals.noneWaiting')}
+            </Tile>
+            <Tile
+              label={t('overview.investigationsToday')}
+              value={num(data?.investigationsToday ?? 0)}
+            >
+              {data?.lastInvestigation ? (
+                <>
+                  <Ltr>{data.lastInvestigation.alert}</Ltr>, {time(data.lastInvestigation.ts)}
+                </>
+              ) : (
+                t('investigations.empty')
+              )}
+            </Tile>
+            <Tile
+              label={t('overview.changesThisWeek')}
+              value={num(
+                (data?.changesThisWeek.approved ?? 0) +
+                  (data?.changesThisWeek.denied ?? 0) +
+                  (data?.changesThisWeek.expired ?? 0),
+              )}
+            >
+              {t('overview.changesSplit', {
+                approved: data?.changesThisWeek.approved ?? 0,
+                denied: data?.changesThisWeek.denied ?? 0,
+              })}
+            </Tile>
+            <Tile
+              label={t('overview.spendThisMonth')}
+              value={budget?.spent == null ? t('overview.noPrice') : money(budget.spent)}
+              suffix={
+                budget?.limit ? t('overview.ofBudget', { limit: money(budget.limit) }) : undefined
+              }
+            >
+              {spentShare !== null ? (
+                <span className="flex flex-col gap-1.5">
+                  <span
+                    role="progressbar"
+                    aria-label={t('overview.budgetUsed')}
+                    aria-valuenow={Math.round(spentShare * 100)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="block h-2 overflow-hidden rounded-full bg-muted"
+                  >
+                    <Bar share={spentShare} over={budget?.over === true} />
+                  </span>
+                  {t(budget?.over ? 'overview.budgetOver' : 'overview.budgetShare', {
+                    share: Math.round(spentShare * 100),
+                  })}
+                </span>
+              ) : (
+                t('overview.noBudget')
+              )}
+            </Tile>
+          </div>
+
+          <div className="flex flex-wrap items-start gap-5">
+            <section
+              aria-labelledby="changes-title"
+              className="min-w-0 flex-[999_1_420px] rounded-xl border border-line bg-raised p-5"
+            >
+              <h2 id="changes-title" className="text-lg font-semibold">
+                {t('overview.recentChanges')}
+              </h2>
+              {data && data.recentChanges.length === 0 ? (
+                <p className="mt-3 text-ink-secondary">{t('approvals.empty')}</p>
+              ) : (
+                <ol className="mt-2 flex flex-col">
+                  {data?.recentChanges.map((c) => {
+                    const decisionKey = `decision.${c.decision ?? ''}`;
+                    return (
+                      <li
+                        key={c.id}
+                        className="flex gap-3 border-t border-line py-3 first:border-t-0"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                            c.decision === 'approved' ? 'bg-ok' : 'bg-bad-text'
+                          }`}
+                        />
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className="font-medium">
+                            {c.title ? (
+                              <bdi dir="auto">{c.title}</bdi>
+                            ) : (
+                              <Ltr>{`${c.connector}/${c.tool}`}</Ltr>
+                            )}
+                          </span>
+                          <span className="text-[13px] text-ink-secondary">
+                            {t('approvals.decided', {
+                              decision: has(decisionKey) ? t(decisionKey) : (c.decision ?? ''),
+                              who: c.decidedBy ?? '',
+                            })}{' '}
+                            · {time(c.decidedAt ?? c.ts)}
+                          </span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
+
+            <section
+              aria-labelledby="health-title"
+              className="min-w-0 flex-[1_1_300px] rounded-xl border border-line bg-raised p-5"
+            >
+              <h2 id="health-title" className="text-lg font-semibold">
+                {t('overview.connectors')}
+              </h2>
+              <ul className="mt-3 flex flex-col gap-2.5">
+                {status.connectors.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-2">
+                    <span>{c.name}</span>
+                    <Badge tone={c.available ? 'ok' : 'plain'}>
+                      {t(c.available ? 'overview.available' : 'overview.unavailable')}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </section>
           </div>
         </div>
       )}
     </Page>
   );
+}
+
+function Tile({
+  label,
+  value,
+  suffix,
+  children,
+}: {
+  label: string;
+  value: string;
+  suffix?: string | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-4.5 py-4">
+      <span className="text-[13px] font-medium text-ink-secondary">{label}</span>
+      <span className="text-3xl font-bold">
+        {value}
+        {suffix && <span className="ms-1.5 text-sm font-medium text-ink-secondary">{suffix}</span>}
+      </span>
+      <span className="text-[13px] text-ink-secondary">{children}</span>
+    </div>
+  );
+}
+
+/** The budget bar's fill; its width is set through the DOM (the CSP allows no inline styles). */
+function Bar({ share, over }: { share: number; over: boolean }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.style.width = `${String(Math.round(share * 100))}%`;
+  }, [share]);
+  return <span ref={ref} className={`block h-2 ${over ? 'bg-bad-text' : 'bg-primary'}`} />;
 }
 
 export function ConnectorsPage({ onSignedOut }: PageProps) {
@@ -172,6 +366,7 @@ const EVENTS = [
   'approval.decision',
   'result',
   'error',
+  'control',
 ];
 const DECISIONS = ['allowed', 'approved', 'denied', 'blocked', 'expired'];
 
@@ -463,6 +658,7 @@ const PENDING_POLL_MS = 5_000;
 
 export function ApprovalsPage({ onSignedOut, me }: PageProps) {
   const { t, has, time } = useI18n();
+  const [tab, setTab] = useState<'waiting' | 'history'>('waiting');
   const load = useCallback(() => get<ApprovalView[]>('approvals'), []);
   const { data, error, loading, reload } = useLoad(load, onSignedOut);
   const loadPending = useCallback(() => get<PendingApproval[]>('approvals/pending'), []);
@@ -478,6 +674,11 @@ export function ApprovalsPage({ onSignedOut, me }: PageProps) {
     reload();
     reloadPending();
   };
+  const tabClass = (on: boolean) =>
+    `h-8 rounded-full px-3.5 text-sm ${
+      on ? 'bg-raised font-semibold text-ink shadow-sm' : 'font-medium text-ink-secondary'
+    }`;
+
   return (
     <Page
       title="approvals.title"
@@ -486,68 +687,114 @@ export function ApprovalsPage({ onSignedOut, me }: PageProps) {
       loading={loading}
       error={error ?? pending.error}
     >
-      <section aria-labelledby="waiting-title" className="mb-8">
-        <h2 id="waiting-title" className="mb-2 font-bold">
-          {t('approvals.waitingTitle')}
-        </h2>
-        {pending.data?.length === 0 && (
-          <p className="text-sm text-ink-secondary">{t('approvals.noneWaiting')}</p>
-        )}
-        <div className="space-y-3">
-          {pending.data?.map((a) => (
-            <ApprovalCard
-              key={a.id}
-              approval={a}
-              canApprove={me.canApprove}
-              onDecided={refresh}
-              onSignedOut={onSignedOut}
-            />
-          ))}
-        </div>
-      </section>
-      <h2 className="mb-2 font-bold">{t('approvals.historyTitle')}</h2>
-      {data?.length === 0 ? (
-        <p>{t('approvals.empty')}</p>
-      ) : (
-        <Table
-          head={[
-            t('approvals.asked'),
-            t('approvals.by'),
-            t('approvals.action'),
-            t('approvals.args'),
-            t('approvals.outcome'),
-          ]}
+      <div
+        role="tablist"
+        aria-label={t('approvals.title')}
+        className="mb-5 inline-flex rounded-full border border-line bg-muted p-0.5"
+      >
+        <button
+          type="button"
+          role="tab"
+          id="tab-waiting"
+          aria-selected={tab === 'waiting'}
+          aria-controls="panel-waiting"
+          className={tabClass(tab === 'waiting')}
+          onClick={() => {
+            setTab('waiting');
+          }}
         >
-          {data?.map((a) => {
-            const key = `decision.${a.decision ?? ''}`;
-            return (
-              <tr key={a.id}>
-                <Cell>{time(a.ts)}</Cell>
-                <Cell>
-                  <Ltr>{a.requestedBy}</Ltr>
-                </Cell>
-                <Cell>
-                  <Ltr>{`${a.connector}/${a.tool}`}</Ltr>
-                </Cell>
-                <Cell mono>
-                  <bdi dir="ltr">{a.args}</bdi>
-                </Cell>
-                <Cell>
-                  {a.decision === null ? (
-                    <Badge tone="plain">{t('approvals.waiting')}</Badge>
-                  ) : (
-                    <Badge tone={a.decision === 'approved' ? 'accent' : 'plain'}>
-                      {t('approvals.decided', {
-                        decision: has(key) ? t(key) : a.decision,
-                        who: a.decidedBy ?? '',
-                      })}
-                    </Badge>
-                  )}
-                </Cell>
-              </tr>
-            );
-          })}
-        </Table>
+          {t('approvals.waitingTab', { n: pending.data?.length ?? 0 })}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-history"
+          aria-selected={tab === 'history'}
+          aria-controls="panel-history"
+          className={tabClass(tab === 'history')}
+          onClick={() => {
+            setTab('history');
+          }}
+        >
+          {t('approvals.historyTitle')}
+        </button>
+      </div>
+
+      {tab === 'waiting' ? (
+        <section id="panel-waiting" role="tabpanel" aria-labelledby="tab-waiting">
+          {pending.data?.length === 0 && (
+            <p className="text-ink-secondary">{t('approvals.noneWaiting')}</p>
+          )}
+          <div className="flex flex-col gap-3.5">
+            {pending.data?.map((a) => (
+              <ApprovalCard
+                key={a.id}
+                approval={a}
+                canApprove={me.canApprove}
+                onDecided={refresh}
+                onSignedOut={onSignedOut}
+              />
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section id="panel-history" role="tabpanel" aria-labelledby="tab-history">
+          {data?.length === 0 ? (
+            <p className="text-ink-secondary">{t('approvals.empty')}</p>
+          ) : (
+            <Table
+              head={[
+                t('approvals.action'),
+                t('approvals.by'),
+                t('approvals.outcome'),
+                t('approvals.asked'),
+              ]}
+            >
+              {data?.map((a) => {
+                const key = `decision.${a.decision ?? ''}`;
+                const tone =
+                  a.decision === null
+                    ? 'accent'
+                    : a.decision === 'approved'
+                      ? 'ok'
+                      : a.decision === 'denied'
+                        ? 'bad'
+                        : 'plain';
+                return (
+                  <tr key={a.id}>
+                    <Cell>
+                      <span className="font-medium">
+                        {a.title ? (
+                          <bdi dir="auto">{a.title}</bdi>
+                        ) : (
+                          <Ltr>{`${a.connector}/${a.tool}`}</Ltr>
+                        )}
+                      </span>
+                      <br />
+                      <bdi dir="ltr" className="font-mono text-xs break-all text-ink-secondary">
+                        {a.args}
+                      </bdi>
+                    </Cell>
+                    <Cell>
+                      <Ltr>{a.requestedBy}</Ltr>
+                    </Cell>
+                    <Cell>
+                      <Badge tone={tone}>
+                        {a.decision === null
+                          ? t('approvals.waiting')
+                          : t('approvals.decided', {
+                              decision: has(key) ? t(key) : a.decision,
+                              who: a.decidedBy ?? '',
+                            })}
+                      </Badge>
+                    </Cell>
+                    <Cell>{time(a.ts)}</Cell>
+                  </tr>
+                );
+              })}
+            </Table>
+          )}
+        </section>
       )}
     </Page>
   );

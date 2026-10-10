@@ -12,6 +12,24 @@ export interface StatusView {
   slack: boolean;
   monitoring: boolean;
   connectors: { id: string; name: string; available: boolean }[];
+  /** Who paused changes, and when; null while changes may run. */
+  paused?: { by: string; at: string } | null;
+  budget?: { month: string; limit: number | null; spent: number | null; over: boolean };
+}
+
+export interface OverviewView {
+  investigationsToday: number;
+  lastInvestigation: { alert: string; ts: string } | null;
+  changesThisWeek: { approved: number; denied: number; expired: number };
+  recentChanges: ApprovalView[];
+}
+
+export function pauseAgent(): Promise<unknown> {
+  return post('agent/pause', {});
+}
+
+export function resumeAgent(): Promise<unknown> {
+  return post('agent/resume', {});
 }
 
 export interface ConnectorView {
@@ -64,6 +82,8 @@ export interface UsageView {
 }
 
 export interface ApprovalView {
+  /** A proposed change's title. */
+  title?: string;
   id: string;
   ts: string;
   connector: string;

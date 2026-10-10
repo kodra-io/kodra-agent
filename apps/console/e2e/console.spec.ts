@@ -17,6 +17,16 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
   await expect(page.getByText('2 h 3 min')).toBeVisible();
   const connectors = page.getByRole('listitem').filter({ hasText: 'Kubernetes' });
   await expect(connectors).toContainText('Not available');
+  // The dashboard: approvals waiting, investigations, changes, and spend against the budget.
+  await expect(page.getByText('PodCrashLooping, ')).toBeVisible();
+  await expect(page.getByText('3 approved, 1 denied')).toBeVisible();
+  await expect(page.getByText('$12.40')).toBeVisible();
+  await expect(page.getByText('of $40.00')).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: 'Budget used' })).toHaveAttribute(
+    'aria-valuenow',
+    '31',
+  );
+  await expect(page.getByText('Open MR: README note')).toBeVisible();
   expect(api).toContain('POST login');
 
   await page.getByRole('button', { name: 'Sign out' }).click();
@@ -77,13 +87,18 @@ test('lists approvals; the shared token sees waiting requests but cannot decide'
   await expect(nav.getByRole('link', { name: 'Approvals' })).toContainText('3');
   await expect(page).toHaveTitle('(3) Console | Kodra AI Agent');
   await nav.getByRole('link', { name: 'Approvals' }).click();
-  await expect(page.getByText('No decision recorded')).toBeVisible();
-  await expect(page.getByText('approved by U-OMAR')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Waiting (3)' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   const waiting = page.getByRole('group', { name: 'Needs approval' });
   await expect(waiting).toHaveCount(3);
   await expect(waiting.first()).toContainText('github/create_pull_request');
   await expect(waiting.first()).toContainText('Waiting for an approver.');
   await expect(page.locator('main').getByRole('button', { name: /approve|deny/i })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'History' }).click();
+  await expect(page.getByText('No decision recorded')).toBeVisible();
+  await expect(page.getByText('approved by U-OMAR')).toBeVisible();
 });
 
 test('a console approver approves a waiting request after confirming', async ({ page, api }) => {
@@ -107,6 +122,25 @@ test('a console approver approves a waiting request after confirming', async ({ 
   await old.getByRole('button', { name: 'Yes, run it' }).click();
   await expect(old.getByRole('alert')).toHaveText('This request expired. Nothing was run.');
   await expect(old.getByRole('button')).toHaveCount(0);
+});
+
+test('anyone can pause changes; only an approver resumes', async ({ page, api }) => {
+  await signIn(page);
+  await page.getByRole('button', { name: 'Pause all changes' }).click();
+  const banner = page.getByRole('status').filter({ hasText: 'Changes are paused.' });
+  await expect(banner).toContainText('Paused by console');
+  await expect(banner).toContainText('An approver can resume.');
+  await expect(page.getByRole('button', { name: 'Resume changes' })).toHaveCount(0);
+  await expect(page.getByRole('navigation')).toContainText('Changes paused');
+  expect(api.some((a) => a.startsWith('BODY agent/pause'))).toBe(true);
+
+  // An approver signs in and resumes.
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('status').getByRole('button', { name: 'Resume changes' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Changes are paused.' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Pause all changes' })).toBeVisible();
+  expect(api.some((a) => a.startsWith('BODY agent/resume'))).toBe(true);
 });
 
 test('shows a proposed change by its title, with the diff to review', async ({ page, api }) => {
