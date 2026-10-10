@@ -258,6 +258,16 @@ describe('propose_change', () => {
     expect(await t.recorded()).toEqual([]);
   });
 
+  it('proposes nothing while changes are paused', async () => {
+    const t = await setup({
+      responses: [propose(change([branchStep, prStep])), answer('Paused.')],
+    });
+    await runTurn({ ...t.deps, paused: () => 'changes are paused (by console)' }, [], 'go', 'ch8');
+    expect(t.requests).toEqual([]);
+    expect(await t.recorded()).toEqual([]);
+    expect(t.toolResult()).toContain('NOT PROPOSED: changes are paused (by console)');
+  });
+
   it('is not offered in read-only investigations', async () => {
     const t = await setup({ responses: [answer('Nothing to do.')], readOnly: true });
     await runTurn(t.deps, [], 'look', 'ch7');

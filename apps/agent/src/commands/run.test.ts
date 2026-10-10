@@ -298,6 +298,97 @@ describe('kodra-agent run', () => {
     expect(await running).toBe(0);
   });
 
+  it('pauses from the console (anyone), resumes (approvers only), and keeps it over a restart', async () => {
+    const SHARED = 'run-pause-shared-token-77ac'; // gitleaks:allow
+    const OMAR = 'run-pause-omar-token-19fe'; // gitleaks:allow
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model:
+          '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        approvers: ['@omar', 'console:omar'],
+      }),
+      dir,
+    );
+    const start = () => {
+      const stop = new AbortController();
+      let port = 0;
+      const t = testContext({
+        env: {
+          ANTHROPIC_API_KEY: 'k',
+          KODRA_CONSOLE_TOKEN: SHARED,
+          KODRA_CONSOLE_TOKEN_OMAR: OMAR,
+        },
+        modelFactory: () => scriptedModel(),
+        launcher: fakeLauncher(),
+        stopSignal: stop.signal,
+        healthPort: 0,
+        consolePort: 0,
+        consoleStaticDir: join(dir, 'no-build'),
+        onReady: (info) => {
+          port = info.consolePort ?? 0;
+        },
+      });
+      const running = main(['run', '--config', path], t.ctx);
+      return { stop, running, t, port: () => port };
+    };
+    const signIn = async (base: string, token: string) =>
+      (
+        (
+          await fetch(`${base}/api/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token }),
+          })
+        ).headers.get('set-cookie') ?? ''
+      ).split(';')[0] ?? '';
+    const act = (base: string, cookie: string, route: string) =>
+      fetch(`${base}/api/${route}`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+        body: '{}',
+      });
+
+    const first = start();
+    await until(() => (first.port() ? true : undefined));
+    let base = `http://127.0.0.1:${String(first.port())}`;
+    const team = await signIn(base, SHARED);
+    expect((await act(base, team, 'agent/pause')).status).toBe(200);
+    const status = (await (
+      await fetch(`${base}/api/status`, { headers: { cookie: team } })
+    ).json()) as {
+      paused: { by: string } | null;
+      budget: { limit: number | null };
+    };
+    expect(status.paused).toMatchObject({ by: 'console' });
+    expect(status.budget.limit).toBeNull();
+    // Without Slack, the notice goes to the terminal.
+    await until(() =>
+      first.t.output().includes('Changes are paused by console.') ? true : undefined,
+    );
+    expect((await act(base, team, 'agent/resume')).status).toBe(403);
+    first.stop.abort();
+    expect(await first.running).toBe(0);
+
+    // Still paused after a restart; an approver resumes.
+    const second = start();
+    await until(() => (second.port() ? true : undefined));
+    expect(second.t.output()).toContain('changes paused');
+    base = `http://127.0.0.1:${String(second.port())}`;
+    const omar = await signIn(base, OMAR);
+    expect((await act(base, omar, 'agent/resume')).status).toBe(200);
+    const overview = (await (
+      await fetch(`${base}/api/overview`, { headers: { cookie: omar } })
+    ).json()) as Record<string, unknown>;
+    expect(overview).toMatchObject({ investigationsToday: 0, recentChanges: [] });
+    second.stop.abort();
+    expect(await second.running).toBe(0);
+    const audit = await readFile(join(dir, 'audit.jsonl'), 'utf8');
+    expect(audit).toContain('"event":"control","actor":"console"');
+    expect(audit).toContain('"event":"control","actor":"console:omar"');
+  });
+
   it('serves the console: token sign-in, then status and connectors, read-only', async () => {
     const CONSOLE_TOKEN = 'run-console-token-canary-91b2'; // gitleaks:allow
     const dir = await tempDir();

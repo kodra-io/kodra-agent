@@ -49,6 +49,8 @@ export interface ConsoleChatOptions {
   /** Turns running at once across the console, to protect the model budget. */
   maxConcurrent?: number;
   maxMessagesPerMinute?: number;
+  /** Refuses a new question (the monthly budget), with the reason to show. */
+  gate?: () => Promise<string | null>;
   now?: () => Date;
 }
 
@@ -191,6 +193,11 @@ export class ConsoleChat {
     }
     this.push(c, { type: 'status', state: 'working' });
     try {
+      const refusal = await this.opts.gate?.();
+      if (refusal) {
+        this.push(c, { type: 'error', message: refusal });
+        return;
+      }
       const deps: AgentDeps = {
         ...this.opts.deps(this.opts.approvals),
         actor: user.name,

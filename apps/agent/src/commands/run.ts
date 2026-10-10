@@ -6,6 +6,7 @@ import { consoleApproverTokenEnv, isConsoleApprover } from '@kodra-agent/schema'
 import { fanOut, type ApprovalChannel, type SettleableChannel } from '../approvals.ts';
 import { ConsoleApprovals } from '../console/approvals.ts';
 import { ConsoleChat } from '../console/chat.ts';
+import { budgetRefusal } from '../budget.ts';
 import { InvestigationLog } from '../console/data.ts';
 import { consoleApi } from '../console/routes.ts';
 import { startConsoleServer, type ConsoleAccount } from '../console/server.ts';
@@ -71,6 +72,18 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   }
   const consoleChannels: SettleableChannel[] =
     consoleAccounts.length > 0 ? [consoleApprovals.channel] : [];
+  // New questions stop when the monthly budget is used up; investigations keep running.
+  const gate = async (): Promise<string | null> => {
+    const refusal = budgetRefusal(await runtime.budget());
+    if (refusal) {
+      await runtime.audit.append({
+        event: 'result',
+        actor: 'agent',
+        detail: 'refused a question: the monthly budget is used up',
+      });
+    }
+    return refusal;
+  };
   let slack: SlackConnection | null = null;
   let approvals: SlackApprovals | null = null;
   let conversations: SlackConversations | null = null;
@@ -116,6 +129,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         approverIds: approvers.ids,
         deps: runtime.deps,
         alsoAsk: consoleChannels,
+        gate,
       });
       const conv = conversations;
       const appr = approvals;
@@ -133,6 +147,13 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       if (api && channelId) await api.postMessage({ channel: channelId, text: safe });
       else ctx.term.out(safe);
     };
+    runtime.control.onChange((state, who) => {
+      void post(
+        state
+          ? `Changes are paused by ${who}. I keep answering and investigating, but I will not change anything until an approver resumes.`
+          : `Changes are resumed by ${who}. Changes run again after approval.`,
+      ).catch(() => undefined);
+    });
 
     const prometheus = runtime.inputs.find((i) => i.component.id === 'prometheus');
     if (prometheus) {
@@ -198,6 +219,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             deps: runtime.deps,
             approvals: fanOut([...consoleChannels, ...slackChannel]),
             redactor: ctx.redactor,
+            gate,
           });
         }
         const api = consoleApi(
@@ -222,7 +244,10 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
 
     ready = true;
     ctx.term.out(
-      `Kodra AI Agent is running (${slack ? 'Slack' : 'no chat surface'}${monitor ? ', monitoring alerts' : ''}).`,
+      `Kodra AI Agent is running (${
+        [slack ? 'Slack' : '', consoleServer ? 'the console' : ''].filter(Boolean).join(' and ') ||
+        'no chat surface'
+      }${monitor ? ', monitoring alerts' : ''}${runtime.control.paused ? ', changes paused' : ''}).`,
     );
     ctx.onReady?.({
       healthPort: portOf(health),

@@ -164,9 +164,14 @@ const limitsSchema = z
      */
     tokenBudget: z.int().min(10_000).max(5_000_000).default(200_000),
     timeoutMinutes: z.int().min(1).max(60).default(5),
+    /**
+     * Estimated spend per calendar month (UTC), in US dollars, from the model's prices. When it
+     * is used up, new questions are refused; alert investigations keep running. Off when unset.
+     */
+    monthlyBudgetUsd: z.number().positive().max(1_000_000).optional(),
   })
   .prefault({})
-  .meta({ description: 'Limits for each question the agent answers.' });
+  .meta({ description: 'Limits for each question the agent answers, and a monthly budget.' });
 
 /** The web console the agent serves (M8): status, chat, and approvals. */
 const consoleSchema = z
@@ -375,7 +380,12 @@ export interface AgentConfig {
     audit: { path: string };
     telemetry: { enabled: boolean };
     monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
-    limits: { maxSteps: number; tokenBudget: number; timeoutMinutes: number };
+    limits: {
+      maxSteps: number;
+      tokenBudget: number;
+      timeoutMinutes: number;
+      monthlyBudgetUsd?: number | undefined;
+    };
     console: {
       enabled: boolean;
       port: number;

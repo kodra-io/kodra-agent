@@ -68,6 +68,8 @@ export interface AgentDeps {
   stream?: boolean;
   /** Stops the turn: the model call ends and a waiting approval is cancelled. */
   signal?: AbortSignal;
+  /** Why changes are refused right now (the pause switch), or null. Checked when a change runs. */
+  paused?: () => string | null;
 }
 
 /**
@@ -232,13 +234,16 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
           });
         };
 
+        const pausedReason = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
         const decision: Decision =
           deps.readOnly && hosted.risk !== 'read'
             ? {
                 kind: 'block',
                 reason: 'investigations are read-only; ask in Slack to make a change',
               }
-            : decide(policyInputFor(hosted, args, deps.policy.destructiveActions));
+            : pausedReason
+              ? { kind: 'block', reason: pausedReason }
+              : decide(policyInputFor(hosted, args, deps.policy.destructiveActions));
 
         if (decision.kind === 'block') {
           deps.term.out(`  [blocked] ${source}: ${decision.reason}`);
@@ -318,6 +323,18 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
           }
         }
 
+        // Paused while it waited for approval: the approval does not count any more.
+        const pausedNow = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
+        if (pausedNow) {
+          toolEvent('blocked', pausedNow);
+          await deps.audit.append({
+            ...base,
+            event: 'tool.call',
+            decision: 'blocked',
+            detail: clip(`${pausedNow}; args ${redactedArgs}`, 3_500),
+          });
+          return wrapUntrusted(source, `BLOCKED: ${pausedNow}. Nothing was run.`, deps.redactor);
+        }
         deps.term.out(`  [${hosted.risk}] ${source} ${redactedArgs}`);
         toolEvent('running');
         try {

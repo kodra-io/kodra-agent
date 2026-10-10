@@ -5,6 +5,7 @@ import {
   activity,
   approvals,
   connectorViews,
+  overview,
   readAudit,
   status,
   usage,
@@ -47,7 +48,12 @@ export function consoleApi(
   const text = (q: URLSearchParams, key: string) => q.get(key) ?? undefined;
 
   const routes: Record<string, ApiRoute> = {
-    status: () => status(runtime, info),
+    status: async () => ({
+      ...status(runtime, info),
+      paused: runtime.control.paused,
+      budget: await runtime.budget(),
+    }),
+    overview: async () => overview(await readAudit(auditPath), await investigations.list()),
     connectors: () => connectorViews(runtime),
     activity: async ({ query: q }) => {
       const limit = Number(q.get('limit') ?? '100');
@@ -69,6 +75,18 @@ export function consoleApi(
   };
 
   const actions: Record<string, ActionRoute> = {
+    // Anyone signed in may pause (it only stops changes); resuming is for an approver.
+    'agent/pause': async ({ user }) => {
+      await runtime.control.pause(user.name);
+      return { status: 200, body: { paused: runtime.control.paused } };
+    },
+    'agent/resume': async ({ user }) => {
+      if (!user.canApprove) {
+        return { status: 403, body: { error: 'only a console approver can resume changes' } };
+      }
+      await runtime.control.resume(user.name);
+      return { status: 200, body: { paused: null } };
+    },
     'approvals/decide': async ({ user, body }) => {
       const id = typeof body['id'] === 'string' ? body['id'] : '';
       if (typeof body['approve'] !== 'boolean') {

@@ -4,7 +4,9 @@ import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
 import { alwaysBlocked, type AgentDeps } from './agent.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
+import { budgetState, type BudgetState } from './budget.ts';
 import { components, loadConfig, secretLabel } from './config.ts';
+import { AgentControl } from './control.ts';
 import { CONSOLE_TOKEN_ENV } from './console/token.ts';
 import type { Context } from './context.ts';
 import { lookupDefaultBranches } from './default-branches.ts';
@@ -26,6 +28,10 @@ export interface Runtime {
   env: Readonly<Record<string, string | undefined>>;
   /** Agent dependencies for one turn or investigation, with a given approval channel. */
   deps: (approvals: ApprovalChannel) => AgentDeps;
+  /** The pause switch (saved next to the audit log). */
+  control: AgentControl;
+  /** This month's estimated spend against spec.limits.monthlyBudgetUsd. */
+  budget: () => Promise<BudgetState>;
   close: () => Promise<void>;
 }
 
@@ -153,6 +159,9 @@ export async function startRuntime(
   }
 
   const model = (ctx.modelFactory ?? createModel)(config.spec.model, modelSecrets);
+  const control = new AgentControl(config.spec.audit.path, audit);
+  await control.load();
+  const modelLabel = `${config.spec.model.provider}/${config.spec.model.name}`;
   return {
     config,
     inputs,
@@ -160,9 +169,18 @@ export async function startRuntime(
     ...(options.connectorLogFile ? { connectorLogPath } : {}),
     audit,
     env,
+    control,
+    budget: () =>
+      budgetState({
+        auditPath: config.spec.audit.path,
+        model: modelLabel,
+        pricing: config.spec.console.pricing,
+        limit: config.spec.limits.monthlyBudgetUsd,
+      }),
     deps: (approvals) => ({
       model,
-      modelLabel: `${config.spec.model.provider}/${config.spec.model.name}`,
+      modelLabel,
+      paused: control.reason,
       host,
       approvals,
       audit,
