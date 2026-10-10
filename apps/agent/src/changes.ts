@@ -232,6 +232,9 @@ export function proposeChangeTool(
         steps.push({ tool, args });
       }
 
+      const pausedReason = deps.paused?.() ?? null;
+      if (pausedReason) return refuse(pausedReason);
+
       // Every step must pass the policy before anyone is asked.
       for (const [index, { tool, args }] of steps.entries()) {
         const decision = decide({
@@ -373,6 +376,8 @@ export function proposeChangeTool(
           );
         };
 
+        const pausedNow = deps.paused?.() ?? null;
+        if (pausedNow) return await stop(pausedNow);
         for (const snap of preview.snapshots.filter((s) => s.step === index)) {
           let now: string | null;
           try {

@@ -128,6 +128,12 @@ const PATHS = {
     </>
   ),
   spinner: <path d="M21 12a9 9 0 1 1-6.22-8.56" />,
+  pause: (
+    <>
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+    </>
+  ),
   logout: (
     <>
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

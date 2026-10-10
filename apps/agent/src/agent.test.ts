@@ -246,6 +246,61 @@ describe('agent loop', () => {
     });
   });
 
+  it('refuses changes while paused, without asking anyone, and still reads', async () => {
+    const { deps, model, channel, audit } = await setup({
+      access: 'read-write-approved',
+      responses: [
+        call('fakek8s__pods_log', { namespace: 'api', name: 'web-1' }),
+        call('fakek8s__resources_scale', {
+          namespace: 'api',
+          name: 'web',
+          scale: 3,
+          [REASON_ARG]: 'x',
+        }),
+        answer('Paused.'),
+      ],
+    });
+    await runTurn({ ...deps, paused: () => 'changes are paused (by console)' }, [], 'scale', 'p1');
+    expect(channel.requests).toEqual([]);
+    expect(promptOf(model, 1)).toContain('connection refused');
+    expect(promptOf(model, 2)).toContain('BLOCKED by policy: changes are paused (by console)');
+    expect(
+      (await audit()).filter((r) => r['event'] === 'tool.call').map((r) => r['decision']),
+    ).toEqual(['allowed', 'blocked']);
+  });
+
+  it('does not run a change approved before a pause', async () => {
+    let paused = false;
+    const { deps, model, audit } = await setup({
+      access: 'read-write-approved',
+      responses: [
+        call('fakek8s__resources_scale', {
+          namespace: 'api',
+          name: 'web',
+          scale: 3,
+          [REASON_ARG]: 'x',
+        }),
+        answer('Paused.'),
+      ],
+    });
+    deps.approvals = {
+      request: () => {
+        paused = true; // Someone pauses while the request waits; then it is approved.
+        return Promise.resolve({ decision: 'approved', by: 'console:omar' });
+      },
+    };
+    await runTurn(
+      { ...deps, paused: () => (paused ? 'changes are paused (by console)' : null) },
+      [],
+      'scale',
+      'p2',
+    );
+    expect(promptOf(model, 1)).toContain('BLOCKED: changes are paused');
+    expect(promptOf(model, 1)).not.toContain('scaled api/web');
+    const calls = (await audit()).filter((r) => r['event'] === 'tool.call');
+    expect(calls.map((r) => r['decision'])).toEqual(['blocked']);
+  });
+
   it('requires a reason for non-read tools in the schema sent to the model', async () => {
     const { deps, model } = await setup({
       access: 'read-write-approved',

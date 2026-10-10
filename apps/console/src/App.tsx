@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   get,
+  pauseAgent,
+  resumeAgent,
   session as loadSession,
+  SignedOut,
   signIn,
   signOut,
   type PendingApproval,
@@ -19,6 +22,7 @@ import {
   OverviewPage,
   UsagePage,
 } from './pages.tsx';
+import { StatusContext } from './status.ts';
 import { useTheme } from './theme.ts';
 
 const PAGES = [
@@ -74,6 +78,11 @@ export function App() {
   const signedIn = session?.signedIn === true;
 
   // The approvals badge (sidebar and tab title) and the status card.
+  const loadStatus = useCallback(() => {
+    get<StatusView>('status')
+      .then(setStatus)
+      .catch(() => undefined);
+  }, []);
   useEffect(() => {
     if (!signedIn) return;
     let alive = true;
@@ -81,13 +90,6 @@ export function App() {
       get<PendingApproval[]>('approvals/pending')
         .then((list) => {
           if (alive) setPending(list.length);
-        })
-        .catch(() => undefined);
-    };
-    const loadStatus = () => {
-      get<StatusView>('status')
-        .then((s) => {
-          if (alive) setStatus(s);
         })
         .catch(() => undefined);
     };
@@ -100,7 +102,7 @@ export function App() {
       clearInterval(a);
       clearInterval(b);
     };
-  }, [signedIn, path]);
+  }, [signedIn, path, loadStatus]);
 
   useEffect(() => {
     const base = `${t('app.title')} | ${t('app.productName')}`;
@@ -131,32 +133,91 @@ export function App() {
   const fullBleed = page.path === '/chat';
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:m-2 focus:rounded focus:bg-raised focus:px-3 focus:py-2"
-      >
-        {t('app.skip')}
-      </a>
-      <Sidebar
-        pages={pages}
-        path={page.path}
-        go={go}
-        pending={pending}
-        status={status}
-        me={me}
-        menuOpen={menuOpen}
-        toggleMenu={() => {
-          setMenuOpen((o) => !o);
-        }}
-        onSignedOut={onSignedOut}
-      />
-      <main
-        id="main"
-        className={`min-w-0 flex-1 ${fullBleed ? 'flex flex-col' : 'px-4 py-6 md:px-8 md:py-7'}`}
-      >
-        <page.Page onSignedOut={onSignedOut} me={me} />
-      </main>
+    <StatusContext.Provider value={{ status, pending, refresh: loadStatus }}>
+      <div className="flex min-h-screen flex-col md:flex-row">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:m-2 focus:rounded focus:bg-raised focus:px-3 focus:py-2"
+        >
+          {t('app.skip')}
+        </a>
+        <Sidebar
+          pages={pages}
+          path={page.path}
+          go={go}
+          pending={pending}
+          status={status}
+          me={me}
+          menuOpen={menuOpen}
+          toggleMenu={() => {
+            setMenuOpen((o) => !o);
+          }}
+          onSignedOut={onSignedOut}
+          onChanged={loadStatus}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          {status?.paused && (
+            <PausedBanner
+              paused={status.paused}
+              me={me}
+              onChanged={loadStatus}
+              onSignedOut={onSignedOut}
+            />
+          )}
+          <main
+            id="main"
+            className={`min-w-0 flex-1 ${fullBleed ? 'flex flex-col' : 'px-4 py-6 md:px-8 md:py-7'}`}
+          >
+            <page.Page onSignedOut={onSignedOut} me={me} />
+          </main>
+        </div>
+      </div>
+    </StatusContext.Provider>
+  );
+}
+
+/** Shown on every page while changes are paused. */
+function PausedBanner({
+  paused,
+  me,
+  onChanged,
+  onSignedOut,
+}: {
+  paused: { by: string; at: string };
+  me: { canApprove: boolean };
+  onChanged: () => void;
+  onSignedOut: () => void;
+}) {
+  const { t, time } = useI18n();
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-bad-tint px-4 py-2.5 text-sm text-bad-text md:px-8"
+    >
+      <span className="flex items-center gap-2">
+        <Icon name="pause" size={16} />
+        <span>
+          <strong>{t('pause.pausedTitle')}</strong>{' '}
+          {t('pause.pausedBy', { who: paused.by, time: time(paused.at) })}
+        </span>
+      </span>
+      {me.canApprove ? (
+        <button
+          type="button"
+          className="h-8 rounded-lg bg-raised px-3 font-semibold text-ink shadow-sm hover:bg-muted"
+          onClick={() => {
+            resumeAgent()
+              .then(onChanged)
+              .catch((e: unknown) => {
+                if (e instanceof SignedOut) onSignedOut();
+              });
+          }}
+        >
+          {t('pause.resume')}
+        </button>
+      ) : (
+        <span>{t('pause.askApprover')}</span>
+      )}
     </div>
   );
 }
@@ -171,6 +232,7 @@ function Sidebar({
   menuOpen,
   toggleMenu,
   onSignedOut,
+  onChanged,
 }: {
   pages: ReturnType<typeof pagesFor>;
   path: string;
@@ -181,6 +243,7 @@ function Sidebar({
   menuOpen: boolean;
   toggleMenu: () => void;
   onSignedOut: () => void;
+  onChanged: () => void;
 }) {
   const { t, lang, setLang } = useI18n();
   const { dark, toggle } = useTheme();
@@ -251,14 +314,35 @@ function Sidebar({
           {status && (
             <>
               <div className="flex items-center gap-2 text-[13px]">
-                <span aria-hidden="true" className="size-2 rounded-full bg-ok" />
-                <span>{t('app.running', { version: status.version })}</span>
+                <span
+                  aria-hidden="true"
+                  className={`size-2 rounded-full ${status.paused ? 'bg-bad-text' : 'bg-ok'}`}
+                />
+                <span>
+                  {t(status.paused ? 'app.paused' : 'app.running', { version: status.version })}
+                </span>
               </div>
               <div className="text-xs leading-[18px] text-ink-secondary">
                 <bdi dir="ltr">{status.model.split('/').at(-1)}</bdi>
                 <br />
                 {t('app.connectorsReady', { ready, total: status.connectors.length })}
               </div>
+              {!status.paused && (
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-raised text-[13px] font-medium hover:bg-muted"
+                  onClick={() => {
+                    pauseAgent()
+                      .then(onChanged)
+                      .catch((e: unknown) => {
+                        if (e instanceof SignedOut) onSignedOut();
+                      });
+                  }}
+                >
+                  <Icon name="pause" size={14} />
+                  {t('pause.pause')}
+                </button>
+              )}
             </>
           )}
           <div className="flex flex-col gap-2.5 border-t border-line pt-2.5">

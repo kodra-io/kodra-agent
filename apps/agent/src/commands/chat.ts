@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
 import { formatUsage, runTurn } from '../agent.ts';
+import { budgetRefusal } from '../budget.ts';
 import { cliApprovalChannel, type ApprovalChannel } from '../approvals.ts';
 import type { Context } from '../context.ts';
 import { describeConnectors, startRuntime } from '../runtime.ts';
@@ -34,6 +35,11 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
 
     let history: ModelMessage[] = [];
     const turn = async (text: string) => {
+      const refusal = budgetRefusal(await runtime.budget());
+      if (refusal) {
+        ctx.term.err(refusal);
+        return;
+      }
       const result = await runTurn(deps, history, text, `chat-${randomUUID().slice(0, 8)}`);
       history = result.messages;
       ctx.term.out('');

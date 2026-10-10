@@ -80,6 +80,26 @@ const fixtures: Record<string, unknown> = {
       detail: 'this connector is read-only',
     },
   ],
+  overview: {
+    investigationsToday: 1,
+    lastInvestigation: { alert: 'PodCrashLooping', ts: '2026-10-09T07:30:00.000Z' },
+    changesThisWeek: { approved: 3, denied: 1, expired: 0 },
+    recentChanges: [
+      {
+        id: 'req-1',
+        ts: '2026-10-09T09:00:05.000Z',
+        connector: 'gitlab',
+        tool: 'propose_change',
+        risk: 'write',
+        requestedBy: 'console:omar',
+        args: 'gitlab/create_branch, gitlab/create_or_update_file, gitlab/create_merge_request',
+        title: 'Open MR: README note',
+        decision: 'approved',
+        decidedBy: 'console:omar',
+        decidedAt: '2026-10-09T09:00:07.000Z',
+      },
+    ],
+  },
   investigations: [
     {
       ts: '2026-10-09T07:30:00.000Z',
@@ -202,6 +222,7 @@ export const CHAT_REQUEST = {
 /** A stand-in for the agent's console API, with the same sign-in and approval rules. */
 async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
   let user: { name: string; canApprove: boolean } | null = null;
+  let paused: { by: string; at: string } | null = null;
   const conversations: MockConversation[] = [];
   let pending: Record<string, unknown>[] = [
     {
@@ -321,6 +342,20 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         pending = [{ ...CHAT_REQUEST, requestedBy: user.name }, ...pending];
         return route.fulfill({ json: { conversation: c.id } });
       }
+      if (name === 'agent/pause') {
+        paused = { by: user.name, at: '2026-10-09T09:30:00.000Z' };
+        return route.fulfill({ json: { paused } });
+      }
+      if (name === 'agent/resume') {
+        if (!user.canApprove) {
+          return route.fulfill({
+            status: 403,
+            json: { error: 'only a console approver can resume' },
+          });
+        }
+        paused = null;
+        return route.fulfill({ json: { paused } });
+      }
       if (name === 'chat/stop') {
         const c = conversations.find((x) => x.id === body['conversation']);
         if (!c?.busy) return route.fulfill({ status: 409, json: { error: 'nothing is running' } });
@@ -427,6 +462,15 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
       });
     }
     if (name === 'approvals/pending') return route.fulfill({ json: pending });
+    if (name === 'status') {
+      return route.fulfill({
+        json: {
+          ...(fixtures['status'] as object),
+          paused,
+          budget: { month: '2026-10', limit: 40, spent: 12.4, over: false },
+        },
+      });
+    }
     return route.fulfill({ json: fixtures[name] ?? { error: 'not found' } });
   });
 }

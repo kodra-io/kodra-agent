@@ -840,7 +840,7 @@
           "additionalProperties": false
         },
         "limits": {
-          "description": "Limits for each question the agent answers.",
+          "description": "Limits for each question the agent answers, and a monthly budget.",
           "default": {},
           "type": "object",
           "properties": {
@@ -861,6 +861,11 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 60
+            },
+            "monthlyBudgetUsd": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1000000
             }
           },
           "additionalProperties": false

@@ -44,6 +44,7 @@ afterEach(async () => {
 });
 
 async function setup(opts: {
+  gate?: () => Promise<string | null>;
   doGenerate:
     | ((
         options: Parameters<MockLanguageModelV4['doGenerate']>[0],
@@ -78,6 +79,7 @@ async function setup(opts: {
     redactor,
     ...(opts.maxConcurrent ? { maxConcurrent: opts.maxConcurrent } : {}),
     ...(opts.maxMessagesPerMinute ? { maxMessagesPerMinute: opts.maxMessagesPerMinute } : {}),
+    ...(opts.gate ? { gate: opts.gate } : {}),
   });
   return { chat, model, pending };
 }
@@ -151,6 +153,20 @@ describe('ConsoleChat', () => {
     expect(chat.send(approver, undefined, 'five').ok).toBe(true);
     release();
     await chat.idle();
+  });
+
+  it('refuses a new question when the gate says so (the monthly budget)', async () => {
+    const { chat, model } = await setup({
+      doGenerate: [answer('never')],
+      gate: () => Promise.resolve('The monthly budget of $5.00 is used up.'),
+    });
+    const sent = chat.send(viewer, undefined, 'hello');
+    if (!sent.ok) throw new Error(sent.error);
+    const events = await collect(chat, sent.conversation, idle);
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      message: 'The monthly budget of $5.00 is used up.',
+    });
+    expect(model.calls).toEqual([]);
   });
 
   it('stops a running turn on request, and only a running one', async () => {

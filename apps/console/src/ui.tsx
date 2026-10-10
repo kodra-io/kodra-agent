@@ -46,15 +46,17 @@ export function Page({
   );
 }
 
-export function Badge({ tone, children }: { tone: 'accent' | 'plain'; children: ReactNode }) {
+const TONES = {
+  accent: 'bg-primary-tint text-primary-text',
+  ok: 'bg-ok-tint text-ok-text',
+  bad: 'bg-bad-tint text-bad-text',
+  plain: 'border border-line bg-raised text-ink',
+};
+
+/** A small label. State tones always carry a word, never color alone. */
+export function Badge({ tone, children }: { tone: keyof typeof TONES; children: ReactNode }) {
   return (
-    <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
-        tone === 'accent'
-          ? 'bg-primary-tint text-primary-text'
-          : 'border border-line bg-raised text-ink'
-      }`}
-    >
+    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${TONES[tone]}`}>
       {children}
     </span>
   );

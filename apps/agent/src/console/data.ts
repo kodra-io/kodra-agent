@@ -76,6 +76,8 @@ export interface UsageView {
 }
 
 export interface ApprovalView {
+  /** A proposed change's title. */
+  title?: string;
   id: string;
   ts: string;
   connector: string;
@@ -244,7 +246,7 @@ export function priceFor(
     : null;
 }
 
-function costOf(t: Omit<UsageTotals, 'cost'>, price: ModelPrice | undefined): number | null {
+export function costOf(t: Omit<UsageTotals, 'cost'>, price: ModelPrice | undefined): number | null {
   if (!price) return null;
   const uncached = Math.max(0, t.input - t.cacheRead - t.cacheWrite);
   const dollars =
@@ -314,6 +316,7 @@ export function approvals(records: readonly AuditRecord[]): ApprovalView[] {
     const id = r.detail?.split(';')[0]?.trim();
     if (!id) continue;
     if (r.event === 'approval.request') {
+      const title = /; change: (.*?); steps: /.exec(r.detail ?? '')?.[1];
       byId.set(id, {
         id,
         ts: r.ts,
@@ -322,6 +325,7 @@ export function approvals(records: readonly AuditRecord[]): ApprovalView[] {
         risk: r.risk ?? '',
         requestedBy: r.actor,
         args: r.detail?.replace(/^[^;]*;\s*args\s*/, '') ?? '',
+        ...(title ? { title } : {}),
         decision: null,
         decidedBy: null,
         decidedAt: null,
@@ -336,4 +340,35 @@ export function approvals(records: readonly AuditRecord[]): ApprovalView[] {
     }
   }
   return [...byId.values()].sort((a, b) => (a.ts < b.ts ? 1 : -1));
+}
+
+/** The Overview page's numbers, from the audit log and the investigation log. */
+export interface OverviewView {
+  investigationsToday: number;
+  lastInvestigation: { alert: string; ts: string } | null;
+  changesThisWeek: { approved: number; denied: number; expired: number };
+  recentChanges: ApprovalView[];
+}
+
+export function overview(
+  records: readonly AuditRecord[],
+  investigations: readonly Investigation[],
+  now: Date = new Date(),
+): OverviewView {
+  const today = now.toISOString().slice(0, 10);
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+  const decided = approvals(records).filter((a) => a.decision !== null);
+  const thisWeek = decided.filter((a) => (a.decidedAt ?? a.ts) >= weekAgo);
+  const count = (d: string) => thisWeek.filter((a) => a.decision === d).length;
+  const latest = investigations[0];
+  return {
+    investigationsToday: investigations.filter((i) => i.ts.startsWith(today)).length,
+    lastInvestigation: latest ? { alert: latest.alert, ts: latest.ts } : null,
+    changesThisWeek: {
+      approved: count('approved'),
+      denied: count('denied'),
+      expired: count('expired'),
+    },
+    recentChanges: decided.slice(0, 5),
+  };
 }

@@ -17,6 +17,8 @@ export interface ConversationsOptions {
   deps: (approvals: ApprovalChannel) => AgentDeps;
   /** Other places a Slack turn's approval requests also go (the console). */
   alsoAsk?: readonly SettleableChannel[];
+  /** Refuses a new question (the monthly budget), with the reason to reply. */
+  gate?: () => Promise<string | null>;
   maxThreads?: number;
 }
 
@@ -83,6 +85,15 @@ export class SlackConversations {
       actor: `slack:${message.user}`,
     };
     let reply: string;
+    const refusal = await this.opts.gate?.();
+    if (refusal) {
+      await this.opts.api.postMessage({
+        channel: message.channel,
+        threadTs: thread,
+        text: refusal,
+      });
+      return;
+    }
     try {
       const result = await runTurn(
         deps,

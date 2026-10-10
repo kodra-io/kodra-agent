@@ -96,6 +96,35 @@ How the console is protected:
 Conversations live in memory, up to 20, and are gone when the agent restarts. The audit log
 keeps the record of every question, tool call, and decision.
 
+## Pausing changes
+
+**Pause all changes** (on Overview, and **Pause agent** in the sidebar) stops the agent from
+changing anything, right away:
+
+- Every change is refused when it would run, even one an approver said yes to before the
+  pause. Proposed changes are refused too.
+- Reads, chat, and alert investigations keep working.
+- Anyone signed in can pause. Only a console approver can resume.
+- Both are in the audit log (event `control`, with who did it) and posted to Slack, or the
+  terminal without Slack. A banner on every console page says who paused, and when.
+- The state is saved next to the audit log (`control.json`), so a restart keeps it.
+
+## Monthly budget
+
+Set `spec.limits.monthlyBudgetUsd` to cap the estimated spend per calendar month (UTC):
+
+```yaml
+spec:
+  limits:
+    monthlyBudgetUsd: 40
+```
+
+Overview shows the month's spend against it. When it is used up, new questions in the
+console, Slack, and `kodra-agent chat` are refused, and the refusal is audited. Alert
+investigations keep running, so an incident is never left unexamined. The spend is the same
+estimate as the Usage page (below); without a known price there is no estimate and the budget
+does not apply.
+
 ## Estimated cost
 
 Each model call in the audit log records its token usage. The Usage page multiplies it by a
