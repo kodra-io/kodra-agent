@@ -33,6 +33,8 @@ export interface ConversationSummary {
 
 interface Conversation extends ConversationSummary {
   history: ModelMessage[];
+  /** Stops the running turn, if any. */
+  stop?: AbortController;
   events: ChatEvent[];
   listeners: Set<(event: ChatEvent) => void>;
 }
@@ -136,6 +138,20 @@ export class ConsoleChat {
     return { ok: true, conversation: conversation.id };
   }
 
+  /** Stops a conversation's running turn: the answer so far is kept, nothing more runs. */
+  stop(conversationId: string): SendResult {
+    const c = this.conversations.get(conversationId);
+    if (!c) return { ok: false, status: 404, error: 'no such conversation' };
+    if (!c.busy || !c.stop) return { ok: false, status: 409, error: 'nothing is running' };
+    c.stop.abort();
+    return { ok: true, conversation: c.id };
+  }
+
+  /** Stops every running turn, for shutdown. */
+  stopAll(): void {
+    for (const c of this.conversations.values()) c.stop?.abort();
+  }
+
   /** Waits for every running turn, for shutdown and tests. */
   async idle(): Promise<void> {
     while (this.running.size > 0) await Promise.all([...this.running]);
@@ -164,6 +180,8 @@ export class ConsoleChat {
   }
 
   private async turn(c: Conversation, user: ConsoleUser, text: string): Promise<void> {
+    const stop = new AbortController();
+    c.stop = stop;
     if (this.active < (this.opts.maxConcurrent ?? 2)) {
       this.active += 1;
     } else {
@@ -176,6 +194,8 @@ export class ConsoleChat {
       const deps: AgentDeps = {
         ...this.opts.deps(this.opts.approvals),
         actor: user.name,
+        stream: true,
+        signal: stop.signal,
         events: (event) => {
           this.push(c, event);
         },
@@ -197,11 +217,19 @@ export class ConsoleChat {
       if (next) next();
       else this.active -= 1;
       c.busy = false;
+      delete c.stop;
       this.push(c, { type: 'status', state: 'idle' });
     }
   }
 
   private push(c: Conversation, event: NewEvent): void {
+    // Pieces of an answer being written go to whoever is watching, and are not kept: the
+    // finished answer is. They carry seq 0, so a reconnect does not count them.
+    if (event.type === 'text') {
+      const live: ChatEvent = { ...event, seq: 0, ts: this.now().toISOString() };
+      for (const listener of c.listeners) listener(live);
+      return;
+    }
     const last = c.events.at(-1)?.seq ?? 0;
     const full: ChatEvent = { ...event, seq: last + 1, ts: this.now().toISOString() };
     c.events.push(full);

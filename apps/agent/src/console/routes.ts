@@ -98,9 +98,18 @@ export function consoleApi(
         ? { status: 200, body: { conversation: result.conversation } }
         : { status: result.status, body: { error: result.error } };
     };
+    actions['chat/stop'] = ({ body }) => {
+      const result = chat.stop(
+        typeof body['conversation'] === 'string' ? body['conversation'] : '',
+      );
+      return result.ok
+        ? { status: 200, body: { stopped: true } }
+        : { status: result.status, body: { error: result.error } };
+    };
     streams['chat/events'] = ({ query, lastEventId }, send) =>
       chat.subscribe(query.get('conversation') ?? '', lastEventId, (event) => {
-        send(event.seq, event);
+        // Live text pieces have no id, so a reconnect resumes after the last kept event.
+        send(event.seq === 0 ? null : event.seq, event);
       });
   }
 

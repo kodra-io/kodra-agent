@@ -3,18 +3,25 @@ import {
   generateText,
   jsonSchema,
   stepCountIs,
+  streamText,
   type LanguageModel,
   type LanguageModelUsage,
   type ModelMessage,
+  type StopCondition,
   type Tool,
 } from 'ai';
-import { newApprovalRequest, type ApprovalChannel } from './approvals.ts';
+import {
+  newApprovalRequest,
+  type ApprovalChannel,
+  type ApprovalOutcome,
+  type ApprovalRequest,
+} from './approvals.ts';
 import { clip, PROPOSE_CHANGE, proposeChangeTool } from './changes.ts';
 import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
 import { decide, describeGuards, type Decision, type PolicyInput } from './policy.ts';
-import type { Redactor } from './redactor.ts';
+import { StreamingRedactor, type Redactor } from './redactor.ts';
 
 /** Guardrails for every task (golden rules 4, 5, and 6). */
 export const SYSTEM_PROMPT = `You are Kodra AI Agent, a DevOps assistant running inside the user's own environment.
@@ -57,6 +64,10 @@ export interface AgentDeps {
   readOnly?: boolean;
   /** What happens during a turn, as it happens (the console's live view). Redacted. */
   events?: (event: TurnEvent) => void;
+  /** Stream the answer's text as `text` events while it is written (the console). */
+  stream?: boolean;
+  /** Stops the turn: the model call ends and a waiting approval is cancelled. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -87,7 +98,9 @@ export type TurnEvent =
       title?: string;
       preview?: string;
     }
-  | { type: 'decision'; call: string; id: string; decision: string; by?: string };
+  | { type: 'decision'; call: string; id: string; decision: string; by?: string }
+  /** A piece of the answer as it is written, already redacted (see StreamingRedactor). */
+  | { type: 'text'; text: string };
 
 export type ToolState = 'running' | 'ok' | 'error' | 'blocked' | 'denied' | 'expired';
 
@@ -273,7 +286,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
             reason: req.reason,
             expiresAt: req.expiresAt.toISOString(),
           });
-          const outcome = await deps.approvals.request(req);
+          const outcome = await waitForApproval(deps.approvals, req, options.abortSignal);
           const note =
             outcome.decision === 'denied' && outcome.note
               ? deps.redactor.redact(outcome.note).slice(0, 500)
@@ -348,8 +361,39 @@ export interface TurnUsage {
 export interface TurnResult {
   text: string;
   messages: ModelMessage[];
-  stoppedBy?: 'token-budget' | 'timeout' | 'step-limit';
+  stoppedBy?: 'token-budget' | 'timeout' | 'step-limit' | 'user';
   usage: TurnUsage;
+}
+
+/**
+ * Waits for a decision, and cancels the request if the turn is stopped meanwhile: the
+ * channel closes it (Slack and the console show it as expired) and nothing runs.
+ */
+async function waitForApproval(
+  channel: ApprovalChannel,
+  req: ApprovalRequest,
+  signal: AbortSignal | undefined,
+): Promise<ApprovalOutcome> {
+  if (!signal) return channel.request(req);
+  if (signal.aborted) return { decision: 'expired' };
+  const onAbort = () => {
+    void channel.cancel?.(req.id);
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  try {
+    const stopped = new Promise<ApprovalOutcome>((resolve) => {
+      signal.addEventListener(
+        'abort',
+        () => {
+          resolve({ decision: 'expired' });
+        },
+        { once: true },
+      );
+    });
+    return await Promise.race([channel.request(req), stopped]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
 }
 
 const NO_USAGE: TurnUsage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
@@ -401,6 +445,23 @@ const STOP_LABEL = {
   timeout: 'time limit',
 } as const;
 
+interface ModelCallResult {
+  text: string;
+  finishReason: string;
+  responseMessages: ModelMessage[];
+  usage: LanguageModelUsage;
+}
+
+interface ModelCallOptions {
+  messages: ModelMessage[];
+  tools: Record<string, Tool>;
+  toolChoice?: 'none';
+  timeout: number;
+  stopWhen?: StopCondition<Record<string, Tool>>[];
+  abortSignal?: AbortSignal;
+  onStep?: (step: { usage: LanguageModelUsage; finishReason: string }) => Promise<void>;
+}
+
 const SUMMARY_PROMPT =
   'You reached the limit for this question. Do not call tools. In a few sentences, say what you found, the evidence, and what is still unknown.';
 
@@ -433,6 +494,74 @@ export async function runTurn(
     });
   };
 
+  // Text released so far, so a stopped turn keeps what it had already said.
+  let released = '';
+  const emitText = (text: string) => {
+    if (!text) return;
+    released += text;
+    deps.events?.({ type: 'text', text });
+  };
+
+  /**
+   * One model call: generateText, or streamText when the console wants the answer as it is
+   * written. Streamed pieces go through a StreamingRedactor (a secret can be split across
+   * pieces); errors are captured, never printed (streamText logs them by default).
+   */
+  const callModel = async (options: ModelCallOptions): Promise<ModelCallResult> => {
+    const common = {
+      model: deps.model,
+      instructions: SYSTEM_PROMPT,
+      messages: options.messages,
+      tools: options.tools,
+      providerOptions: CACHE,
+      timeout: options.timeout,
+      ...(options.toolChoice ? { toolChoice: options.toolChoice } : {}),
+      ...(options.stopWhen ? { stopWhen: options.stopWhen } : {}),
+      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+    };
+    if (deps.stream !== true) {
+      const r = await generateText({
+        ...common,
+        ...(options.onStep ? { onStepFinish: options.onStep } : {}),
+      });
+      return {
+        text: r.text,
+        finishReason: r.finishReason,
+        responseMessages: r.responseMessages,
+        usage: r.usage,
+      };
+    }
+    let redactor = new StreamingRedactor(deps.redactor);
+    let streamError: unknown;
+    const r = streamText({
+      ...common,
+      onChunk: ({ chunk }) => {
+        if (chunk.type === 'text-delta') emitText(redactor.push(chunk.text));
+      },
+      onStepFinish: async (step) => {
+        // Each step's text is complete when the step ends; the next starts fresh.
+        emitText(redactor.end());
+        redactor = new StreamingRedactor(deps.redactor);
+        await options.onStep?.(step);
+      },
+      onError: ({ error }) => {
+        streamError = error;
+      },
+    });
+    try {
+      const [text, finishReason, responseMessages, usage] = await Promise.all([
+        r.text,
+        r.finishReason,
+        r.responseMessages,
+        r.usage,
+      ]);
+      emitText(redactor.end());
+      return { text, finishReason, responseMessages, usage };
+    } catch (error) {
+      throw streamError ?? error;
+    }
+  };
+
   await deps.audit.append({
     event: 'task.start',
     actor,
@@ -440,12 +569,10 @@ export async function runTurn(
     detail: `${String(userText.length)} chars`,
   });
   try {
-    const result = await generateText({
-      model: deps.model,
-      instructions: SYSTEM_PROMPT,
+    const result = await callModel({
       messages,
       tools,
-      providerOptions: CACHE,
+      ...(deps.signal ? { abortSignal: deps.signal } : {}),
       stopWhen: [
         stepCountIs(limits.maxSteps),
         ({ steps }) =>
@@ -453,13 +580,13 @@ export async function runTurn(
           limits.tokenBudget,
       ],
       timeout: limits.timeoutMs,
-      onStepFinish: async (step) => {
+      onStep: async (step) => {
         const u = stepUsage(step.usage);
         usage = addUsage(usage, u);
         await logCall(u, step.finishReason);
       },
     });
-    let stoppedBy: TurnResult['stoppedBy'];
+    let stoppedBy: 'token-budget' | 'step-limit' | undefined;
     if (result.finishReason === 'tool-calls') {
       stoppedBy = weightedTokens(usage) > limits.tokenBudget ? 'token-budget' : 'step-limit';
     }
@@ -469,14 +596,12 @@ export async function runTurn(
     if (stoppedBy) {
       // Never end with nothing: one last call, same prefix (so it reads from the cache), no tools.
       const note: ModelMessage = { role: 'user', content: SUMMARY_PROMPT };
-      const summary = await generateText({
-        model: deps.model,
-        instructions: SYSTEM_PROMPT,
+      const summary = await callModel({
         messages: [...turnMessages, note],
         tools,
         toolChoice: 'none',
-        providerOptions: CACHE,
         timeout: 60_000,
+        ...(deps.signal ? { abortSignal: deps.signal } : {}),
       });
       const u = stepUsage(summary.usage);
       usage = addUsage(usage, u);
@@ -498,6 +623,16 @@ export async function runTurn(
       usage,
     };
   } catch (error) {
+    if (deps.signal?.aborted) {
+      await deps.audit.append({ event: 'result', actor, task, detail: 'stopped: by the user' });
+      const partial = deps.redactor.redact(released).trim();
+      return {
+        text: `${partial ? `${partial}\n\n` : ''}(Stopped. Nothing more was run.)`,
+        messages,
+        stoppedBy: 'user',
+        usage,
+      };
+    }
     const isTimeout =
       error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
     if (!isTimeout) {

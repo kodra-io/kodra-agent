@@ -4,7 +4,14 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { describe, expect, it } from 'vitest';
 import { main } from './cli.ts';
 import { fakeLauncher } from './test-fixtures/fake-connector.ts';
-import { configYaml, posixPath, tempDir, testContext, writeConfig } from './test-helpers.ts';
+import {
+  configYaml,
+  posixPath,
+  scriptedModel,
+  tempDir,
+  testContext,
+  writeConfig,
+} from './test-helpers.ts';
 
 /**
  * SPEC section 11, model payloads: secrets never reach the model, the terminal, or the
@@ -117,29 +124,27 @@ describe('secret canary: console chat', () => {
       }),
       dir,
     );
-    const model = new MockLanguageModelV4({
-      doGenerate: [
-        {
-          content: [
-            {
-              type: 'tool-call',
-              toolCallId: 'c1',
-              toolName: 'kubernetes__pods_log',
-              input: JSON.stringify({ namespace: 'api', name: KUBE_TOKEN }),
-            },
-          ],
-          finishReason: { unified: 'tool-calls', raw: 'tool_use' },
-          usage,
-          warnings: [],
-        },
-        {
-          content: [{ type: 'text', text: `The token is ${KUBE_TOKEN} and the key ${API_KEY}.` }],
-          finishReason: { unified: 'stop', raw: 'end_turn' },
-          usage,
-          warnings: [],
-        },
-      ],
-    });
+    const model = scriptedModel([
+      {
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'c1',
+            toolName: 'kubernetes__pods_log',
+            input: JSON.stringify({ namespace: 'api', name: KUBE_TOKEN }),
+          },
+        ],
+        finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+        usage,
+        warnings: [],
+      },
+      {
+        content: [{ type: 'text', text: `The token is ${KUBE_TOKEN} and the key ${API_KEY}.` }],
+        finishReason: { unified: 'stop', raw: 'end_turn' },
+        usage,
+        warnings: [],
+      },
+    ]);
     const stop = new AbortController();
     let consolePort = 0;
     const t = testContext({

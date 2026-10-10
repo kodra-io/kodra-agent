@@ -75,7 +75,7 @@ export type ActionRoute = (
  */
 export type StreamRoute = (
   req: RouteRequest & { lastEventId: number },
-  send: (id: number, data: unknown) => void,
+  send: (id: number | null, data: unknown) => void,
 ) => (() => void) | null;
 
 /** A sign-in token and who it signs in. */
@@ -298,9 +298,9 @@ function serveStream(
     });
     res.write('retry: 3000\n\n');
   };
-  const send = (id: number, data: unknown) => {
+  const send = (id: number | null, data: unknown) => {
     start();
-    res.write(`id: ${String(id)}\ndata: ${JSON.stringify(data)}\n\n`);
+    res.write(`${id === null ? '' : `id: ${String(id)}\n`}data: ${JSON.stringify(data)}\n\n`);
   };
   const stopRoute = stream(
     {

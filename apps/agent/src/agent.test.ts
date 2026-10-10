@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { MockLanguageModelV4 } from 'ai/test';
+import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   formatUsage,
@@ -398,5 +398,111 @@ describe('wrapUntrusted', () => {
   it('truncates very long output', () => {
     const wrapped = wrapUntrusted('x/y', 'a'.repeat(13_000), new Redactor());
     expect(wrapped).toContain('[truncated 5000 characters]');
+  });
+});
+
+describe('streaming and stopping (the console)', () => {
+  const STREAM_SECRET = 'stream-turn-secret-8c41d07a'; // gitleaks:allow
+  const finish = (reason: 'stop' | 'tool-calls') => ({
+    type: 'finish' as const,
+    finishReason: { unified: reason, raw: reason === 'stop' ? 'end_turn' : 'tool_use' },
+    usage: usage(),
+  });
+  const textParts = (text: string, size: number) => {
+    const parts: { type: 'text-delta'; id: string; delta: string }[] = [];
+    for (let i = 0; i < text.length; i += size) {
+      parts.push({ type: 'text-delta', id: 't', delta: text.slice(i, i + size) });
+    }
+    return [
+      { type: 'text-start' as const, id: 't' },
+      ...parts,
+      { type: 'text-end' as const, id: 't' },
+    ];
+  };
+
+  it('streams the answer as redacted pieces and returns the same answer', async () => {
+    const { deps } = await setup({ responses: [], secrets: { token: STREAM_SECRET } });
+    const answerText = `${'The pod restarts because it runs out of memory. '.repeat(6)}Never paste ${STREAM_SECRET} anywhere.`;
+    deps.model = new MockLanguageModelV4({
+      doStream: [
+        { stream: convertArrayToReadableStream([...textParts(answerText, 7), finish('stop')]) },
+      ],
+    });
+    const events: TurnEvent[] = [];
+    const result = await runTurn(
+      { ...deps, stream: true, events: (e) => events.push(e) },
+      [],
+      'why?',
+      's1',
+    );
+    const pieces = events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text);
+    expect(pieces.length).toBeGreaterThan(1);
+    expect(pieces.join('')).toBe(result.text);
+    expect(result.text).toContain(`Never paste ${REDACTED} anywhere.`);
+    expect(JSON.stringify(events)).not.toContain(STREAM_SECRET);
+  });
+
+  it('stops on request: keeps what it said, cancels a waiting approval, runs nothing', async () => {
+    const { deps, audit } = await setup({ access: 'read-write-approved', responses: [] });
+    const stop = new AbortController();
+    const cancelled: string[] = [];
+    deps.approvals = {
+      request: () => new Promise(() => undefined),
+      cancel: (id) => {
+        cancelled.push(id);
+        return Promise.resolve();
+      },
+    };
+    deps.model = new MockLanguageModelV4({
+      doStream: [
+        {
+          stream: convertArrayToReadableStream([
+            ...textParts('Checking the deployment first. '.repeat(6), 20),
+            {
+              type: 'tool-call',
+              toolCallId: 'c1',
+              toolName: 'fakek8s__resources_scale',
+              input: JSON.stringify({
+                namespace: 'api',
+                name: 'web',
+                scale: 3,
+                [REASON_ARG]: 'load',
+              }),
+            },
+            finish('tool-calls'),
+          ]),
+        },
+      ],
+    });
+    const events: TurnEvent[] = [];
+    const running = runTurn(
+      {
+        ...deps,
+        stream: true,
+        signal: stop.signal,
+        events: (e) => {
+          events.push(e);
+          // Stop while the request is waiting for a decision.
+          if (e.type === 'approval') {
+            setTimeout(() => {
+              stop.abort();
+            }, 20);
+          }
+        },
+      },
+      [],
+      'scale web',
+      's2',
+    );
+    const result = await running;
+    expect(result.stoppedBy).toBe('user');
+    expect(result.text).toContain('Checking the deployment first.');
+    expect(result.text).toContain('(Stopped. Nothing more was run.)');
+    expect(cancelled).toHaveLength(1);
+    const records = await audit();
+    expect(records.some((r) => r['event'] === 'tool.call' && r['decision'] === 'approved')).toBe(
+      false,
+    );
+    expect(records.at(-1)).toMatchObject({ event: 'result', detail: 'stopped: by the user' });
   });
 });

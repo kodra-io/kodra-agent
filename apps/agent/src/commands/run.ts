@@ -239,6 +239,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     await slack?.stop().catch(() => undefined);
     await monitor?.idle();
     await conversations?.idle();
+    consoleChat?.stopAll();
     await consoleChat?.idle();
     await runtime.close();
     if (consoleServer) await closeServer(consoleServer);
