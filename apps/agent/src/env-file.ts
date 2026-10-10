@@ -72,6 +72,18 @@ export async function writePrivateFile(path: string, content: string): Promise<v
   await chmod(path, 0o600);
 }
 
+/** Removes keys from a .env text (comments and other keys stay as they are). */
+export function dropEnvKeys(text: string | null, keys: readonly string[]): string | null {
+  if (text === null || keys.length === 0) return text;
+  return text
+    .split(/\r?\n/)
+    .filter((line) => {
+      const key = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1];
+      return key === undefined || !keys.includes(key);
+    })
+    .join('\n');
+}
+
 /** Merges new values into an existing .env, keeping keys this tool does not manage. */
 export function renderEnvFile(
   existingText: string | null,

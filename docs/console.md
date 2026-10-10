@@ -134,6 +134,29 @@ and restart.
 On Kubernetes the settings are read-only for now: change `values.yaml` and run
 `helm upgrade`.
 
+### People and tokens
+
+Console approvers get a **People and tokens** tab in Settings. Nobody else sees it, and its
+API answers 403 to anyone else.
+
+- **Add a console approver** (`console:<name>`). The agent creates their token, writes it to
+  `.env`, adds them to the approvers, and restarts.
+- **Rotate token** for the shared sign-in or any console approver. The old token stops
+  working when the agent comes back, and so do the sessions made with it. Rotating your own
+  token signs you out: sign in with the new one.
+- **Remove** a console approver. Their token is deleted from `.env`. The last console
+  approver cannot be removed.
+- **Signed in now** lists the browsers that used the console since the agent started, with
+  when they signed in and were last seen. **Sign out** ends a session and its live streams
+  at once. Sign-outs are kept in `console-sessions.json` next to the audit log, so a restart
+  does not bring them back.
+
+A new token is shown once, in the browser of the approver who asked, and stays on screen
+while the agent restarts. Copy it and send it privately. It is registered with the redactor
+and is never audited, logged, or shown again; the audit log only records who added, rotated,
+or removed whom. On Kubernetes the tokens live in the agent's Secret, so this tab is
+read-only there.
+
 ## Pausing changes
 
 **Pause all changes** (on Overview, and **Pause agent** in the sidebar) stops the agent from

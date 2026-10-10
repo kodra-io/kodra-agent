@@ -3,7 +3,14 @@ import type { Server } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test-helpers.ts';
-import { ACTION_HEADER, CONSOLE_CSP, startConsoleServer, type StreamRoute } from './server.ts';
+import {
+  ACTION_HEADER,
+  CONSOLE_CSP,
+  Forbidden,
+  SessionRegistry,
+  startConsoleServer,
+  type StreamRoute,
+} from './server.ts';
 
 const TOKEN = 'console-token-for-tests-7c1e9b2a'; // gitleaks:allow
 const APPROVER_TOKEN = 'approver-token-for-tests-4d2f8e1c'; // gitleaks:allow
@@ -30,7 +37,7 @@ const ticker: StreamRoute = ({ query, lastEventId }, send) => {
   };
 };
 
-async function start(opts: { staticDir?: string } = {}) {
+async function start(opts: { staticDir?: string; sessions?: SessionRegistry } = {}) {
   const dir = opts.staticDir ?? (await tempDir());
   if (!opts.staticDir) {
     await mkdir(join(dir, 'assets'), { recursive: true });
@@ -48,10 +55,12 @@ async function start(opts: { staticDir?: string } = {}) {
     routes: {
       status: () => ({ ok: true }),
       echo: ({ query, user }) => ({ q: query.get('x'), user: user.name }),
+      secret: ({ user }) => (user.canApprove ? { ok: true } : new Forbidden('approvers only')),
     },
     actions: { say: ({ user, body }) => ({ status: 200, body: { user: user.name, body } }) },
     streams: { 'chat/events': ticker },
     features: { chat: true },
+    ...(opts.sessions ? { sessions: opts.sessions } : {}),
   });
   const address = server.address();
   const base = `http://127.0.0.1:${String(typeof address === 'object' && address ? address.port : 0)}`;
@@ -191,6 +200,59 @@ describe('console server', () => {
     expect(
       (await fetch(`${base}/api/status`, { method: 'POST', headers: { cookie } })).status,
     ).toBe(404);
+  });
+
+  it('answers 403 when a read route says Forbidden', async () => {
+    const { base, login } = await start();
+    const viewer = sessionCookie(await login(TOKEN));
+    const res = await fetch(`${base}/api/secret`, { headers: { cookie: viewer } });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'approvers only' });
+    const approver = sessionCookie(await login(APPROVER_TOKEN));
+    expect(
+      await (await fetch(`${base}/api/secret`, { headers: { cookie: approver } })).json(),
+    ).toEqual({ ok: true });
+  });
+
+  it('lists who is signed in, and a sign-out from the list ends the session and its streams', async () => {
+    const dir = await tempDir();
+    const path = join(dir, 'console-sessions.json');
+    const sessions = new SessionRegistry({ path });
+    const { base, login } = await start({ sessions });
+    const viewer = sessionCookie(await login(TOKEN));
+    const approver = sessionCookie(await login(APPROVER_TOKEN));
+    await fetch(`${base}/api/status`, { headers: { cookie: viewer } });
+    await fetch(`${base}/api/status`, { headers: { cookie: approver } });
+    const list = sessions.list();
+    expect(list.map((s) => s.user).sort()).toEqual(['console', 'console:omar']);
+    const target = list.find((s) => s.user === 'console');
+    expect(target?.since).toMatch(/^\d{4}-\d\d-\d\dT/);
+
+    const res = await fetch(`${base}/api/chat/events?conversation=c1`, {
+      headers: { cookie: viewer },
+    });
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    await reader.read();
+    const before = streamStops;
+    await sessions.revoke(target?.id ?? '');
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+    expect(streamStops).toBe(before + 1);
+    expect((await fetch(`${base}/api/status`, { headers: { cookie: viewer } })).status).toBe(401);
+    expect(sessions.list().map((s) => s.user)).toEqual(['console:omar']);
+
+    // The sign-out is saved, so the agent still refuses it after a restart.
+    const reloaded = new SessionRegistry({ path });
+    await reloaded.load();
+    const again = await start({ sessions: reloaded });
+    expect((await fetch(`${again.base}/api/status`, { headers: { cookie: viewer } })).status).toBe(
+      401,
+    );
+    expect(
+      (await fetch(`${again.base}/api/status`, { headers: { cookie: approver } })).status,
+    ).toBe(200);
   });
 
   it('streams events to a signed-in session and stops them on sign-out', async () => {

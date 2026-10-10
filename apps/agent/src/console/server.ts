@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
+import { writePrivateFile } from '../env-file.ts';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,6 +65,14 @@ export interface RouteRequest {
 /** A read route: returns JSON-serializable data. */
 export type ApiRoute = (req: RouteRequest) => unknown;
 
+/** Returned by a read route to answer 403 with this message. */
+export class Forbidden {
+  readonly error: string;
+  constructor(error: string) {
+    this.error = error;
+  }
+}
+
 /** A write route (POST with a JSON body). */
 export type ActionRoute = (
   req: RouteRequest & { body: Record<string, unknown> },
@@ -95,6 +104,8 @@ export interface ConsoleServerOptions {
   streams?: Record<string, StreamRoute>;
   /** Shown to the app with the session, e.g. whether chat is on. */
   features?: Record<string, boolean>;
+  /** Who is signed in, and sign-outs (shared with the People routes). */
+  sessions?: SessionRegistry;
   staticDir?: string;
   now?: () => number;
 }
@@ -114,17 +125,102 @@ const digest = (value: string) => createHash('sha256').update(value, 'utf8').dig
  * expiry, the mac keyed by a hash of that user's token. Rotating a token ends its sessions;
  * signing out ends one at once (a revoked list, kept until the session would expire anyway).
  */
-function signSession(key: Buffer, payload: { i: string; u: string; e: number }): string {
+interface SessionPayload {
+  i: string;
+  u: string;
+  e: number;
+  /** When it was signed in, for the list of sessions. */
+  t: number;
+}
+
+function signSession(key: Buffer, payload: SessionPayload): string {
   const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   const mac = createHmac('sha256', key).update(body).digest('base64url');
   return `${body}.${mac}`;
 }
 
+export interface SessionInfo {
+  id: string;
+  user: string;
+  since: string;
+  lastSeen: string;
+}
+
+/**
+ * Who is signed in, as seen since the agent started (sessions are signed cookies, so the list
+ * fills again as people use the console after a restart), and the sessions that were signed
+ * out. Signed-out sessions are saved, when a path is given, so a restart does not bring them
+ * back before they would expire anyway.
+ */
+export class SessionRegistry {
+  private readonly active = new Map<string, { user: string; since: number; lastSeen: number }>();
+  private readonly revoked = new Map<string, number>();
+  private readonly streams = new Map<string, Set<() => void>>();
+  private readonly path: string | undefined;
+  private readonly now: () => number;
+
+  constructor(opts: { path?: string; now?: () => number } = {}) {
+    this.path = opts.path;
+    this.now = opts.now ?? (() => Date.now());
+  }
+
+  async load(): Promise<void> {
+    if (!this.path) return;
+    const text = await readFile(this.path, 'utf8').catch(() => null);
+    if (!text) return;
+    try {
+      for (const [id, expires] of Object.entries(JSON.parse(text) as Record<string, unknown>)) {
+        if (typeof expires === 'number' && expires > this.now()) this.revoked.set(id, expires);
+      }
+    } catch {
+      // A broken file only forgets sign-outs that expire within 12 hours anyway.
+    }
+  }
+
+  isRevoked(id: string): boolean {
+    return this.revoked.has(id);
+  }
+
+  seen(id: string, user: string, since: number): Set<() => void> {
+    const entry = this.active.get(id);
+    if (entry) entry.lastSeen = this.now();
+    else this.active.set(id, { user, since, lastSeen: this.now() });
+    let set = this.streams.get(id);
+    if (!set) {
+      set = new Set();
+      this.streams.set(id, set);
+    }
+    return set;
+  }
+
+  list(): SessionInfo[] {
+    return [...this.active]
+      .map(([id, s]) => ({
+        id,
+        user: s.user,
+        since: new Date(s.since).toISOString(),
+        lastSeen: new Date(s.lastSeen).toISOString(),
+      }))
+      .sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : -1));
+  }
+
+  /** Ends a session now: it is refused from here on, and its live streams stop. */
+  async revoke(id: string, expires = this.now() + SESSION_HOURS * 3_600_000): Promise<void> {
+    this.revoked.set(id, expires);
+    for (const [other, until] of this.revoked) if (until < this.now()) this.revoked.delete(other);
+    this.active.delete(id);
+    for (const stop of this.streams.get(id) ?? []) stop();
+    this.streams.delete(id);
+    if (this.path) {
+      await writePrivateFile(this.path, `${JSON.stringify(Object.fromEntries(this.revoked))}\n`);
+    }
+  }
+}
+
 export async function startConsoleServer(o: ConsoleServerOptions): Promise<Server> {
   const now = o.now ?? (() => Date.now());
   const accounts = o.accounts.map((a) => ({ digest: digest(a.token), user: a.user }));
-  const streams = new Map<string, Set<() => void>>();
-  const revoked = new Map<string, number>();
+  const registry = o.sessions ?? new SessionRegistry({ now });
   const failures = new Map<string, number[]>();
   const staticDir = resolve(o.staticDir ?? DEFAULT_STATIC_DIR);
 
@@ -132,32 +228,31 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
     const value = cookie(req, SESSION_COOKIE);
     const [body, mac] = value?.split('.') ?? [];
     if (!body || !mac) return null;
-    let payload: { i?: unknown; u?: unknown; e?: unknown };
+    let payload: { i?: unknown; u?: unknown; e?: unknown; t?: unknown };
     try {
       payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as typeof payload;
     } catch {
       return null;
     }
-    const { i, u, e } = payload;
-    if (typeof i !== 'string' || typeof u !== 'string' || typeof e !== 'number') return null;
+    const { i, u, e, t } = payload;
+    if (
+      typeof i !== 'string' ||
+      typeof u !== 'string' ||
+      typeof e !== 'number' ||
+      typeof t !== 'number'
+    ) {
+      return null;
+    }
     const account = accounts.find((a) => a.user.name === u);
-    if (!account || e < now() || revoked.has(i)) return null;
-    const expected = Buffer.from(signSession(account.digest, { i, u, e }).split('.')[1] ?? '');
+    if (!account || e < now() || registry.isRevoked(i)) return null;
+    const expected = Buffer.from(signSession(account.digest, { i, u, e, t }).split('.')[1] ?? '');
     const given = Buffer.from(mac);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-    let set = streams.get(i);
-    if (!set) {
-      set = new Set();
-      streams.set(i, set);
-    }
-    return { id: i, expires: e, user: account.user, streams: set };
+    return { id: i, expires: e, user: account.user, streams: registry.seen(i, u, t) };
   };
 
-  const endSession = (session: Session) => {
-    revoked.set(session.id, session.expires);
-    for (const [id, expires] of revoked) if (expires < now()) revoked.delete(id);
-    for (const stop of session.streams) stop();
-    streams.delete(session.id);
+  const endSession = async (session: Session) => {
+    await registry.revoke(session.id, session.expires);
   };
 
   /** Checks every account in constant time, so timing says nothing about which matched. */
@@ -208,6 +303,7 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
             i: randomBytes(18).toString('base64url'),
             u: user.name,
             e: now() + SESSION_HOURS * 3_600_000,
+            t: now(),
           });
           res.setHeader(
             'set-cookie',
@@ -218,7 +314,7 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
         }
         if (name === 'logout') {
           const session = sessionOf(req);
-          if (session) endSession(session);
+          if (session) await endSession(session);
           res.setHeader(
             'set-cookie',
             `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
@@ -290,7 +386,9 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
         json(res, 404, { error: 'not found' });
         return;
       }
-      json(res, 200, await route({ query: url.searchParams, user: session.user }));
+      const result = await route({ query: url.searchParams, user: session.user });
+      if (result instanceof Forbidden) json(res, 403, { error: result.error });
+      else json(res, 200, result);
       return;
     }
 

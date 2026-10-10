@@ -20,7 +20,7 @@ import type { AuditLog } from '../audit.ts';
 import { ENV_HEADER } from '../commands/init.ts';
 import { components, secretLabel } from '../config.ts';
 import { unifiedDiff } from '../diff.ts';
-import { renderEnvFile, writePrivateFile } from '../env-file.ts';
+import { dropEnvKeys, renderEnvFile, writePrivateFile } from '../env-file.ts';
 import type { KubernetesFactory } from '../kubernetes.ts';
 import { probeIds, runProbe, type ProbeResult } from '../probes.ts';
 import type { Redactor } from '../redactor.ts';
@@ -371,6 +371,34 @@ export class SettingsStore {
       detail: `changed ${preview.changed.join(', ')}`.slice(0, 3_500),
     });
     return preview;
+  }
+
+  /**
+   * Saves a patch made by the agent itself (People), checked like any other change but without
+   * a preview first. The caller restarts the agent.
+   */
+  async applyNow(patch: SettingsPatch, by: string, detail: string): Promise<Preview> {
+    const text = await this.text();
+    const preview = await this.preview(patch);
+    if (!preview.ok || preview.diff === '') return preview;
+    await writeFile(this.backupPath, text, 'utf8');
+    await this.writeConfig(patchConfigText(text, patch));
+    await this.deps.audit.append({ event: 'settings', actor: by, detail });
+    return preview;
+  }
+
+  async audit(by: string, detail: string): Promise<void> {
+    await this.deps.audit.append({ event: 'settings', actor: by, detail });
+  }
+
+  /** Sets and removes keys in .env (values are registered with the redactor first). */
+  async writeEnv(set: ReadonlyMap<string, string>, remove: readonly string[] = []): Promise<void> {
+    for (const value of set.values()) this.deps.redactor.add(value);
+    const existing = await readFile(this.envPath, 'utf8').catch(() => null);
+    await writePrivateFile(
+      this.envPath,
+      renderEnvFile(dropEnvKeys(existing, remove), set, ENV_HEADER),
+    );
   }
 
   /** Puts the previous file back (and keeps the current one, so Undo can be undone). */

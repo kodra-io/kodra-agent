@@ -1,5 +1,14 @@
 import { AxeBuilder } from '@axe-core/playwright';
-import { APPROVER_TOKEN, CHAT_REQUEST, expect, HOSTILE, signIn, test, TOKEN } from './fixtures.ts';
+import {
+  APPROVER_TOKEN,
+  CHAT_REQUEST,
+  expect,
+  HOSTILE,
+  NEW_TOKEN,
+  signIn,
+  test,
+  TOKEN,
+} from './fixtures.ts';
 
 test('asks for the token, refuses a wrong one, and signs in', async ({ page, api }) => {
   await page.goto('/');
@@ -401,6 +410,67 @@ test('works in Arabic, right to left', async ({ page }) => {
   await expect(
     page.getByRole('log').getByRole('group', { name: 'يحتاج إلى موافقة' }),
   ).toBeVisible();
+});
+
+test('adds an approver: the token is shown once, through the restart', async ({ page, api }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'People and tokens' }).click();
+  await expect(page.getByRole('heading', { name: 'Who can sign in' })).toBeVisible();
+  await expect(page.getByText('Shared sign-in (team)').first()).toBeVisible();
+  await expect(page.getByText('Other approvers (Slack):')).toContainText('@omar');
+  expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+
+  await page.getByLabel('Add a console approver').fill('On Call');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('lowercase letters');
+
+  await page.getByLabel('Add a console approver').fill('on-call');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'New token for console:on-call' });
+  await expect(panel.getByLabel('Token')).toHaveValue(NEW_TOKEN);
+  await expect(panel.getByText('The agent is back. The new token works now.')).toBeVisible();
+  expect(api).toContain('BODY people/add {"name":"on-call"}');
+  await expect(page.getByText('KODRA_CONSOLE_TOKEN_ON_CALL')).toBeVisible();
+  await panel.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByLabel('Token', { exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Remove console:on-call' }).click();
+  await expect(page.getByText('They can no longer sign in or approve here.')).toBeVisible();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.getByText('KODRA_CONSOLE_TOKEN_ON_CALL')).toHaveCount(0);
+
+  // Signing a browser out needs no restart.
+  const sessions = page.getByRole('table');
+  await expect(sessions.getByRole('row')).toHaveCount(3);
+  await sessions
+    .getByRole('row')
+    .filter({ hasText: 'Shared sign-in' })
+    .getByRole('button', { name: 'Sign out' })
+    .click();
+  await expect(sessions.getByRole('row')).toHaveCount(2);
+});
+
+test('rotating your own token signs you in again with the new one', async ({ page, api }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'People and tokens' }).click();
+  await page.getByRole('button', { name: 'Rotate the token for console:omar' }).click();
+  await expect(page.getByText('This is your token')).toBeVisible();
+  await page.getByRole('button', { name: 'Rotate token', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'New token for console:omar' });
+  await expect(panel.getByLabel('Token')).toHaveValue(NEW_TOKEN);
+  await expect(panel.getByText('Your token changed, so sign in with the new one.')).toBeVisible();
+  expect(api).toContain('BODY people/rotate {"who":"console:omar"}');
+  await panel.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+});
+
+test('only approvers see People and tokens', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'People and tokens' })).toHaveCount(0);
 });
 
 test('has no accessibility violations, in both themes', async ({ page }) => {

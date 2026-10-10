@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { dirname, join } from 'node:path';
 import pkg from '../../package.json' with { type: 'json' };
 import { formatUsage, runTurn } from '../agent.ts';
 import { consoleApproverTokenEnv, isConsoleApprover } from '@kodra-agent/schema';
@@ -8,9 +9,10 @@ import { ConsoleApprovals } from '../console/approvals.ts';
 import { ConsoleChat } from '../console/chat.ts';
 import { budgetRefusal } from '../budget.ts';
 import { InvestigationLog } from '../console/data.ts';
+import { People } from '../console/people.ts';
 import { consoleApi } from '../console/routes.ts';
 import { SettingsStore } from '../console/settings.ts';
-import { startConsoleServer, type ConsoleAccount } from '../console/server.ts';
+import { SessionRegistry, startConsoleServer, type ConsoleAccount } from '../console/server.ts';
 import { CONSOLE_TOKEN_ENV } from '../console/token.ts';
 import type { Context } from '../context.ts';
 import { fetchFiringAlerts } from '../monitoring/alerts.ts';
@@ -235,6 +237,12 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           kubernetes: ctx.kubernetes,
           probeTimeoutMs: ctx.probeTimeoutMs,
         });
+        // Sign-outs are kept next to the audit log, so a restart does not undo them.
+        const sessions = new SessionRegistry({
+          path: join(dirname(runtime.config.spec.audit.path), 'console-sessions.json'),
+        });
+        await sessions.load();
+        const people = new People({ store: settings, sessions, env: runtime.env });
         const api = consoleApi(
           runtime,
           { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },
@@ -243,6 +251,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           consoleChat,
           {
             store: settings,
+            people,
             // After the response is sent, so the page hears that the save worked.
             restart: () => {
               setTimeout(() => {
@@ -256,6 +265,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           accounts: [{ token, user: { name: 'console', canApprove: false } }, ...consoleAccounts],
           ...api,
           features: { chat: consoleChat !== null },
+          sessions,
           ...(ctx.consoleStaticDir ? { staticDir: ctx.consoleStaticDir } : {}),
         });
         ctx.term.out(

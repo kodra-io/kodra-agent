@@ -1,6 +1,7 @@
 import type { Runtime } from '../runtime.ts';
 import type { ConsoleApprovals } from './approvals.ts';
 import type { ConsoleChat } from './chat.ts';
+import type { People, PeopleResult } from './people.ts';
 import type { SettingsPatch, SettingsStore } from './settings.ts';
 import {
   activity,
@@ -12,7 +13,7 @@ import {
   usage,
   type InvestigationLog,
 } from './data.ts';
-import type { ActionRoute, ApiRoute, StreamRoute } from './server.ts';
+import { Forbidden, type ActionRoute, type ApiRoute, type StreamRoute } from './server.ts';
 
 export interface ConsoleInfo {
   version: string;
@@ -43,7 +44,7 @@ export function consoleApi(
   investigations: InvestigationLog,
   pending: ConsoleApprovals,
   chat: ConsoleChat | null,
-  settings?: { store: SettingsStore; restart: () => void },
+  settings?: { store: SettingsStore; restart: () => void; people?: People },
 ): ConsoleApi {
   const auditPath = runtime.config.spec.audit.path;
   const model = `${runtime.config.spec.model.provider}/${runtime.config.spec.model.name}`;
@@ -194,6 +195,38 @@ export function consoleApi(
       status: 200,
       body: { results: await store.test(str(body['connector'])) },
     });
+  }
+
+  if (settings?.people) {
+    const { people, restart } = settings;
+    const approverOnly = {
+      status: 403,
+      body: { error: 'only a console approver can manage people' },
+    };
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    // A token goes back once, in this response only: never audited, logged, or kept.
+    const reply = (result: PeopleResult, restarts: boolean) => {
+      if (!result.ok) return { status: result.status, body: { error: result.error } };
+      if (restarts) restart();
+      return {
+        status: 200,
+        body: { ...(result.token ? { token: result.token } : {}), restarting: restarts },
+      };
+    };
+    routes['people'] = ({ user }) =>
+      user.canApprove ? people.view() : new Forbidden(approverOnly.body.error);
+    actions['people/add'] = async ({ user, body }) =>
+      user.canApprove ? reply(await people.add(str(body['name']), user.name), true) : approverOnly;
+    actions['people/rotate'] = async ({ user, body }) =>
+      user.canApprove
+        ? reply(await people.rotate(str(body['who']), user.name), true)
+        : approverOnly;
+    actions['people/remove'] = async ({ user, body }) =>
+      user.canApprove
+        ? reply(await people.remove(str(body['who']), user.name), true)
+        : approverOnly;
+    actions['people/sign-out'] = async ({ user, body }) =>
+      user.canApprove ? reply(await people.signOut(str(body['id'])), false) : approverOnly;
   }
 
   return { routes, actions, streams };
