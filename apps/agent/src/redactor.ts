@@ -89,6 +89,13 @@ export class Redactor {
     return this.forms.size;
   }
 
+  /** The longest registered form, for holding back streamed text. */
+  get longestForm(): number {
+    let longest = 0;
+    for (const form of this.forms) longest = Math.max(longest, form.length);
+    return longest;
+  }
+
   redact(text: string): string {
     let out = text;
     if (this.forms.size > 0) {
@@ -115,5 +122,48 @@ export class Redactor {
     if (typeof value === 'string') return this.redact(value);
     const json = JSON.stringify(value) as string | undefined;
     return this.redact(json ?? String(value));
+  }
+}
+
+const MIN_HOLDBACK = 128;
+const PEM_START = '-----BEGIN';
+const PEM_END = '-----END';
+
+/**
+ * Redacts text that arrives in pieces (a streamed answer). A secret can be split across
+ * pieces, so each call redacts everything received so far and releases only what can no
+ * longer change: it holds back the last stretch (longer than any registered secret) and
+ * anything after an unfinished PEM block. end() releases the rest, redacted.
+ */
+export class StreamingRedactor {
+  private raw = '';
+  private sent = 0;
+  private readonly redactor: Redactor;
+
+  constructor(redactor: Redactor) {
+    this.redactor = redactor;
+  }
+
+  push(piece: string): string {
+    this.raw += piece;
+    return this.release(false);
+  }
+
+  end(): string {
+    return this.release(true);
+  }
+
+  private release(final: boolean): string {
+    const redacted = this.redactor.redact(this.raw);
+    let safe = redacted.length;
+    if (!final) {
+      safe -= Math.max(MIN_HOLDBACK, this.redactor.longestForm + 16);
+      const pem = redacted.lastIndexOf(PEM_START);
+      if (pem !== -1 && !redacted.includes(PEM_END, pem)) safe = Math.min(safe, pem);
+    }
+    if (safe <= this.sent) return '';
+    const out = redacted.slice(this.sent, safe);
+    this.sent = safe;
+    return out;
   }
 }

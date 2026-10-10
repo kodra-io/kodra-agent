@@ -44,7 +44,7 @@ export function OverviewPage({ onSignedOut }: PageProps) {
     <Page title="overview.title" onRefresh={reload} loading={loading} error={error}>
       {data && (
         <div className="grid gap-6 md:grid-cols-2">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-line bg-white p-4 text-sm">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl border border-line bg-raised p-4 text-sm">
             <dt className="text-ink-secondary">{t('overview.model')}</dt>
             <dd>
               <Ltr>{data.model}</Ltr>
@@ -64,7 +64,7 @@ export function OverviewPage({ onSignedOut }: PageProps) {
             <dt className="text-ink-secondary">{t('overview.monitoring')}</dt>
             <dd>{t(data.monitoring ? 'overview.on' : 'overview.off')}</dd>
           </dl>
-          <div className="rounded-lg border border-line bg-white p-4">
+          <div className="rounded-xl border border-line bg-raised p-4">
             <h2 className="font-bold">{t('overview.connectors')}</h2>
             <ul className="mt-2 space-y-2 text-sm">
               {data.connectors.map((c) => (
@@ -91,7 +91,7 @@ export function ConnectorsPage({ onSignedOut }: PageProps) {
     <Page title="connectors.title" onRefresh={reload} loading={loading} error={error}>
       <div className="space-y-4">
         {data?.map((c) => (
-          <article key={c.id} className="rounded-lg border border-line bg-white p-4">
+          <article key={c.id} className="rounded-xl border border-line bg-raised p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-bold">{c.name}</h2>
               <div className="flex items-center gap-2 text-sm">
@@ -211,7 +211,7 @@ export function ActivityPage({ onSignedOut }: PageProps) {
     <label className="text-sm">
       <span className="block font-semibold">{t(`activity.${name}`)}</span>
       <select
-        className="mt-1 rounded-md border border-line bg-white px-2 py-1.5"
+        className="mt-1 rounded-md border border-line bg-raised px-2 py-1.5"
         value={filters[name]}
         onChange={(e) => {
           setFilters((f) => ({ ...f, [name]: e.target.value }));
@@ -292,7 +292,7 @@ export function ActivityPage({ onSignedOut }: PageProps) {
         <button
           type="button"
           onClick={loadOlder}
-          className="mt-4 rounded-md border border-line bg-white px-3 py-1.5 text-sm hover:bg-primary-tint"
+          className="mt-4 h-9 rounded-lg border border-line-strong bg-raised px-3 text-sm font-medium hover:bg-muted"
         >
           {t('activity.more')}
         </button>
@@ -318,7 +318,7 @@ export function InvestigationsPage({ onSignedOut }: PageProps) {
         {data?.map((inv, i) => (
           <article
             key={`${inv.ts}-${String(i)}`}
-            className="rounded-lg border border-line bg-white p-4"
+            className="rounded-xl border border-line bg-raised p-4"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-bold">
@@ -381,7 +381,7 @@ export function UsagePage({ onSignedOut }: PageProps) {
     >
       {data && (
         <div className="space-y-6">
-          <div className="rounded-lg border border-line bg-white p-4 text-sm">
+          <div className="rounded-xl border border-line bg-raised p-4 text-sm">
             <p>
               <Ltr>{data.model}</Ltr>
             </p>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REDACTED, Redactor } from './redactor.ts';
+import { REDACTED, Redactor, StreamingRedactor } from './redactor.ts';
 
 describe('Redactor', () => {
   it('masks a registered value wherever it appears', () => {
@@ -98,5 +98,55 @@ describe('Redactor', () => {
     expect(r.redactValue({ nested: { key: 'hidden-value-xyz' } })).toBe(
       `{"nested":{"key":"${REDACTED}"}}`,
     );
+  });
+});
+
+describe('StreamingRedactor', () => {
+  const SECRET = 'stream-canary-secret-5b81c2d9'; // gitleaks:allow
+  const stream = (pieces: string[]) => {
+    const redactor = new Redactor();
+    redactor.add(SECRET);
+    const s = new StreamingRedactor(redactor);
+    const released = pieces.map((p) => s.push(p));
+    released.push(s.end());
+    return released;
+  };
+
+  it('never releases a secret split across pieces, at any split point', () => {
+    const text = `${'Some long explanation. '.repeat(12)}The token is ${SECRET}, rotate it. ${'More text. '.repeat(20)}`;
+    for (let size = 1; size <= 40; size += 3) {
+      const pieces: string[] = [];
+      for (let i = 0; i < text.length; i += size) pieces.push(text.slice(i, i + size));
+      const released = stream(pieces);
+      const joined = released.join('');
+      expect(joined).not.toContain(SECRET);
+      expect(joined).toContain(`The token is ${REDACTED}, rotate it.`);
+      // Every released piece on its own is clean too.
+      for (const piece of released) expect(SECRET.includes(piece) && piece.length > 6).toBe(false);
+    }
+  });
+
+  it('releases text as it goes, holding back only the tail', () => {
+    const redactor = new Redactor();
+    const s = new StreamingRedactor(redactor);
+    expect(s.push('short')).toBe('');
+    const long = 'x'.repeat(300);
+    expect(s.push(long).length).toBe(305 - 128);
+    expect(s.end().length).toBe(128);
+  });
+
+  it('holds back an unfinished private key until it ends, then masks it', () => {
+    const redactor = new Redactor();
+    const s = new StreamingRedactor(redactor);
+    const before = 'Intro text. '.repeat(20);
+    const pem = `-----BEGIN RSA PRIVATE KEY-----\n${'QUJDRA=='.repeat(60)}\n-----END RSA PRIVATE KEY-----`;
+    let out = s.push(before);
+    out += s.push(pem.slice(0, 200));
+    expect(out).not.toContain('QUJDRA');
+    out += s.push(pem.slice(200));
+    out += s.push(' done.');
+    out += s.end();
+    expect(out).not.toContain('QUJDRA');
+    expect(out).toContain(`${REDACTED} done.`);
   });
 });

@@ -8,7 +8,7 @@ import { jsonLogger, memoryTerminal } from '../io.ts';
 import { ConnectorHost } from '../mcp/host.ts';
 import { Redactor } from '../redactor.ts';
 import { fakeComponent, fakeLauncher } from '../test-fixtures/fake-connector.ts';
-import { tempDir } from '../test-helpers.ts';
+import { scriptedModel, tempDir } from '../test-helpers.ts';
 import { ConsoleApprovals } from './approvals.ts';
 import { ConsoleChat, type ChatEvent } from './chat.ts';
 
@@ -44,7 +44,11 @@ afterEach(async () => {
 });
 
 async function setup(opts: {
-  doGenerate: MockLanguageModelV4['doGenerate'] | LanguageModelV4GenerateResult[];
+  doGenerate:
+    | ((
+        options: Parameters<MockLanguageModelV4['doGenerate']>[0],
+      ) => Promise<LanguageModelV4GenerateResult>)
+    | LanguageModelV4GenerateResult[];
   maxConcurrent?: number;
   maxMessagesPerMinute?: number;
 }) {
@@ -55,7 +59,7 @@ async function setup(opts: {
     { redactor, log: jsonLogger(() => undefined, redactor), launcher: fakeLauncher(), env: {} },
   );
   const audit = new AuditLog(join(await tempDir(), 'audit.jsonl'), redactor);
-  const model = new MockLanguageModelV4({ doGenerate: opts.doGenerate });
+  const model = scriptedModel(opts.doGenerate);
   const pending = new ConsoleApprovals({ audit });
   const started = host;
   const deps = (approvals: ApprovalChannel): AgentDeps => ({
@@ -100,16 +104,21 @@ describe('ConsoleChat', () => {
     const sent = chat.send(viewer, undefined, 'why is web failing?');
     if (!sent.ok) throw new Error(sent.error);
     const events = await collect(chat, sent.conversation, idle);
-    expect(events.map((e) => e.type)).toEqual(['user', 'status', 'answer', 'status']);
-    expect(events[2]).toMatchObject({ type: 'answer', text: 'First.' });
-    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    // The answer streams as live pieces (not kept, seq 0), then arrives whole.
+    const live = events.filter((e) => e.type === 'text');
+    expect(live.length).toBeGreaterThan(0);
+    expect(live.every((e) => e.seq === 0)).toBe(true);
+    const kept = events.filter((e) => e.type !== 'text');
+    expect(kept.map((e) => e.type)).toEqual(['user', 'status', 'answer', 'status']);
+    expect(kept[2]).toMatchObject({ type: 'answer', text: 'First.' });
+    expect(kept.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
     expect(chat.list()).toEqual([
       expect.objectContaining({ title: 'why is web failing?', startedBy: 'console', busy: false }),
     ]);
 
     expect(chat.send(viewer, sent.conversation, 'and now?').ok).toBe(true);
     await chat.idle();
-    expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain('why is web failing?');
+    expect(JSON.stringify(model.calls[1]?.prompt)).toContain('why is web failing?');
     // A late subscriber replays only what it has not seen.
     const replay: ChatEvent[] = [];
     chat.subscribe(sent.conversation, 6, (e) => replay.push(e))?.();
@@ -144,6 +153,29 @@ describe('ConsoleChat', () => {
     await chat.idle();
   });
 
+  it('stops a running turn on request, and only a running one', async () => {
+    const { chat } = await setup({
+      doGenerate: (options) =>
+        new Promise((_resolve, reject) => {
+          // A slow model: it answers only when the turn is stopped, by failing.
+          options.abortSignal?.addEventListener('abort', () => {
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+          });
+        }),
+    });
+    const sent = chat.send(viewer, undefined, 'look at everything');
+    if (!sent.ok) throw new Error(sent.error);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(chat.stop(sent.conversation)).toMatchObject({ ok: true });
+    const events = await collect(chat, sent.conversation, idle);
+    expect(events.find((e) => e.type === 'answer')).toMatchObject({
+      stoppedBy: 'user',
+      text: '(Stopped. Nothing more was run.)',
+    });
+    expect(chat.stop(sent.conversation)).toMatchObject({ ok: false, status: 409 });
+    expect(chat.stop('nope')).toMatchObject({ ok: false, status: 404 });
+  });
+
   it('runs at most maxConcurrent turns at once and queues the rest', async () => {
     let active = 0;
     let peak = 0;
@@ -162,13 +194,9 @@ describe('ConsoleChat', () => {
     const c = chat.send(viewer, undefined, 'c');
     if (!a.ok || !b.ok || !c.ok) throw new Error('send failed');
     const events = await collect(chat, c.conversation, idle);
-    expect(events.map((e) => (e.type === 'status' ? e.state : e.type))).toEqual([
-      'user',
-      'queued',
-      'working',
-      'answer',
-      'idle',
-    ]);
+    expect(
+      events.filter((e) => e.type !== 'text').map((e) => (e.type === 'status' ? e.state : e.type)),
+    ).toEqual(['user', 'queued', 'working', 'answer', 'idle']);
     await chat.idle();
     expect(peak).toBe(1);
   });

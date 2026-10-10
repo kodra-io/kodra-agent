@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { main } from '../cli.ts';
 import { fakeLauncher } from '../test-fixtures/fake-connector.ts';
 import {
+  asStreamResult,
   configYaml,
   fakeServer,
   fakeSlack,
@@ -42,31 +43,34 @@ const say = (text: string) => ({
 
 /** One model for both investigations and Slack turns, scripted by what it is asked. */
 function scriptedModel() {
+  const generate = (options: Parameters<MockLanguageModelV4['doGenerate']>[0]) => {
+    const prompt = JSON.stringify(options.prompt);
+    const toolTurns = options.prompt.filter((m) => m.role === 'tool').length;
+    if (prompt.includes('A monitoring alert is firing')) {
+      if (toolTurns === 0)
+        return Promise.resolve(
+          call('kubernetes__pods_log', { namespace: 'payments', name: 'web-1' }),
+        );
+      return Promise.resolve(
+        say('The database is unreachable. Suggested fix: check the db service.'),
+      );
+    }
+    if (toolTurns === 0) {
+      return Promise.resolve(
+        call('kubernetes__resources_scale', {
+          namespace: 'payments',
+          name: 'web',
+          scale: 2,
+          kodra_reason: 'more capacity',
+        }),
+      );
+    }
+    return Promise.resolve(say('Scaled web to 2.'));
+  };
+  // Slack and the monitor generate; the console streams. Both get the same answers.
   return new MockLanguageModelV4({
-    doGenerate: (options) => {
-      const prompt = JSON.stringify(options.prompt);
-      const toolTurns = options.prompt.filter((m) => m.role === 'tool').length;
-      if (prompt.includes('A monitoring alert is firing')) {
-        if (toolTurns === 0)
-          return Promise.resolve(
-            call('kubernetes__pods_log', { namespace: 'payments', name: 'web-1' }),
-          );
-        return Promise.resolve(
-          say('The database is unreachable. Suggested fix: check the db service.'),
-        );
-      }
-      if (toolTurns === 0) {
-        return Promise.resolve(
-          call('kubernetes__resources_scale', {
-            namespace: 'payments',
-            name: 'web',
-            scale: 2,
-            kodra_reason: 'more capacity',
-          }),
-        );
-      }
-      return Promise.resolve(say('Scaled web to 2.'));
-    },
+    doGenerate: generate,
+    doStream: async (options) => asStreamResult(await generate(options)),
   });
 }
 

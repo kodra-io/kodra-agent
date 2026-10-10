@@ -26,6 +26,8 @@ export type ApprovalOutcome =
 /** Where approvals are asked: the terminal, Slack buttons, or the console. */
 export interface ApprovalChannel {
   request(req: ApprovalRequest): Promise<ApprovalOutcome>;
+  /** Closes a waiting request because the turn was stopped; it resolves as expired. */
+  cancel?(id: string): Promise<void>;
 }
 
 /** A channel that can also be told a request was decided elsewhere, to close it there. */
@@ -39,9 +41,15 @@ export interface SettleableChannel extends ApprovalChannel {
  * still answer. With no channel at all, nobody can approve, so the request expires.
  */
 export function fanOut(channels: readonly SettleableChannel[]): ApprovalChannel {
+  const cancel = async (id: string) => {
+    await Promise.all(
+      channels.map((c) => c.settle(id, { decision: 'expired' }).catch(() => undefined)),
+    );
+  };
   const [only] = channels;
-  if (channels.length === 1 && only) return only;
+  if (channels.length === 1 && only) return { request: (req) => only.request(req), cancel };
   return {
+    cancel,
     async request(req) {
       if (channels.length === 0) return { decision: 'expired' };
       let outcome: ApprovalOutcome;

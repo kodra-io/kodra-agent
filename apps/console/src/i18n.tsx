@@ -41,7 +41,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = dir;
-    document.title = `${catalogs[lang]['app.title']} | ${catalogs[lang]['app.productName']}`;
   }, [lang, dir]);
 
   const setLang = useCallback((next: Lang) => {

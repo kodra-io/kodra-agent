@@ -1,3 +1,4 @@
+import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -199,4 +200,53 @@ export function fakeSlack(users: { id: string; name: string; displayName: string
       },
     }),
   };
+}
+
+type MockGenerate = Awaited<ReturnType<MockLanguageModelV4['doGenerate']>>;
+type MockCallOptions = Parameters<MockLanguageModelV4['doGenerate']>[0];
+
+/** A generate result as the stream a provider would send, text in small pieces. */
+export function asStreamResult(result: MockGenerate) {
+  const parts: unknown[] = [{ type: 'stream-start', warnings: [] }];
+  for (const [i, part] of result.content.entries()) {
+    if (part.type === 'text') {
+      const id = `t${String(i)}`;
+      parts.push({ type: 'text-start', id });
+      for (let at = 0; at < part.text.length; at += 8) {
+        parts.push({ type: 'text-delta', id, delta: part.text.slice(at, at + 8) });
+      }
+      parts.push({ type: 'text-end', id });
+    } else {
+      parts.push(part);
+    }
+  }
+  parts.push({ type: 'finish', finishReason: result.finishReason, usage: result.usage });
+  return {
+    stream: convertArrayToReadableStream(parts) as ReturnType<
+      typeof convertArrayToReadableStream<never>
+    >,
+  };
+}
+
+/**
+ * A scripted model that answers the same way whether it is asked to generate or to stream
+ * (the console streams; the CLI and Slack generate). `calls` records every call's options.
+ */
+export function scriptedModel(
+  script: MockGenerate[] | ((options: MockCallOptions) => MockGenerate | Promise<MockGenerate>),
+) {
+  let next = 0;
+  const calls: MockCallOptions[] = [];
+  const answer = async (options: MockCallOptions): Promise<MockGenerate> => {
+    calls.push(options);
+    if (typeof script === 'function') return script(options);
+    const result = script[next++];
+    if (!result) throw new Error('the scripted model ran out of answers');
+    return result;
+  };
+  const model = new MockLanguageModelV4({
+    doGenerate: answer,
+    doStream: async (options) => asStreamResult(await answer(options)),
+  });
+  return Object.assign(model, { calls });
 }
