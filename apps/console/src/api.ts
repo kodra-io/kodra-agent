@@ -349,3 +349,24 @@ export interface CheckRow {
   status: string;
   message: string;
 }
+
+export interface PersonView {
+  who: string;
+  canApprove: boolean;
+  tokenSet: boolean;
+  envVar: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  user: string;
+  since: string;
+  lastSeen: string;
+}
+
+export interface PeopleView {
+  editable: boolean;
+  people: PersonView[];
+  otherApprovers: string[];
+  sessions: SessionInfo[];
+}

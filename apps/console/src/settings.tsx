@@ -20,15 +20,17 @@ import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
 import { ConnectorTools, type PageProps } from './pages.tsx';
+import { PeoplePanel } from './people.tsx';
 import { useStatus } from './status.ts';
 import { Badge, Ltr } from './ui.tsx';
 
-type Tab = 'connectors' | 'policy' | 'limits' | 'console';
+type Tab = 'connectors' | 'policy' | 'limits' | 'console' | 'people';
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: 'connectors', label: 'settings.tab.connectors' },
   { id: 'policy', label: 'settings.tab.policy' },
   { id: 'limits', label: 'settings.tab.limits' },
   { id: 'console', label: 'settings.tab.console' },
+  { id: 'people', label: 'settings.tab.people' },
 ];
 
 const PREVIEW_DELAY_MS = 400;
@@ -236,7 +238,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
         aria-label={t('settings.title')}
         className="flex flex-wrap gap-1 border-b border-line"
       >
-        {TABS.map((tb) => (
+        {TABS.filter((tb) => tb.id !== 'people' || me.canApprove).map((tb) => (
           <button
             key={tb.id}
             type="button"
@@ -305,6 +307,17 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
               }}
               onLimits={(c) => {
                 setSection('limits', c);
+              }}
+            />
+          )}
+          {tab === 'people' && me.canApprove && (
+            <PeoplePanel
+              me={me.user}
+              onSignedOut={onSignedOut}
+              onRestarted={() => {
+                refresh();
+                reload();
+                live.reload();
               }}
             />
           )}

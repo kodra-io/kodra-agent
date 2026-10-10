@@ -457,6 +457,75 @@ describe('kodra-agent run', () => {
     expect(await readFile(path, 'utf8')).toContain('monthlyBudgetUsd: 25');
   });
 
+  it('adds a console approver: the token comes back once, then it restarts', async () => {
+    const SHARED = 'run-people-shared-token-8a7b'; // gitleaks:allow
+    const OMAR = 'run-people-omar-token-1f2e'; // gitleaks:allow
+    const dir = await tempDir();
+    const auditPath = join(dir, 'audit.jsonl');
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(auditPath),
+        model:
+          '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        approvers: ['@omar', 'console:omar'],
+      }),
+      dir,
+    );
+    const stop = new AbortController();
+    let port = 0;
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN: SHARED, KODRA_CONSOLE_TOKEN_OMAR: OMAR },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      stopSignal: stop.signal,
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+      onReady: (info) => {
+        port = info.consolePort ?? 0;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (port ? true : undefined));
+    const base = `http://127.0.0.1:${String(port)}`;
+    const signIn = async (token: string) =>
+      (
+        (
+          await fetch(`${base}/api/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token }),
+          })
+        ).headers.get('set-cookie') ?? ''
+      ).split(';')[0] ?? '';
+    const post = (cookie: string, route: string, body: unknown) =>
+      fetch(`${base}/api/${route}`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+        body: JSON.stringify(body),
+      });
+
+    const team = await signIn(SHARED);
+    expect((await fetch(`${base}/api/people`, { headers: { cookie: team } })).status).toBe(403);
+    expect((await post(team, 'people/add', { name: 'on-call' })).status).toBe(403);
+
+    const omar = await signIn(OMAR);
+    const view = (await (
+      await fetch(`${base}/api/people`, { headers: { cookie: omar } })
+    ).json()) as { sessions: { user: string }[] };
+    expect(view.sessions.map((s) => s.user).sort()).toEqual(['console', 'console:omar']);
+    const added = await post(omar, 'people/add', { name: 'on-call' });
+    expect(added.status).toBe(200);
+    const { token, restarting } = (await added.json()) as { token: string; restarting: boolean };
+    expect(restarting).toBe(true);
+    expect(await running).toBe(75);
+    expect(await readFile(join(dir, '.env'), 'utf8')).toContain(
+      `KODRA_CONSOLE_TOKEN_ON_CALL=${token}`,
+    );
+    expect(t.output()).not.toContain(token);
+    expect(await readFile(auditPath, 'utf8')).not.toContain(token);
+  });
+
   it('serves the console: token sign-in, then status and connectors, read-only', async () => {
     const CONSOLE_TOKEN = 'run-console-token-canary-91b2'; // gitleaks:allow
     const dir = await tempDir();
