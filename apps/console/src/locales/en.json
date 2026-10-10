@@ -149,5 +149,7 @@
   "approval.failed": "Could not decide: {message}",
   "approvals.waitingTitle": "Waiting for a decision",
   "approvals.noneWaiting": "Nothing is waiting.",
-  "approvals.historyTitle": "History"
+  "approvals.historyTitle": "History",
+  "approval.steps": "Steps",
+  "approval.preview": "Preview of the change"
 }

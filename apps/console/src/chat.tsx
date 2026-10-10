@@ -367,7 +367,13 @@ function CallItem({
   return (
     <div className="rounded-lg border border-line bg-white p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <Ltr>{`${base.connector}/${base.tool}`}</Ltr>
+        {call.approval?.title ? (
+          <bdi dir="auto" className="font-semibold">
+            {call.approval.title}
+          </bdi>
+        ) : (
+          <Ltr>{`${base.connector}/${base.tool}`}</Ltr>
+        )}
         <span className="text-ink-secondary">({has(risk) ? t(risk) : base.risk})</span>
         {state && !waiting && (
           <Badge tone={state === 'ok' ? 'accent' : 'plain'}>

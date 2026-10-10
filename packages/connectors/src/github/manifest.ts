@@ -145,6 +145,37 @@ export default defineManifest({
     create_pull_request: [inRepos, offDefault('head')],
   },
   defaultBranchLookup: 'github',
+  // Argument names checked against github-mcp-server v1.13.0's input schemas.
+  changeSteps: {
+    create_branch: {
+      kind: 'branch',
+      repo: ['owner', 'repo'],
+      branch: 'branch',
+      from: 'from_branch',
+    },
+    create_or_update_file: {
+      kind: 'file',
+      repo: ['owner', 'repo'],
+      branch: 'branch',
+      path: 'path',
+      content: 'content',
+    },
+    push_files: {
+      kind: 'files',
+      repo: ['owner', 'repo'],
+      branch: 'branch',
+      files: 'files',
+      path: 'path',
+      content: 'content',
+    },
+    create_pull_request: {
+      kind: 'pull-request',
+      repo: ['owner', 'repo'],
+      head: 'head',
+      base: 'base',
+      title: 'title',
+    },
+  },
   runtime: {
     type: 'mcp-stdio',
     source: GITHUB_SERVER,

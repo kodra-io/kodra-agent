@@ -132,7 +132,9 @@ export class SlackApprovals {
 
   private summary(req: ApprovalRequest, state: string): string {
     return this.opts.redactor.redact(
-      `Approval (${req.risk}) ${req.connector}/${req.tool}: ${state}`,
+      req.title
+        ? `Approval (${req.risk}) change "${req.title}": ${state}`
+        : `Approval (${req.risk}) ${req.connector}/${req.tool}: ${state}`,
     );
   }
 
@@ -161,6 +163,29 @@ export class SlackApprovals {
         text: { type: 'mrkdwn', text: r(`*Arguments:*\n\`\`\`${req.args.slice(0, 2500)}\`\`\``) },
       },
     ];
+    if (req.title) {
+      blocks.splice(1, 0, {
+        type: 'section',
+        text: { type: 'mrkdwn', text: r(`*Change:* ${req.title}`) },
+      });
+    }
+    if (req.preview) {
+      // A Slack section holds 3,000 characters; the console shows the whole preview.
+      const cut = req.preview.length > 2_700;
+      const shown = cut ? `${req.preview.slice(0, 2_700)}\n…` : req.preview;
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: r(`\`\`\`${shown}\`\`\``) } });
+      if (cut) {
+        blocks.push({
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: 'The preview is cut short here. The console shows all of it.',
+            },
+          ],
+        });
+      }
+    }
     if (outcome === null) {
       blocks.push({
         type: 'actions',

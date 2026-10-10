@@ -76,7 +76,7 @@ test('lists approvals; the shared token sees waiting requests but cannot decide'
   await expect(page.getByText('No decision recorded')).toBeVisible();
   await expect(page.getByText('approved by U-OMAR')).toBeVisible();
   const waiting = page.getByRole('group', { name: 'Needs approval' });
-  await expect(waiting).toHaveCount(2);
+  await expect(waiting).toHaveCount(3);
   await expect(waiting.first()).toContainText('github/create_pull_request');
   await expect(waiting.first()).toContainText('Waiting for an approver.');
   await expect(page.locator('main').getByRole('button', { name: /approve|deny/i })).toHaveCount(0);
@@ -89,20 +89,40 @@ test('a console approver approves a waiting request after confirming', async ({ 
   ).toBeVisible();
   await page.getByRole('navigation').getByRole('link', { name: 'Approvals' }).click();
   const waiting = page.getByRole('group', { name: 'Needs approval' });
-  const pr = waiting.filter({ hasText: 'create_pull_request' });
+  const pr = waiting.filter({ hasText: 'Open the fix for review.' });
   await pr.getByRole('button', { name: 'Approve' }).click();
   // Nothing is sent until the second, explicit step.
   expect(api.some((a) => a.startsWith('POST approvals/decide'))).toBe(false);
   await expect(pr).toContainText('Run github/create_pull_request now? This changes your system.');
   await pr.getByRole('button', { name: 'Yes, run it' }).click();
-  await expect(waiting).toHaveCount(1);
+  await expect(waiting).toHaveCount(2);
   expect(api).toContain('BODY approvals/decide {"id":"req-2","approve":true}');
 
   // A request that expired meanwhile says so, and nothing runs.
-  await waiting.getByRole('button', { name: 'Approve' }).click();
-  await waiting.getByRole('button', { name: 'Yes, run it' }).click();
-  await expect(waiting.getByRole('alert')).toHaveText('This request expired. Nothing was run.');
-  await expect(waiting.getByRole('button')).toHaveCount(0);
+  const old = waiting.filter({ hasText: 'Old request.' });
+  await old.getByRole('button', { name: 'Approve' }).click();
+  await old.getByRole('button', { name: 'Yes, run it' }).click();
+  await expect(old.getByRole('alert')).toHaveText('This request expired. Nothing was run.');
+  await expect(old.getByRole('button')).toHaveCount(0);
+});
+
+test('shows a proposed change by its title, with the diff to review', async ({ page, api }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Approvals' }).click();
+  const card = page
+    .getByRole('group', { name: 'Needs approval' })
+    .filter({ hasText: 'Raise web replicas to 3' });
+  await expect(card).toContainText('Needs approval: Raise web replicas to 3');
+  await expect(card).toContainText('Steps');
+  const preview = card.getByLabel('Preview of the change');
+  await expect(preview).toContainText('--- a/deploy/values.yaml (main)');
+  await expect(preview.getByText('+replicas: 3', { exact: true })).toBeVisible();
+  await expect(preview.getByText('-replicas: 2', { exact: true })).toBeVisible();
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect(card).toContainText('Run Raise web replicas to 3 now? This changes your system.');
+  await card.getByRole('button', { name: 'Yes, run it' }).click();
+  await expect(card).toHaveCount(0);
+  expect(api).toContain('BODY approvals/decide {"id":"req-change","approve":true}');
 });
 
 test('chats with the agent and shows each step live', async ({ page, api }) => {

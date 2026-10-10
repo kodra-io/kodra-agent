@@ -8,6 +8,7 @@ import { components, loadConfig, secretLabel } from './config.ts';
 import { CONSOLE_TOKEN_ENV } from './console/token.ts';
 import type { Context } from './context.ts';
 import { lookupDefaultBranches } from './default-branches.ts';
+import { forgeFileReader } from './forge-files.ts';
 import { parseEnvFile } from './env-file.ts';
 import { fileLogger } from './io.ts';
 import { createModel } from './llm.ts';
@@ -126,6 +127,12 @@ export async function startRuntime(
         }
       }
       input.defaultBranches = branches;
+      const readFile = forgeFileReader(input.component, input.secrets['token'], {
+        fetch: ctx.fetch,
+        timeoutMs: ctx.probeTimeoutMs,
+        githubApi: ctx.endpoints?.github,
+      });
+      if (readFile) input.readFile = readFile;
     }
   }
 

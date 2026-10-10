@@ -76,11 +76,36 @@ registerScm(
   'create_branch',
   {
     description: 'Create a branch',
-    inputSchema: { owner: opt, repo: opt, project_id: opt, branch: z.string() },
+    inputSchema: {
+      owner: opt,
+      repo: opt,
+      project_id: opt,
+      branch: z.string(),
+      from_branch: opt,
+    },
   },
   async (args) => {
     await record('create_branch', args);
     return text(JSON.stringify({ ref: `refs/heads/${args.branch}` }));
+  },
+);
+
+registerScm(
+  'create_or_update_file',
+  {
+    description: 'Write a file on a branch',
+    inputSchema: {
+      owner: z.string(),
+      repo: z.string(),
+      path: z.string(),
+      content: z.string(),
+      message: z.string(),
+      branch: z.string(),
+    },
+  },
+  async (args) => {
+    await record('create_or_update_file', args);
+    return text(JSON.stringify({ commit: { sha: 'abc123' } }));
   },
 );
 

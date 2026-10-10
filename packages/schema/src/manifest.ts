@@ -221,6 +221,47 @@ const toolGuard = z.discriminatedUnion('kind', [
 ]);
 export type ToolGuard = z.infer<typeof toolGuard>;
 
+/** Argument names that together name a repo: ['owner', 'repo'] is joined as owner/repo. */
+const repoArgs = z.array(z.string().min(1)).min(1);
+
+/**
+ * Where a source-control tool's arguments are, so a proposed change can show a readable
+ * preview (a diff for file edits) and check each file again before it writes it.
+ */
+const changeStep = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('branch'),
+    repo: repoArgs,
+    branch: z.string(),
+    /** The branch it starts from; the default branch when left out. */
+    from: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal('file'),
+    repo: repoArgs,
+    branch: z.string(),
+    path: z.string(),
+    content: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal('files'),
+    repo: repoArgs,
+    branch: z.string(),
+    /** The array argument; each item has `path` and `content` keys. */
+    files: z.string(),
+    path: z.string(),
+    content: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal('pull-request'),
+    repo: repoArgs,
+    head: z.string(),
+    base: z.string(),
+    title: z.string(),
+  }),
+]);
+export type ChangeStep = z.infer<typeof changeStep>;
+
 const stdioRuntime = z.strictObject({
   type: z.literal('mcp-stdio'),
   /** Names the server when a connector runs several (like `eks` and `cloudwatch`). */
@@ -290,8 +331,13 @@ export const manifestSchema = z
     hiddenTools: z.array(z.string()).optional(),
     /** Argument checks per tool, enforced by the policy engine. */
     guards: z.record(z.string(), z.array(toolGuard)).optional(),
-    /** How the agent finds each configured repo's default branch, for not-default-branch guards. */
+    /**
+     * The forge API the agent reads directly: each configured repo's default branch (for
+     * not-default-branch guards), and file contents (for the diff in a proposed change).
+     */
     defaultBranchLookup: z.enum(['github', 'gitlab']).optional(),
+    /** Source-control tools a proposed change can preview, by tool name. */
+    changeSteps: z.record(z.string(), changeStep).optional(),
     /**
      * Model providers: list prices per model, for the console's estimated cost. Dated and
      * sourced, because prices change; the config can override them (spec.console.pricing).
@@ -325,6 +371,22 @@ export const manifestSchema = z
           message: `needs a summary for access level ${level}`,
         });
       }
+    }
+    for (const tool of Object.keys(m.changeSteps ?? {})) {
+      if (!(tool in m.tools)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['changeSteps', tool],
+          message: `${tool} is not in tools`,
+        });
+      }
+    }
+    if (m.changeSteps && !m.defaultBranchLookup) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['changeSteps'],
+        message: 'change previews read files, so they need defaultBranchLookup',
+      });
     }
     if (m.accessLevels.length === 0 && !m.permissionsSummary.always?.length) {
       ctx.addIssue({

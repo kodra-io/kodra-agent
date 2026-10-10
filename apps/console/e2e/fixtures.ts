@@ -171,6 +171,21 @@ interface MockConversation {
   events: Record<string, unknown>[];
 }
 
+/** A proposed change's preview, as the agent builds it. */
+export const CHANGE_PREVIEW = [
+  '1. github/create_branch: create branch fix/replicas in acme/api, from main',
+  '',
+  '2. github/create_or_update_file: change deploy/values.yaml in acme/api on fix/replicas',
+  '--- a/deploy/values.yaml (main)',
+  '+++ b/deploy/values.yaml (fix/replicas)',
+  '@@ -1,2 +1,2 @@',
+  '-replicas: 2',
+  '+replicas: 3',
+  ' image: web:1',
+  '',
+  '3. github/create_pull_request: open a pull request in acme/api, fix/replicas into main: "Raise replicas"',
+].join('\n');
+
 /** The change the mocked agent asks for in every chat, with a hostile reason. */
 export const CHAT_REQUEST = {
   id: 'req-9',
@@ -206,6 +221,18 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
       reason: 'Old request.',
       requestedBy: 'console',
       expiresAt: '2026-10-09T08:00:00.000Z',
+    },
+    {
+      id: 'req-change',
+      connector: 'github',
+      tool: 'propose_change',
+      risk: 'write',
+      args: 'github/create_branch, github/create_or_update_file, github/create_pull_request',
+      reason: 'Traffic is up.',
+      requestedBy: 'console:omar',
+      expiresAt: '2026-10-09T09:20:00.000Z',
+      title: 'Raise web replicas to 3',
+      preview: CHANGE_PREVIEW,
     },
   ];
 
