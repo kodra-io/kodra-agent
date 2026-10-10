@@ -193,6 +193,122 @@ interface MockConversation {
   live: string[];
 }
 
+const loc = (en: string) => ({ en, ar: en });
+
+/** The settings the mocked agent starts with. */
+function settingsView(base: string, undoable: boolean) {
+  return {
+    target: 'compose',
+    editable: true,
+    why: null,
+    base,
+    model: { provider: 'anthropic', name: 'claude-sonnet-5-5' },
+    policy: {
+      approvers: ['@omar', 'console:omar'],
+      expiresAfterMinutes: 15,
+      destructiveActions: 'deny',
+    },
+    limits: { maxSteps: 12, tokenBudget: 200000, timeoutMinutes: 5 },
+    console: { chat: true },
+    lastChange: undoable
+      ? { by: 'console:omar', at: '2026-10-09T09:10:00.000Z', detail: 'changed gitlab.access' }
+      : null,
+    undoable,
+    connectors: [
+      {
+        id: 'gitlab',
+        name: 'GitLab',
+        category: 'source',
+        status: 'available',
+        description: loc('Merge requests, files, and pipelines in GitLab.'),
+        accessLevels: ['read-only', 'read-write-approved'],
+        summaries: {
+          'read-only': [loc('Reads projects and merge requests.')],
+          'read-write-approved': [
+            loc('Creates branches and opens merge requests after you approve.'),
+          ],
+        },
+        enabled: true,
+        access: 'read-only',
+        config: { url: 'https://gitlab.com/', projects: ['jordan-kodra/terraform'] },
+        fields: [
+          { kind: 'url', key: 'url', required: false, description: loc('GitLab address.') },
+          {
+            kind: 'string-list',
+            key: 'projects',
+            required: true,
+            description: loc('Projects the agent may use.'),
+            example: ['group/name'],
+          },
+        ],
+        secrets: [
+          {
+            key: 'token',
+            label: 'GitLab token (GITLAB_TOKEN)',
+            envVar: 'GITLAB_TOKEN',
+            required: true,
+            set: true,
+            writable: true,
+            ref: '${env:GITLAB_TOKEN}',
+            description: loc('A GitLab token.'),
+            howToCreate: loc('Create a personal access token with the api scope.'),
+          },
+        ],
+        tools: { read: 18, write: 6, destructive: 2 },
+      },
+      {
+        id: 'kubernetes',
+        name: 'Kubernetes',
+        category: 'deploy',
+        status: 'available',
+        description: loc('Pods, logs, and events in your cluster.'),
+        accessLevels: ['read-only', 'read-write-approved'],
+        summaries: { 'read-only': [loc('Reads pods and logs.')] },
+        enabled: true,
+        access: 'read-only',
+        config: { namespaces: ['dev'] },
+        fields: [
+          {
+            kind: 'string-list',
+            key: 'namespaces',
+            required: true,
+            description: loc('Namespaces the agent may access.'),
+          },
+        ],
+        secrets: [
+          {
+            key: 'kubeconfig',
+            label: 'Kubernetes kubeconfig (file /secrets/kubeconfig)',
+            envVar: 'KUBECONFIG',
+            required: false,
+            set: true,
+            writable: false,
+            ref: '/secrets/kubeconfig',
+            description: loc('A kubeconfig.'),
+            howToCreate: loc('Use a service account.'),
+          },
+        ],
+        tools: { read: 8, write: 1, destructive: 5 },
+      },
+      {
+        id: 'github',
+        name: 'GitHub',
+        category: 'source',
+        status: 'available',
+        description: loc('Repositories and pull requests in GitHub.'),
+        accessLevels: ['read-only', 'read-write-approved'],
+        summaries: {},
+        enabled: false,
+        access: null,
+        config: {},
+        fields: [],
+        secrets: [],
+        tools: { read: 20, write: 5, destructive: 4 },
+      },
+    ],
+  };
+}
+
 /** A proposed change's preview, as the agent builds it. */
 export const CHANGE_PREVIEW = [
   '1. github/create_branch: create branch fix/replicas in acme/api, from main',
@@ -223,6 +339,14 @@ export const CHAT_REQUEST = {
 async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
   let user: { name: string; canApprove: boolean } | null = null;
   let paused: { by: string; at: string } | null = null;
+  // A restart (after saving settings) shows as a new start time and a new settings version.
+  let startedAt = '2026-10-09T08:00:00.000Z';
+  let base = 'base-1';
+  let undoable = false;
+  const restart = () => {
+    startedAt = new Date().toISOString();
+    base = `base-${String(Date.now())}`;
+  };
   const conversations: MockConversation[] = [];
   let pending: Record<string, unknown>[] = [
     {
@@ -341,6 +465,76 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         );
         pending = [{ ...CHAT_REQUEST, requestedBy: user.name }, ...pending];
         return route.fulfill({ json: { conversation: c.id } });
+      }
+      if (name.startsWith('settings/') && name !== 'settings/test' && !user.canApprove) {
+        return route.fulfill({
+          status: 403,
+          json: { error: 'only a console approver can change settings' },
+        });
+      }
+      if (name === 'settings/preview') {
+        const patch = body['patch'] as {
+          connectors?: Record<string, { access?: string; config?: { projects?: string[] } }>;
+          limits?: { monthlyBudgetUsd?: number | null };
+        };
+        const gitlab = patch.connectors?.['gitlab'];
+        const diff: string[] = [];
+        const moreAccess: unknown[] = [];
+        if (gitlab?.access === 'read-write-approved') {
+          diff.push(
+            '@@ -14,3 +14,3 @@',
+            '     gitlab:',
+            '-      access: read-only',
+            '+      access: read-write-approved',
+          );
+          moreAccess.push({ code: 'write', connector: 'gitlab' });
+        }
+        const added = (gitlab?.config?.projects ?? []).filter(
+          (x) => x !== 'jordan-kodra/terraform',
+        );
+        if (added.length > 0) {
+          diff.push(...added.map((a) => `+          - ${a}`));
+          moreAccess.push({ code: 'scope', connector: 'gitlab', field: 'projects', added });
+        }
+        if (patch.limits && 'monthlyBudgetUsd' in patch.limits) {
+          diff.push(`+    monthlyBudgetUsd: ${String(patch.limits.monthlyBudgetUsd)}`);
+        }
+        return route.fulfill({
+          json: { ok: true, errors: [], diff: diff.join('\n'), base, moreAccess, changed: [] },
+        });
+      }
+      if (name === 'settings/apply') {
+        if (body['base'] !== base) return route.fulfill({ status: 409, json: { error: 'stale' } });
+        undoable = true;
+        restart();
+        return route.fulfill({ json: { ok: true, restarting: true } });
+      }
+      if (name === 'settings/undo') {
+        undoable = false;
+        restart();
+        return route.fulfill({ json: { restarting: true } });
+      }
+      if (name === 'settings/secret') {
+        if (body['value'] !== 'glpat-a-good-new-token') {
+          return route.fulfill({
+            status: 400,
+            json: {
+              error: 'GitLab token: HTTP 401 for jordan-kodra/terraform',
+              check: { status: 'fail' },
+            },
+          });
+        }
+        restart();
+        return route.fulfill({ json: { check: { status: 'pass' }, restarting: true } });
+      }
+      if (name === 'settings/test') {
+        return route.fulfill({
+          json: {
+            results: [
+              { check: 'gitlab.read-projects', status: 'pass', message: 'can read 1 project' },
+            ],
+          },
+        });
       }
       if (name === 'agent/pause') {
         paused = { by: user.name, at: '2026-10-09T09:30:00.000Z' };
@@ -462,10 +656,12 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
       });
     }
     if (name === 'approvals/pending') return route.fulfill({ json: pending });
+    if (name === 'settings') return route.fulfill({ json: settingsView(base, undoable) });
     if (name === 'status') {
       return route.fulfill({
         json: {
           ...(fixtures['status'] as object),
+          startedAt,
           paused,
           budget: { month: '2026-10', limit: 40, spent: 12.4, over: false },
         },
@@ -505,8 +701,8 @@ export const test = base.extend<{
         if (!url.startsWith(origin) && !url.startsWith('data:')) offsite.push(url);
       });
       page.on('console', (msg) => {
-        // By design: a signed-out page gets 401, and deciding an expired request gets 409.
-        if (msg.type() === 'error' && !/(401|409)/.test(msg.text())) errors.push(msg.text());
+        // By design: signed out (401), an expired request (409), a token that fails its check (400).
+        if (msg.type() === 'error' && !/(400|401|409)/.test(msg.text())) errors.push(msg.text());
       });
       page.on('pageerror', (err) => errors.push(err.message));
       await use({ requests });

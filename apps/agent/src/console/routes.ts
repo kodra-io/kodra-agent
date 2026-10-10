@@ -1,6 +1,7 @@
 import type { Runtime } from '../runtime.ts';
 import type { ConsoleApprovals } from './approvals.ts';
 import type { ConsoleChat } from './chat.ts';
+import type { SettingsPatch, SettingsStore } from './settings.ts';
 import {
   activity,
   approvals,
@@ -42,6 +43,7 @@ export function consoleApi(
   investigations: InvestigationLog,
   pending: ConsoleApprovals,
   chat: ConsoleChat | null,
+  settings?: { store: SettingsStore; restart: () => void },
 ): ConsoleApi {
   const auditPath = runtime.config.spec.audit.path;
   const model = `${runtime.config.spec.model.provider}/${runtime.config.spec.model.name}`;
@@ -129,6 +131,69 @@ export function consoleApi(
         // Live text pieces have no id, so a reconnect resumes after the last kept event.
         send(event.seq === 0 ? null : event.seq, event);
       });
+  }
+
+  if (settings) {
+    const { store, restart } = settings;
+    const approverOnly = {
+      status: 403,
+      body: { error: 'only a console approver can change settings' },
+    };
+    const patchOf = (body: Record<string, unknown>): SettingsPatch | null =>
+      body['patch'] && typeof body['patch'] === 'object' && !Array.isArray(body['patch'])
+        ? body['patch']
+        : null;
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+
+    routes['settings'] = async () => {
+      const last = (await readAudit(auditPath)).filter((r) => r.event === 'settings').at(-1);
+      return store.view(last ? { by: last.actor, at: last.ts, detail: last.detail ?? '' } : null);
+    };
+    actions['settings/preview'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      const patch = patchOf(body);
+      if (!patch) return { status: 400, body: { error: 'send a patch' } };
+      return { status: 200, body: await store.preview(patch) };
+    };
+    actions['settings/apply'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      const patch = patchOf(body);
+      if (!patch) return { status: 400, body: { error: 'send a patch' } };
+      const result = await store.apply(patch, str(body['base']), user.name);
+      if (result === 'stale') {
+        return { status: 409, body: { error: 'the settings changed meanwhile; review again' } };
+      }
+      if (!result.ok || result.diff === '') return { status: 400, body: result };
+      restart();
+      return { status: 200, body: { ...result, restarting: true } };
+    };
+    actions['settings/undo'] = async ({ user }) => {
+      if (!user.canApprove) return approverOnly;
+      if (!(await store.undo(user.name))) {
+        return { status: 409, body: { error: 'there is no earlier change to undo' } };
+      }
+      restart();
+      return { status: 200, body: { restarting: true } };
+    };
+    actions['settings/secret'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      const result = await store.setSecret(
+        str(body['connector']),
+        str(body['key']),
+        str(body['value']),
+        user.name,
+      );
+      if (result.status === 'fail') {
+        return { status: 400, body: { error: result.message, check: result } };
+      }
+      restart();
+      return { status: 200, body: { check: result, restarting: true } };
+    };
+    // A connection check only reads, so anyone signed in may run it.
+    actions['settings/test'] = async ({ body }) => ({
+      status: 200,
+      body: { results: await store.test(str(body['connector'])) },
+    });
   }
 
   return { routes, actions, streams };

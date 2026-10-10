@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -100,6 +100,7 @@ export interface ConsoleServerOptions {
 }
 
 interface Session {
+  id: string;
   expires: number;
   user: ConsoleUser;
   streams: Set<() => void>;
@@ -107,28 +108,56 @@ interface Session {
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest();
 
+/**
+ * Sessions are signed cookies, not server memory, so a restart (to apply settings) keeps
+ * everyone signed in: `<payload>.<mac>`, the payload naming the session id, the user, and the
+ * expiry, the mac keyed by a hash of that user's token. Rotating a token ends its sessions;
+ * signing out ends one at once (a revoked list, kept until the session would expire anyway).
+ */
+function signSession(key: Buffer, payload: { i: string; u: string; e: number }): string {
+  const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const mac = createHmac('sha256', key).update(body).digest('base64url');
+  return `${body}.${mac}`;
+}
+
 export async function startConsoleServer(o: ConsoleServerOptions): Promise<Server> {
   const now = o.now ?? (() => Date.now());
   const accounts = o.accounts.map((a) => ({ digest: digest(a.token), user: a.user }));
-  const sessions = new Map<string, Session>();
+  const streams = new Map<string, Set<() => void>>();
+  const revoked = new Map<string, number>();
   const failures = new Map<string, number[]>();
   const staticDir = resolve(o.staticDir ?? DEFAULT_STATIC_DIR);
 
   const sessionOf = (req: IncomingMessage): Session | null => {
-    const id = cookie(req, SESSION_COOKIE);
-    const session = id ? sessions.get(id) : undefined;
-    if (!id || !session) return null;
-    if (session.expires < now()) {
-      endSession(id);
+    const value = cookie(req, SESSION_COOKIE);
+    const [body, mac] = value?.split('.') ?? [];
+    if (!body || !mac) return null;
+    let payload: { i?: unknown; u?: unknown; e?: unknown };
+    try {
+      payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as typeof payload;
+    } catch {
       return null;
     }
-    return session;
+    const { i, u, e } = payload;
+    if (typeof i !== 'string' || typeof u !== 'string' || typeof e !== 'number') return null;
+    const account = accounts.find((a) => a.user.name === u);
+    if (!account || e < now() || revoked.has(i)) return null;
+    const expected = Buffer.from(signSession(account.digest, { i, u, e }).split('.')[1] ?? '');
+    const given = Buffer.from(mac);
+    if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+    let set = streams.get(i);
+    if (!set) {
+      set = new Set();
+      streams.set(i, set);
+    }
+    return { id: i, expires: e, user: account.user, streams: set };
   };
 
-  const endSession = (id: string) => {
-    const session = sessions.get(id);
-    sessions.delete(id);
-    for (const stop of session?.streams ?? []) stop();
+  const endSession = (session: Session) => {
+    revoked.set(session.id, session.expires);
+    for (const [id, expires] of revoked) if (expires < now()) revoked.delete(id);
+    for (const stop of session.streams) stop();
+    streams.delete(session.id);
   };
 
   /** Checks every account in constant time, so timing says nothing about which matched. */
@@ -173,22 +202,23 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
             return;
           }
           failures.delete(ip);
-          const id = randomBytes(32).toString('base64url');
-          sessions.set(id, {
-            expires: now() + SESSION_HOURS * 3_600_000,
-            user,
-            streams: new Set(),
+          const account = accounts.find((a) => a.user === user);
+          if (!account) throw new Error('account vanished');
+          const value = signSession(account.digest, {
+            i: randomBytes(18).toString('base64url'),
+            u: user.name,
+            e: now() + SESSION_HOURS * 3_600_000,
           });
           res.setHeader(
             'set-cookie',
-            `${SESSION_COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(SESSION_HOURS * 3600)}`,
+            `${SESSION_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(SESSION_HOURS * 3600)}`,
           );
           json(res, 200, { signedIn: true });
           return;
         }
         if (name === 'logout') {
-          const id = cookie(req, SESSION_COOKIE);
-          if (id) endSession(id);
+          const session = sessionOf(req);
+          if (session) endSession(session);
           res.setHeader(
             'set-cookie',
             `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,

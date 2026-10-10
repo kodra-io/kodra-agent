@@ -17,11 +17,11 @@ import { Icon, type IconName } from './icons.tsx';
 import {
   ActivityPage,
   ApprovalsPage,
-  ConnectorsPage,
   InvestigationsPage,
   OverviewPage,
   UsagePage,
 } from './pages.tsx';
+import { SettingsPage } from './settings.tsx';
 import { StatusContext } from './status.ts';
 import { useTheme } from './theme.ts';
 
@@ -32,7 +32,7 @@ const PAGES = [
   { path: '/activity', label: 'nav.activity', icon: 'activity', Page: ActivityPage },
   { path: '/investigations', label: 'nav.investigations', icon: 'bell', Page: InvestigationsPage },
   { path: '/usage', label: 'nav.usage', icon: 'chart', Page: UsagePage },
-  { path: '/connectors', label: 'nav.connectors', icon: 'plug', Page: ConnectorsPage },
+  { path: '/settings', label: 'nav.settings', icon: 'settings', Page: SettingsPage },
 ] as const satisfies readonly { path: string; label: MessageKey; icon: IconName; Page: unknown }[];
 
 /** How often the shell refreshes the approvals badge and the status card. */
@@ -40,7 +40,9 @@ const PENDING_POLL_MS = 10_000;
 const STATUS_POLL_MS = 30_000;
 
 function currentPath(): string {
-  return window.location.pathname.replace(/\/+$/, '') || '/';
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  // Connectors moved into Settings.
+  return path === '/connectors' ? '/settings' : path;
 }
 
 /** The pages this session can use: Chat only when the agent has it on. */

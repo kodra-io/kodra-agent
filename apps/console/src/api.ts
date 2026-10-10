@@ -230,3 +230,122 @@ export async function signIn(token: string): Promise<'ok' | 'wrong' | 'too-many'
 export async function signOut(): Promise<void> {
   await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
 }
+
+/** Text in the configurator's two languages, from a connector manifest. */
+export interface Localized {
+  en: string;
+  ar: string;
+}
+
+export type ConfigField =
+  | {
+      kind: 'string';
+      key: string;
+      required: boolean;
+      description: Localized;
+      example?: string;
+      patternHint?: Localized;
+    }
+  | { kind: 'url'; key: string; required: boolean; description: Localized; example?: string }
+  | {
+      kind: 'string-list';
+      key: string;
+      required: boolean;
+      description: Localized;
+      example?: string[];
+      patternHint?: Localized;
+    }
+  | {
+      kind: 'integer';
+      key: string;
+      required: boolean;
+      description: Localized;
+      min: number;
+      max: number;
+    };
+
+export interface SecretSetting {
+  key: string;
+  label: string;
+  envVar: string;
+  required: boolean;
+  set: boolean;
+  writable: boolean;
+  ref: string;
+  description: Localized;
+  howToCreate: Localized;
+}
+
+export interface ConnectorSettings {
+  id: string;
+  name: string;
+  category: string;
+  status: 'available' | 'coming-soon';
+  description: Localized;
+  accessLevels: string[];
+  summaries: Partial<Record<string, Localized[]>>;
+  enabled: boolean;
+  access: string | null;
+  config: Record<string, unknown>;
+  fields: ConfigField[];
+  secrets: SecretSetting[];
+  tools: { read: number; write: number; destructive: number };
+}
+
+export interface SettingsView {
+  target: 'compose' | 'kubernetes';
+  editable: boolean;
+  why: string | null;
+  base: string;
+  model: { provider: string; name: string };
+  policy: { approvers: string[]; expiresAfterMinutes: number; destructiveActions: string };
+  limits: {
+    maxSteps: number;
+    tokenBudget: number;
+    timeoutMinutes: number;
+    monthlyBudgetUsd?: number;
+  };
+  console: { chat: boolean };
+  connectors: ConnectorSettings[];
+  lastChange: { by: string; at: string; detail: string } | null;
+  undoable: boolean;
+}
+
+export interface SettingsPatch {
+  connectors?: Record<
+    string,
+    { enabled?: boolean; access?: string; config?: Record<string, unknown> }
+  >;
+  policy?: { approvers?: string[]; expiresAfterMinutes?: number; destructiveActions?: string };
+  model?: { name?: string };
+  limits?: {
+    maxSteps?: number;
+    tokenBudget?: number;
+    timeoutMinutes?: number;
+    monthlyBudgetUsd?: number | null;
+  };
+  console?: { chat?: boolean };
+}
+
+export type AccessChange =
+  | { code: 'enabled'; connector: string }
+  | { code: 'write'; connector: string }
+  | { code: 'scope'; connector: string; field: string; added: string[] }
+  | { code: 'approver'; approver: string }
+  | { code: 'destructive' }
+  | { code: 'chat' };
+
+export interface SettingsPreview {
+  ok: boolean;
+  errors: string[];
+  diff: string;
+  base: string;
+  moreAccess: AccessChange[];
+  changed: string[];
+}
+
+export interface CheckRow {
+  check: string;
+  status: string;
+  message: string;
+}

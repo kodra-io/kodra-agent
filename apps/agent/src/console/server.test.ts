@@ -77,7 +77,7 @@ describe('console server', () => {
     expect(ok.status).toBe(200);
     const setCookie = ok.headers.get('set-cookie') ?? '';
     expect(setCookie).toMatch(
-      /^kodra_console=[A-Za-z0-9_-]{43}; HttpOnly; SameSite=Strict; Path=\/;/,
+      /^kodra_console=[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}; HttpOnly; SameSite=Strict; Path=\/;/,
     );
     expect(setCookie).not.toContain(TOKEN);
 
@@ -103,6 +103,51 @@ describe('console server', () => {
 
     const other = await start();
     expect((await other.login(TOKEN, { origin: 'https://evil.example' })).status).toBe(403);
+  });
+
+  it('keeps a session over a restart, and refuses a tampered or rotated one', async () => {
+    const first = await start();
+    const cookie = sessionCookie(await first.login(APPROVER_TOKEN));
+    const [body = '', mac = ''] = cookie.slice('kodra_console='.length).split('.');
+    // A new server with the same tokens (the agent restarted to apply settings).
+    const again = await start();
+    const ok = await fetch(`${again.base}/api/session`, { headers: { cookie } });
+    expect(await ok.json()).toMatchObject({ signedIn: true, user: 'console:omar' });
+
+    // Claiming another user, or a later expiry, breaks the signature.
+    const forged = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    for (const change of [{ u: 'console' }, { e: Date.now() + 1e10 }]) {
+      const tampered = Buffer.from(JSON.stringify({ ...forged, ...change })).toString('base64url');
+      const res = await fetch(`${again.base}/api/session`, {
+        headers: { cookie: `kodra_console=${tampered}.${mac}` },
+      });
+      expect(await res.json()).toEqual({ signedIn: false });
+    }
+
+    // A server whose approver token was rotated does not accept the old session.
+    const rotated = await startConsoleServer({
+      port: 0,
+      host: '127.0.0.1',
+      accounts: [
+        { token: 'rotated-token-0a9b8c7d', user: { name: 'console:omar', canApprove: true } },
+      ],
+      routes: {},
+      staticDir: first.dir,
+    });
+    const address = rotated.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const res = await fetch(`http://127.0.0.1:${String(port)}/api/session`, {
+      headers: { cookie },
+    });
+    expect(await res.json()).toEqual({ signedIn: false });
+    await new Promise<void>((r) => {
+      rotated.close(() => {
+        r();
+      });
+    });
   });
 
   it('signs each approver in as themselves', async () => {

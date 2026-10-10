@@ -16,6 +16,8 @@ export const auditRecordSchema = z.strictObject({
     'error',
     /** The agent paused or resumed by a person (detail says which). */
     'control',
+    /** Settings changed from the console (detail says what; never a secret's value). */
+    'settings',
   ]),
   actor: z.string().min(1),
   task: z.string().optional(),
