@@ -277,45 +277,8 @@ function Bar({ share, over }: { share: number; over: boolean }) {
   return <span ref={ref} className={`block h-2 ${over ? 'bg-bad-text' : 'bg-primary'}`} />;
 }
 
-export function ConnectorsPage({ onSignedOut }: PageProps) {
-  const { t } = useI18n();
-  const load = useCallback(() => get<ConnectorView[]>('connectors'), []);
-  const { data, error, loading, reload } = useLoad(load, onSignedOut);
-  return (
-    <Page title="connectors.title" onRefresh={reload} loading={loading} error={error}>
-      <div className="space-y-4">
-        {data?.map((c) => (
-          <article key={c.id} className="rounded-xl border border-line bg-raised p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-bold">{c.name}</h2>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-ink-secondary">{t('connectors.access')}:</span>
-                <Ltr>{c.access ?? t('connectors.on')}</Ltr>
-                <Badge tone={c.available ? 'accent' : 'plain'}>
-                  {t(c.available ? 'overview.available' : 'overview.unavailable')}
-                </Badge>
-              </div>
-            </div>
-            {!c.available && (
-              <dl className="mt-3 space-y-1 text-sm">
-                <dt className="font-semibold">{t('connectors.reason')}</dt>
-                <dd>
-                  <Ltr>{c.reason}</Ltr>
-                </dd>
-                <dt className="font-semibold">{t('connectors.fix')}</dt>
-                <dd>{c.hint}</dd>
-              </dl>
-            )}
-            {c.available && <ConnectorTools connector={c} />}
-          </article>
-        ))}
-      </div>
-    </Page>
-  );
-}
-
 /** A connector's tools. A limit every tool shares is shown once, not on each tool. */
-function ConnectorTools({ connector: c }: { connector: ConnectorView }) {
+export function ConnectorTools({ connector: c }: { connector: ConnectorView }) {
   const { t, has } = useI18n();
   if (c.tools.length === 0) {
     const note =

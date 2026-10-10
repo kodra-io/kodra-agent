@@ -128,6 +128,19 @@ const PATHS = {
     </>
   ),
   spinner: <path d="M21 12a9 9 0 1 1-6.22-8.56" />,
+  history: (
+    <>
+      <path d="M3 7v6h6" />
+      <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="7.5" cy="15.5" r="5.5" />
+      <path d="m21 2-9.6 9.6" />
+      <path d="m15.5 7.5 3 3L22 7l-3-3" />
+    </>
+  ),
   pause: (
     <>
       <rect x="14" y="4" width="4" height="16" rx="1" />

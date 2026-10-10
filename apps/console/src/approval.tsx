@@ -106,7 +106,7 @@ export function ApprovalCard({
                 {a.args}
               </bdi>
             </p>
-            <Preview text={a.preview} />
+            <DiffView text={a.preview} label={t('approval.preview')} />
           </>
         ) : (
           <div>
@@ -218,14 +218,13 @@ export function ApprovalCard({
   );
 }
 
-/** The change as the approver reviews it: a diff for file edits, a line per other step. */
-function Preview({ text }: { text: string }) {
-  const { t } = useI18n();
+/** A change to review: a diff for file edits, a line per other step. */
+export function DiffView({ text, label }: { text: string; label: string }) {
   return (
     <pre
       dir="ltr"
       tabIndex={0}
-      aria-label={t('approval.preview')}
+      aria-label={label}
       className="max-h-96 overflow-auto rounded-lg border border-line bg-raised py-2 text-start font-mono text-[12.5px] leading-5"
     >
       {text.split('\n').map((line, i) => {

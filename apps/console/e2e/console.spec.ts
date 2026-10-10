@@ -33,24 +33,116 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 
-test('shows why a connector is not available, and how to fix it', async ({ page }) => {
+test('shows why a connector is not available, and the tools it gives', async ({ page }) => {
   await signIn(page);
-  await page.getByRole('navigation').getByRole('link', { name: 'Connectors' }).click();
-  await expect(page).toHaveURL(/\/connectors$/);
-  const kube = page.getByRole('article').filter({ hasText: 'Kubernetes' });
-  await expect(kube).toContainText('missing Kubernetes kubeconfig');
-  await expect(kube).toContainText('copy it to secrets/kubeconfig');
-  const gitlab = page.getByRole('article').filter({ hasText: 'GitLab' });
-  await expect(gitlab).toContainText('list_merge_requests');
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await page.getByRole('button', { name: 'Configure Kubernetes' }).click();
+  await expect(page.getByRole('note')).toContainText('missing Kubernetes kubeconfig');
+  await expect(page.getByRole('note')).toContainText('copy it to secrets/kubeconfig');
+  // A file secret is changed on the host, not here.
+  await expect(
+    page.getByText('This one is a file. Put it at /secrets/kubeconfig on the host'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Connectors' }).click();
+  await page.getByRole('button', { name: 'Configure GitLab' }).click();
+  await page.getByText(/Tools the agent gets/).click();
+  await expect(page.getByText('list_merge_requests')).toBeVisible();
   // A limit every tool shares is shown once.
-  await expect(gitlab.getByText('project_id must be one of: jordan-kodra/terraform')).toHaveCount(
-    1,
+  await expect(page.getByText('project_id must be one of: jordan-kodra/terraform')).toHaveCount(1);
+  await expect(page.getByText('Every tool:')).toBeVisible();
+});
+
+test('settings are read-only for the shared token', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await expect(page.getByText('only a console approver can change settings')).toBeVisible();
+  await page.getByRole('button', { name: 'Configure GitLab' }).click();
+  await expect(page.getByRole('radio', { name: /Read and write/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Replace' })).toHaveCount(0);
+  // Anyone can test a connection: it only reads.
+  await page.getByRole('button', { name: 'Test connection' }).click();
+  await expect(page.getByRole('list', { name: 'Connection checks' })).toContainText(
+    'can read 1 project',
   );
-  await expect(gitlab).toContainText('Every tool:');
-  const docker = page
-    .getByRole('article')
-    .filter({ has: page.getByRole('heading', { name: 'Docker' }) });
-  await expect(docker).toContainText('Used by kodra-agent ship');
+});
+
+test('an approver changes a connector: review the diff and the access it adds, then restart', async ({
+  page,
+  api,
+}) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Configure GitLab' }).click();
+  await page.getByRole('radio', { name: /Read and write, with approval/ }).check();
+  await page.getByLabel('Projects the agent may use.').fill('jordan-kodra/payments');
+  await page.getByLabel('Projects the agent may use.').press('Enter');
+
+  const review = page.getByRole('complementary', { name: 'Review changes' });
+  await expect(review).toContainText('More access');
+  await expect(review).toContainText('GitLab can propose changes, each after an approval.');
+  await expect(review).toContainText('GitLab can reach jordan-kodra/payments.');
+  const diff = review.getByLabel('Changes to kodra-agent.yaml');
+  await expect(diff.getByText('+      access: read-write-approved', { exact: true })).toBeVisible();
+
+  await review.getByRole('button', { name: 'Save and restart' }).click();
+  // Nothing is saved until the second step.
+  expect(api.some((a) => a.startsWith('BODY settings/apply'))).toBe(false);
+  await review.getByRole('button', { name: 'Yes, save and restart' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
+  // Back: the review is gone, and Undo is offered.
+  await expect(page.getByRole('button', { name: 'Undo last change' })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(review).toHaveCount(0);
+  expect(
+    api.some(
+      (a) =>
+        a.startsWith('BODY settings/apply') &&
+        a.includes(
+          '"gitlab":{"access":"read-write-approved","config":{"projects":["jordan-kodra/terraform","jordan-kodra/payments"]}}',
+        ),
+    ),
+  ).toBe(true);
+
+  await page.getByRole('button', { name: 'Undo last change' }).click();
+  await page.getByRole('button', { name: 'Yes, undo' }).click();
+  await expect(page.getByRole('button', { name: 'Undo last change' })).toHaveCount(0, {
+    timeout: 15_000,
+  });
+});
+
+test('replaces a token only after it passes the check', async ({ page }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Configure GitLab' }).click();
+  await page.getByRole('button', { name: 'Replace' }).click();
+  const field = page.getByLabel('New value for GitLab token (GITLAB_TOKEN)');
+  await expect(field).toHaveAttribute('type', 'password');
+  await field.fill('glpat-a-wrong-token');
+  await page.getByRole('button', { name: 'Check and save' }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Not saved: GitLab token: HTTP 401 for jordan-kodra/terraform',
+  );
+  await field.fill('glpat-a-good-new-token');
+  await page.getByRole('button', { name: 'Check and save' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible({
+    timeout: 15_000,
+  });
+});
+
+test('sets a monthly budget', async ({ page, api }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Model and limits' }).click();
+  await page.getByLabel('Budget per month, in US dollars').fill('40');
+  await expect(page.getByRole('complementary', { name: 'Review changes' })).toContainText(
+    'monthlyBudgetUsd: 40',
+  );
+  expect(
+    api.some((a) => a.startsWith('BODY settings/preview') && a.includes('"monthlyBudgetUsd":40')),
+  ).toBe(true);
 });
 
 test('filters activity on the server', async ({ page, api }) => {
@@ -322,7 +414,7 @@ test('has no accessibility violations, in both themes', async ({ page }) => {
     expect(results.violations.map((v) => `dark ${name}: ${v.id}`)).toEqual([]);
   }
   await page.getByRole('button', { name: 'Switch to the light theme' }).click();
-  for (const name of ['Overview', 'Connectors', 'Activity', 'Usage', 'Approvals', 'Chat']) {
+  for (const name of ['Overview', 'Settings', 'Activity', 'Usage', 'Approvals', 'Chat']) {
     await page.getByRole('navigation').getByRole('link', { name }).click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     if (name === 'Chat') {

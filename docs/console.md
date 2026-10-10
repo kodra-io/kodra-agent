@@ -96,6 +96,44 @@ How the console is protected:
 Conversations live in memory, up to 20, and are gone when the agent restarts. The audit log
 keeps the record of every question, tool call, and decision.
 
+## Settings
+
+**Settings** shows what the agent can reach, who approves its changes, and its limits.
+A console approver can change them; everyone else sees them read-only.
+
+- **Connectors:**
+  - turn each one on or off;
+  - choose its access;
+  - edit its settings (projects, namespaces, addresses);
+  - **Test connection**: runs the same checks as `doctor`. Anyone signed in can run it.
+- **Approvals and policy:** approvers, how long a request stays open, and whether destructive
+  actions are blocked.
+- **Model and limits:** the model name, the limits for each question, and the monthly budget.
+- **Console:** chat on or off. The console cannot turn itself off, and the last console
+  approver cannot be removed here, so nobody locks themselves out.
+
+How a change is saved:
+
+1. Your edits go onto `kodra-agent.yaml` itself, so its comments and layout stay. They are
+   checked with the same rules as `init` and `doctor`.
+2. **Review changes** shows the diff, and calls out any access the change adds: a connector
+   turned on, write access, more projects or namespaces, a new approver, destructive actions
+   allowed, chat turned on.
+3. **Save and restart**, then a second confirmation. The previous file is kept as
+   `kodra-agent.yaml.previous`, and the change is audited (event `settings`, with your name).
+4. The agent restarts to apply it, in about 15 seconds; Docker Compose starts it again
+   (`restart: unless-stopped`). You stay signed in: sessions are signed with each person's
+   token, so a restart does not end them.
+5. **Undo last change** puts the previous file back the same way.
+
+Secrets are write-only. **Replace** checks a new value with the connector's own check first,
+and only then writes it to `.env`; the value is never shown again, logged, or sent anywhere.
+Secrets that are files (a kubeconfig) live on a read-only mount: put the new file on the host
+and restart.
+
+On Kubernetes the settings are read-only for now: change `values.yaml` and run
+`helm upgrade`.
+
 ## Pausing changes
 
 **Pause all changes** (on Overview, and **Pause agent** in the sidebar) stops the agent from
