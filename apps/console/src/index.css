@@ -1,40 +1,125 @@
 @import 'tailwindcss';
 
-/* Brand tokens (SPEC section 7). One accent color only. */
-@theme {
-  --color-primary: #3250a0;
-  --color-primary-deep: #26407f;
-  --color-primary-tint: #eef1f8;
-  --color-ink: #172554;
-  /* Brand text-secondary is #6b7785, which is under 4.5:1 on surface and tint (WCAG AA). */
-  --color-ink-secondary: #5f6b78;
-  --color-surface: #fafbfc;
-  --color-line: #e4e8ee;
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  --font-heading: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+/*
+ * Kodra.io design system tokens, light and dark. Utilities read the variables, so a theme
+ * switch is one attribute on <html>: data-theme="dark" or "light"; without it, the system
+ * setting decides. One action color (primary); state colors always come with a word.
+ */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  --k-surface: #f8f9fa;
+  --k-raised: #ffffff;
+  --k-muted: #f3f4f6;
+  --k-line: #e5e7eb;
+  --k-line-strong: #d1d5db;
+  --k-ink: #1a202c;
+  /* text-secondary: 6.8:1 and up on every surface. */
+  --k-ink-secondary: #4a5568;
+  --k-primary: #2563eb;
+  --k-primary-deep: #1d4ed8;
+  --k-primary-tint: #eff6ff;
+  --k-primary-text: #1d4ed8;
+  --k-nav-active: #dbeafe;
+  --k-nav-active-text: #1d4ed8;
+  --k-ok-tint: #dcfce7;
+  --k-ok-text: #15803d;
+  --k-ok: #16a34a;
+  --k-bad-tint: #fee2e2;
+  --k-bad-text: #b91c1c;
+  --k-focus: #3b82f6;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --k-surface: #1a202c;
+  --k-raised: #1f2937;
+  --k-muted: #374151;
+  --k-line: #374151;
+  --k-line-strong: #4b5563;
+  --k-ink: #f8f9fa;
+  --k-ink-secondary: #d1d5db;
+  --k-primary: #1e40af;
+  --k-primary-deep: #1e3a8a;
+  --k-primary-tint: #1f2c48;
+  --k-primary-text: #93c5fd;
+  --k-nav-active: #1e40af;
+  --k-nav-active-text: #ffffff;
+  --k-ok-tint: #14532d;
+  --k-ok-text: #86efac;
+  --k-ok: #4ade80;
+  --k-bad-tint: #3c252f;
+  --k-bad-text: #fca5a5;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-surface: var(--k-surface);
+  --color-raised: var(--k-raised);
+  --color-muted: var(--k-muted);
+  --color-line: var(--k-line);
+  --color-line-strong: var(--k-line-strong);
+  --color-ink: var(--k-ink);
+  --color-ink-secondary: var(--k-ink-secondary);
+  --color-primary: var(--k-primary);
+  --color-primary-deep: var(--k-primary-deep);
+  --color-primary-tint: var(--k-primary-tint);
+  --color-primary-text: var(--k-primary-text);
+  --color-nav-active: var(--k-nav-active);
+  --color-nav-active-text: var(--k-nav-active-text);
+  --color-ok: var(--k-ok);
+  --color-ok-tint: var(--k-ok-tint);
+  --color-ok-text: var(--k-ok-text);
+  --color-bad-tint: var(--k-bad-tint);
+  --color-bad-text: var(--k-bad-text);
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
+    'Helvetica Neue', sans-serif;
+  --font-mono: Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
 body {
   @apply bg-surface text-ink font-sans antialiased;
 }
 
-h1,
-h2,
-h3,
-h4 {
-  @apply font-heading;
-}
-
 /* Arabic text uses the self-hosted font; its unicode-range keeps Latin text on the stack above. */
-:lang(ar) body,
-:lang(ar) h1,
-:lang(ar) h2,
-:lang(ar) h3,
-:lang(ar) h4 {
+:lang(ar) body {
   font-family: 'Noto Sans Arabic', var(--font-sans);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--k-focus);
   outline-offset: 2px;
+}
+
+@keyframes kodra-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.kodra-dot {
+  animation: kodra-pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes kodra-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.kodra-caret {
+  animation: kodra-blink 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kodra-dot,
+  .kodra-caret {
+    animation: none;
+  }
 }

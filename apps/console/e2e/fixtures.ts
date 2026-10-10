@@ -169,6 +169,8 @@ interface MockConversation {
   createdAt: string;
   busy: boolean;
   events: Record<string, unknown>[];
+  /** Live text pieces, sent once on the next stream request and never kept (like the agent). */
+  live: string[];
 }
 
 /** A proposed change's preview, as the agent builds it. */
@@ -289,6 +291,7 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           createdAt: '2026-10-09T09:00:00.000Z',
           busy: true,
           events: [],
+          live: ['The pod restarts because it ', 'runs **out of memory**. Checking the limit.'],
         };
         conversations.unshift(c);
         add(
@@ -317,6 +320,24 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         );
         pending = [{ ...CHAT_REQUEST, requestedBy: user.name }, ...pending];
         return route.fulfill({ json: { conversation: c.id } });
+      }
+      if (name === 'chat/stop') {
+        const c = conversations.find((x) => x.id === body['conversation']);
+        if (!c?.busy) return route.fulfill({ status: 409, json: { error: 'nothing is running' } });
+        pending = pending.filter((p) => p['id'] !== CHAT_REQUEST.id);
+        add(
+          c,
+          { type: 'decision', call: 'c2', id: CHAT_REQUEST.id, decision: 'expired' },
+          {
+            type: 'answer',
+            text: 'The pod restarts because it runs **out of memory**.\n\n(Stopped. Nothing more was run.)',
+            usage: { input: 900, cacheRead: 0, cacheWrite: 0, output: 40 },
+            stoppedBy: 'user',
+          },
+          { type: 'status', state: 'idle' },
+        );
+        c.busy = false;
+        return route.fulfill({ json: { stopped: true } });
       }
       if (name === 'approvals/decide') {
         const id = String(body['id']);
@@ -389,10 +410,16 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
       // Like the agent: replay what the browser has not seen. The mock ends the response,
       // so the browser reconnects (after `retry`) with Last-Event-ID, as after a network drop.
       const after = Number(request.headers()['last-event-id'] ?? '0');
-      const body = c.events
+      const kept = c.events
         .filter((e) => Number(e['seq']) > after)
         .map((e) => `id: ${String(e['seq'])}\ndata: ${JSON.stringify(e)}\n\n`)
         .join('');
+      // Live pieces have no id and seq 0, so a reconnect does not count them.
+      const live = c.live
+        .map((text) => `data: ${JSON.stringify({ type: 'text', text, seq: 0, ts: '' })}\n\n`)
+        .join('');
+      c.live = [];
+      const body = kept + live;
       return route.fulfill({
         status: 200,
         headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },

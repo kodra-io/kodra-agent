@@ -192,6 +192,8 @@ export type ChatEvent = { seq: number; ts: string } & (
       preview?: string;
     }
   | { type: 'decision'; call: string; id: string; decision: string; by?: string }
+  /** A piece of the answer while it is written (seq 0: live only, never kept). */
+  | { type: 'text'; text: string }
 );
 
 export async function signIn(token: string): Promise<'ok' | 'wrong' | 'too-many'> {

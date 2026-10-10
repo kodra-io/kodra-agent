@@ -21,7 +21,7 @@ export function Page({
     <section aria-labelledby="page-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 id="page-title" className="text-2xl font-bold">
+          <h1 id="page-title" className="text-3xl font-bold">
             {t(title)}
           </h1>
           {intro && <p className="mt-1 text-sm text-ink-secondary">{t(intro)}</p>}
@@ -29,14 +29,14 @@ export function Page({
         <button
           type="button"
           onClick={onRefresh}
-          className="rounded-md border border-line bg-white px-3 py-1.5 text-sm hover:bg-primary-tint"
+          className="h-9 rounded-lg border border-line-strong bg-raised px-3 text-sm font-medium hover:bg-muted"
         >
           {t('app.refresh')}
         </button>
       </div>
       <div className="mt-6" aria-busy={loading}>
         {error && (
-          <p role="alert" className="rounded-md border border-line bg-white p-3">
+          <p role="alert" className="rounded-md border border-line bg-raised p-3">
             {t('app.error', { message: error })}
           </p>
         )}
@@ -51,8 +51,8 @@ export function Badge({ tone, children }: { tone: 'accent' | 'plain'; children: 
     <span
       className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
         tone === 'accent'
-          ? 'bg-primary-tint text-primary-deep'
-          : 'border border-line bg-white text-ink'
+          ? 'bg-primary-tint text-primary-text'
+          : 'border border-line bg-raised text-ink'
       }`}
     >
       {children}
@@ -62,7 +62,7 @@ export function Badge({ tone, children }: { tone: 'accent' | 'plain'; children: 
 
 export function Table({ head, children }: { head: ReactNode[]; children: ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-white">
+    <div className="overflow-x-auto rounded-xl border border-line bg-raised">
       <table className="w-full text-start text-sm">
         <thead className="bg-surface text-ink-secondary">
           <tr>

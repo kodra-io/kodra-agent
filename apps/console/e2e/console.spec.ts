@@ -71,8 +71,12 @@ test('lists approvals; the shared token sees waiting requests but cannot decide'
   page,
 }) => {
   await signIn(page);
-  await expect(page.getByText('Signed in as console.')).toBeVisible();
-  await page.getByRole('navigation').getByRole('link', { name: 'Approvals' }).click();
+  const nav = page.getByRole('navigation');
+  await expect(nav).toContainText('View and chat');
+  // The approvals badge, in the sidebar and in the tab title.
+  await expect(nav.getByRole('link', { name: 'Approvals' })).toContainText('3');
+  await expect(page).toHaveTitle('(3) Console | Kodra AI Agent');
+  await nav.getByRole('link', { name: 'Approvals' }).click();
   await expect(page.getByText('No decision recorded')).toBeVisible();
   await expect(page.getByText('approved by U-OMAR')).toBeVisible();
   const waiting = page.getByRole('group', { name: 'Needs approval' });
@@ -84,9 +88,8 @@ test('lists approvals; the shared token sees waiting requests but cannot decide'
 
 test('a console approver approves a waiting request after confirming', async ({ page, api }) => {
   await signIn(page, APPROVER_TOKEN);
-  await expect(
-    page.getByText('Signed in as console:omar. You can approve changes here.'),
-  ).toBeVisible();
+  await expect(page.getByRole('navigation')).toContainText('console:omar');
+  await expect(page.getByRole('navigation')).toContainText('Approver');
   await page.getByRole('navigation').getByRole('link', { name: 'Approvals' }).click();
   const waiting = page.getByRole('group', { name: 'Needs approval' });
   const pr = waiting.filter({ hasText: 'Open the fix for review.' });
@@ -112,7 +115,7 @@ test('shows a proposed change by its title, with the diff to review', async ({ p
   const card = page
     .getByRole('group', { name: 'Needs approval' })
     .filter({ hasText: 'Raise web replicas to 3' });
-  await expect(card).toContainText('Needs approval: Raise web replicas to 3');
+  await expect(card).toContainText('Raise web replicas to 3');
   await expect(card).toContainText('Steps');
   const preview = card.getByLabel('Preview of the change');
   await expect(preview).toContainText('--- a/deploy/values.yaml (main)');
@@ -134,6 +137,13 @@ test('chats with the agent and shows each step live', async ({ page, api }) => {
 
   const log = page.getByRole('log');
   await expect(log).toContainText('Why does web keep restarting?');
+  // The answer appears as it is written, with markdown.
+  await expect(log.getByText('out of memory', { exact: true })).toHaveCount(1);
+  await expect(log.locator('strong')).toHaveText('out of memory');
+  // Tool calls fold into one line that opens to the details.
+  const tools = log.getByRole('button', { name: /Used 1 tool/ });
+  await expect(tools).toContainText('pods_log');
+  await tools.click();
   await expect(log.getByText('kubernetes/pods_log')).toBeVisible();
   await expect(log).toContainText('done');
   const card = log.getByRole('group', { name: 'Needs approval' });
@@ -144,9 +154,11 @@ test('chats with the agent and shows each step live', async ({ page, api }) => {
   // The shared token cannot approve.
   await expect(card).toContainText('Waiting for an approver.');
   await expect(card.getByRole('button')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+  // While it works, Stop replaces Send.
+  await expect(page.getByRole('button', { name: 'Send' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
 
-  await expect(page.getByRole('navigation', { name: 'Conversations' })).toContainText(
+  await expect(page.getByRole('complementary', { name: 'Conversations' })).toContainText(
     'Why does web keep restarting?',
   );
   expect(api).toContain('BODY chat {"text":"Why does web keep restarting?"}');
@@ -189,17 +201,56 @@ test('denies a change with a reason the agent sees', async ({ page, api }) => {
   );
 });
 
+test('stops an answer: keeps what it said, and the waiting change closes', async ({
+  page,
+  api,
+}) => {
+  await signIn(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
+  await page.getByLabel('Message').fill('Why does web keep restarting?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  const log = page.getByRole('log');
+  await expect(log.getByRole('group', { name: 'Needs approval' })).toBeVisible();
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(log).toContainText('(Stopped. Nothing more was run.)');
+  await expect(log.getByRole('group', { name: 'Needs approval' })).toHaveCount(0);
+  await expect(log).toContainText('This request expired. Nothing was run.');
+  await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+  expect(api.some((a) => a.startsWith('BODY chat/stop'))).toBe(true);
+});
+
+test('starts with suggestions from the connectors, and Enter sends', async ({ page, api }) => {
+  await signIn(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
+  await expect(page.getByRole('heading', { name: 'What should we look at?' })).toBeVisible();
+  await expect(page.getByRole('log')).toContainText('I can read GitLab, Docker.');
+  await page
+    .getByRole('button', { name: /Which merge requests or pull requests are open/ })
+    .click();
+  await expect(page.getByRole('log')).toContainText(
+    'Which merge requests or pull requests are open?',
+  );
+  expect(api).toContain('BODY chat {"text":"Which merge requests or pull requests are open?"}');
+
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByLabel('Message').fill('First line');
+  await page.getByLabel('Message').press('Shift+Enter');
+  await page.getByLabel('Message').pressSequentially('second line');
+  await page.getByLabel('Message').press('Enter');
+  expect(api).toContain('BODY chat {"text":"First line\\nsecond line"}');
+});
+
 test('keeps the open conversation when you leave the Chat page and come back', async ({ page }) => {
   await signIn(page);
   await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
   await page.getByLabel('Message').fill('Why does web keep restarting?');
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByRole('log')).toContainText('kubernetes/pods_log');
+  await expect(page.getByRole('log')).toContainText('pods_log');
   await page.getByRole('navigation').getByRole('link', { name: 'Usage' }).click();
   await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
   await expect(page.getByRole('log')).toContainText('Why does web keep restarting?');
-  await page.getByRole('button', { name: 'New conversation' }).click();
-  await expect(page.getByRole('log')).toHaveText('Start by asking a question below.');
+  await page.getByRole('button', { name: 'New' }).click();
+  await expect(page.getByRole('heading', { name: 'What should we look at?' })).toBeVisible();
 });
 
 test.describe('with chat turned off', () => {
@@ -226,8 +277,17 @@ test('works in Arabic, right to left', async ({ page }) => {
   ).toBeVisible();
 });
 
-test('has no accessibility violations', async ({ page }) => {
+test('has no accessibility violations, in both themes', async ({ page }) => {
   await signIn(page);
+  await page.getByRole('button', { name: 'Switch to the dark theme' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  for (const name of ['Overview', 'Approvals']) {
+    await page.getByRole('navigation').getByRole('link', { name }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.map((v) => `dark ${name}: ${v.id}`)).toEqual([]);
+  }
+  await page.getByRole('button', { name: 'Switch to the light theme' }).click();
   for (const name of ['Overview', 'Connectors', 'Activity', 'Usage', 'Approvals', 'Chat']) {
     await page.getByRole('navigation').getByRole('link', { name }).click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -243,7 +303,12 @@ test('has no accessibility violations', async ({ page }) => {
 
 test('fits a phone screen @mobile', async ({ page }) => {
   await signIn(page);
+  // On a phone the sections fold behind the Menu button.
+  const menu = page.getByRole('button', { name: 'Menu' });
+  const phone = await menu.isVisible();
+  if (phone) await menu.click();
   await page.getByRole('navigation').getByRole('link', { name: 'Activity' }).click();
+  if (phone) await expect(page.getByRole('navigation')).toBeHidden();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
