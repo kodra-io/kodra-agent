@@ -54,3 +54,10 @@ From `listTools` on the real binary (repos, issues, pull_requests, and actions t
 ## Default branch protection
 
 At startup the agent reads each configured repo once (`GET /repos/{owner}/{repo}`) to learn its default branch. The policy engine blocks any commit, file change, branch creation, or pull request head on that branch. If the lookup fails, writes to that repo are blocked for the session instead of guessed.
+
+## Proposed changes
+
+Branch, file, and pull request tools are mapped in the manifest's `changeSteps`, with argument
+names checked against the input schemas of github-mcp-server v1.13.0. To show a diff, the agent reads each file
+once from the API with the connector's token, and again right before the write. See
+[fixes.md](../fixes.md).

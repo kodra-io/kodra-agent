@@ -25,7 +25,8 @@ export function ApprovalCard({
   const [note, setNote] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const noteId = useId();
-  const action = `${a.connector}/${a.tool}`;
+  // A proposed change is named by its title; a single tool call by connector/tool.
+  const action = a.title ?? `${a.connector}/${a.tool}`;
   const risk = `risk.${a.risk}`;
 
   const send = async (approve: boolean) => {
@@ -61,7 +62,7 @@ export function ApprovalCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-bold">
-          {t('approval.needed')}: <Ltr>{action}</Ltr>
+          {t('approval.needed')}: {a.title ? <bdi dir="auto">{a.title}</bdi> : <Ltr>{action}</Ltr>}
         </p>
         <Badge tone="plain">{has(risk) ? t(risk) : a.risk}</Badge>
       </div>
@@ -70,7 +71,7 @@ export function ApprovalCard({
         <dd className="whitespace-pre-wrap" dir="auto">
           {a.reason}
         </dd>
-        <dt className="text-ink-secondary">{t('approval.args')}</dt>
+        <dt className="text-ink-secondary">{t(a.preview ? 'approval.steps' : 'approval.args')}</dt>
         <dd className="break-all font-mono text-xs">
           <bdi dir="ltr">{a.args}</bdi>
         </dd>
@@ -83,6 +84,7 @@ export function ApprovalCard({
           </>
         )}
       </dl>
+      {a.preview && <Preview text={a.preview} />}
       <p className="mt-2 text-sm text-ink-secondary">
         {t('approval.expires', { time: time(a.expiresAt) })}
       </p>
@@ -190,5 +192,33 @@ export function ApprovalCard({
         </p>
       )}
     </div>
+  );
+}
+
+/** The change as the approver reviews it: a diff for file edits, a line per other step. */
+function Preview({ text }: { text: string }) {
+  const { t } = useI18n();
+  return (
+    <pre
+      dir="ltr"
+      tabIndex={0}
+      aria-label={t('approval.preview')}
+      className="mt-3 max-h-96 overflow-auto rounded-md border border-line bg-white p-3 text-start font-mono text-xs leading-5"
+    >
+      {text.split('\n').map((line, i) => (
+        <span
+          key={i}
+          className={`block whitespace-pre ${
+            line.startsWith('+') && !line.startsWith('+++')
+              ? 'bg-primary-tint text-ink'
+              : line.startsWith('-') && !line.startsWith('---')
+                ? 'text-ink-secondary'
+                : ''
+          }`}
+        >
+          {line || ' '}
+        </span>
+      ))}
+    </pre>
   );
 }

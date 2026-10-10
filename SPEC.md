@@ -358,6 +358,12 @@ M8a: a read-only console served by `kodra-agent run`: overview, connectors with 
 M8b: chat and approvals in the browser. Console approvers (`console:<name>`) sign in with their own token; approval requests go to the console and Slack, and the first decision wins.
 Done (M8a) when the image serves the console, sign-in is required for every API route, and the pages show a real agent's data. Done (M8b) when a question asked in the console shows its tool calls live, a console approver approves or denies a change there, and the decision is audited with their name.
 
+
+**M9: From diagnosis to fix (after the MVP)**
+M9a: proposed changes. The model proposes several tool calls as one change; the agent checks every step with the policy, shows one preview (a diff for each file edit), asks once, runs exactly the approved steps in order, and stops if a file changed after the preview. See `docs/fixes.md`.
+M9b: fixes after an investigation (rollout restart and undo, declared as built-in Kubernetes tools), proposed for approval, then checked.
+M9c: deploy with Helm after ship, check the rollout, and offer a rollback for approval.
+Done (M9a) when a chat request for a file edit in a configured repo produces one approval with a diff, and approving it creates the branch, writes the file, and opens the pull request, all audited.
 ---
 
 ## 13. Out of scope for the MVP

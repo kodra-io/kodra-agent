@@ -10,6 +10,7 @@ import {
 import {
   stdioRuntimes,
   type AccessLevel,
+  type ChangeStep,
   type Manifest,
   type McpStdioRuntime,
   type ToolGuard,
@@ -17,6 +18,7 @@ import {
 } from '@kodra-agent/schema';
 import type { AuditLog } from '../audit.ts';
 import type { Component } from '../config.ts';
+import type { FileReader } from '../forge-files.ts';
 import type { Logger } from '../io.ts';
 import type { Risk } from '../policy.ts';
 import type { Redactor } from '../redactor.ts';
@@ -38,6 +40,10 @@ export interface HostedTool {
   defaultBranches?: ReadonlyMap<string, string | null>;
   /** Settings of required connectors, for guards with `from`. */
   sharedSettings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /** Where its arguments are, for a proposed change's preview (source-control tools). */
+  changeStep?: ChangeStep;
+  /** Reads files from the connector's forge, for diffs and the check before each write. */
+  readFile?: FileReader;
   /** Index into the host's running servers. */
   server: number;
 }
@@ -85,6 +91,7 @@ export interface ConnectorInput {
   /** Settings of other connectors, by connector id (only required ones are passed on). */
   sharedSettings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   defaultBranches?: ReadonlyMap<string, string | null>;
+  readFile?: FileReader;
 }
 
 interface Running {
@@ -361,6 +368,10 @@ export class ConnectorHost {
         settings: component.settings,
         ...(input.defaultBranches ? { defaultBranches: input.defaultBranches } : {}),
         ...(input.sharedSettings ? { sharedSettings: input.sharedSettings } : {}),
+        ...(manifest.changeSteps?.[tool.name]
+          ? { changeStep: manifest.changeSteps[tool.name] }
+          : {}),
+        ...(input.readFile ? { readFile: input.readFile } : {}),
         server: serverIndex,
       });
     }

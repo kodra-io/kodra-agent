@@ -13,6 +13,9 @@ export interface ApprovalRequest {
   reason: string;
   requestedBy: string;
   expiresAt: Date;
+  /** A proposed change: its one-line title and the readable preview (a diff for file edits). */
+  title?: string;
+  preview?: string;
 }
 
 export type ApprovalOutcome =
@@ -80,7 +83,13 @@ export function cliApprovalChannel(
       term.out('');
       term.out(`Approval needed (${req.risk}): ${req.connector} / ${req.tool}`);
       term.out(`  Why:       ${req.reason}`);
-      term.out(`  Arguments: ${req.args}`);
+      if (req.title) term.out(`  Change:    ${req.title}`);
+      term.out(`  ${req.preview ? 'Steps:    ' : 'Arguments:'} ${req.args}`);
+      if (req.preview) {
+        term.out('');
+        for (const line of req.preview.split('\n')) term.out(`    ${line}`);
+        term.out('');
+      }
       term.out(`  Expires:   ${req.expiresAt.toISOString()}`);
       const ms = req.expiresAt.getTime() - now().getTime();
       if (ms <= 0) return { decision: 'expired' };

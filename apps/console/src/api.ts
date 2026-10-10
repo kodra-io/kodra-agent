@@ -138,6 +138,9 @@ export interface PendingApproval {
   reason: string;
   requestedBy: string;
   expiresAt: string;
+  /** A proposed change: its title and preview (a diff for file edits). */
+  title?: string;
+  preview?: string;
 }
 
 export function decide(id: string, approve: boolean, note?: string): Promise<{ result: string }> {
@@ -185,6 +188,8 @@ export type ChatEvent = { seq: number; ts: string } & (
       args: string;
       reason: string;
       expiresAt: string;
+      title?: string;
+      preview?: string;
     }
   | { type: 'decision'; call: string; id: string; decision: string; by?: string }
 );

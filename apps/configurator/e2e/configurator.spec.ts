@@ -137,7 +137,10 @@ test('switching to Arabic sets right-to-left and translates the page', async ({ 
 test('a shared link restores the same setup', async ({ page, context }) => {
   await fillBasics(page);
   await enableConnector(page, 'gitlab', 'GitLab');
+  const beforeFill = page.url();
   await connectorCard(page, 'gitlab').getByLabel('Projects the agent may use.').fill('acme/api');
+  // The link updates after each edit; wait for the one that includes the last edit.
+  await expect.poll(() => page.url()).not.toBe(beforeFill);
   await expect(page).toHaveURL(/#v1\./);
   const link = page.url();
   expect(link).not.toContain('token');

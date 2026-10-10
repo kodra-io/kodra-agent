@@ -149,5 +149,7 @@
   "approval.failed": "تعذر اتخاذ القرار: {message}",
   "approvals.waitingTitle": "بانتظار القرار",
   "approvals.noneWaiting": "لا شيء بانتظار القرار.",
-  "approvals.historyTitle": "السجل"
+  "approvals.historyTitle": "السجل",
+  "approval.steps": "الخطوات",
+  "approval.preview": "معاينة التغيير"
 }

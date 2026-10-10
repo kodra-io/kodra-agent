@@ -17,6 +17,9 @@ export interface PendingApproval {
   reason: string;
   requestedBy: string;
   expiresAt: string;
+  /** A proposed change: its title and preview (a diff for file edits). */
+  title?: string;
+  preview?: string;
 }
 
 export type ConsoleDecision = 'approved' | 'denied' | 'refused' | 'expired' | 'unknown';
@@ -60,6 +63,8 @@ export class ConsoleApprovals {
       reason: req.reason,
       requestedBy: req.requestedBy,
       expiresAt: req.expiresAt.toISOString(),
+      ...(req.title ? { title: req.title } : {}),
+      ...(req.preview ? { preview: req.preview } : {}),
     }));
   }
 

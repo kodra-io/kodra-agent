@@ -126,6 +126,25 @@ export default defineManifest({
   },
   hiddenTools: [...GITLAB_HIDDEN],
   defaultBranchLookup: 'gitlab',
+  // Argument names checked against @zereight/mcp-gitlab 2.1.68's input schemas. push_files
+  // is destructive here (it can delete and move files), so changes write files one by one.
+  changeSteps: {
+    create_branch: { kind: 'branch', repo: ['project_id'], branch: 'branch', from: 'ref' },
+    create_or_update_file: {
+      kind: 'file',
+      repo: ['project_id'],
+      branch: 'branch',
+      path: 'file_path',
+      content: 'content',
+    },
+    create_merge_request: {
+      kind: 'pull-request',
+      repo: ['project_id'],
+      head: 'source_branch',
+      base: 'target_branch',
+      title: 'title',
+    },
+  },
   runtime: {
     type: 'mcp-stdio',
     source: GITLAB_SERVER,

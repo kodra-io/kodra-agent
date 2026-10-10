@@ -53,3 +53,10 @@ So:
 ## Default branch protection
 
 At startup the agent reads each configured project once (`GET /api/v4/projects/:path`) to learn its default branch, and the policy engine blocks commits and branch writes to it. A failed lookup blocks writes to that project.
+
+## Proposed changes
+
+Branch, file, and pull request tools are mapped in the manifest's `changeSteps`, with argument
+names checked against the input schemas of @zereight/mcp-gitlab 2.1.68. To show a diff, the agent reads each file
+once from the API with the connector's token, and again right before the write. See
+[fixes.md](../fixes.md).

@@ -82,3 +82,75 @@ export function fakeComponent(
     secrets: [],
   };
 }
+
+/** A source-control connector (GitHub-shaped arguments) on the fake server's --record tools. */
+export const fakeGitManifest: Manifest = defineManifest({
+  id: 'fakegit',
+  displayName: 'Fake Git',
+  category: 'source',
+  status: 'available',
+  description: t('fake git'),
+  accessLevels: ['read-only', 'read-write-approved'],
+  requires: [],
+  configFields: [{ kind: 'string-list', key: 'repos', required: true, description: t('repos') }],
+  secrets: [],
+  tools: {
+    create_branch: 'write',
+    create_or_update_file: 'write',
+    create_pull_request: 'write',
+  },
+  guards: {
+    create_branch: [
+      { kind: 'repo-in-setting', ownerArg: 'owner', repoArg: 'repo', setting: 'repos' },
+      { kind: 'not-default-branch', branchArg: 'branch', ownerArg: 'owner', repoArg: 'repo' },
+    ],
+    create_or_update_file: [
+      { kind: 'repo-in-setting', ownerArg: 'owner', repoArg: 'repo', setting: 'repos' },
+      { kind: 'not-default-branch', branchArg: 'branch', ownerArg: 'owner', repoArg: 'repo' },
+    ],
+    create_pull_request: [
+      { kind: 'repo-in-setting', ownerArg: 'owner', repoArg: 'repo', setting: 'repos' },
+      { kind: 'not-default-branch', branchArg: 'head', ownerArg: 'owner', repoArg: 'repo' },
+    ],
+  },
+  defaultBranchLookup: 'github',
+  changeSteps: {
+    create_branch: {
+      kind: 'branch',
+      repo: ['owner', 'repo'],
+      branch: 'branch',
+      from: 'from_branch',
+    },
+    create_or_update_file: {
+      kind: 'file',
+      repo: ['owner', 'repo'],
+      branch: 'branch',
+      path: 'path',
+      content: 'content',
+    },
+    create_pull_request: {
+      kind: 'pull-request',
+      repo: ['owner', 'repo'],
+      head: 'head',
+      base: 'base',
+      title: 'title',
+    },
+  },
+  runtime: {
+    type: 'mcp-stdio',
+    source: { kind: 'pypi', package: 'unused', version: '0.0.0', command: 'unused' },
+    args: [],
+    env: {},
+  },
+  permissionsSummary: { 'read-only': [t('reads')], 'read-write-approved': [t('writes')] },
+});
+
+export function fakeGitComponent(repos: string[] = ['acme/api']): Component {
+  return {
+    id: fakeGitManifest.id,
+    displayName: fakeGitManifest.displayName,
+    manifest: fakeGitManifest,
+    settings: { repos },
+    secrets: [],
+  };
+}

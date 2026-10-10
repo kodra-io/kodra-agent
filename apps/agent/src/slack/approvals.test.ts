@@ -60,6 +60,36 @@ describe('SlackApprovals', () => {
     await approvals.cancelAll();
   });
 
+  it('shows a proposed change: its title, and its preview cut to fit Slack', async () => {
+    const { slack, approvals, req } = await setup();
+    const preview = `1. github/create_or_update_file: change values.yaml\n${'+line\n'.repeat(600)}`;
+    void approvals
+      .channelFor('C0CHANNEL', undefined)
+      .request({ ...req, title: 'Raise replicas', preview });
+    await Promise.resolve();
+    const [message] = slack.posted;
+    expect(message?.text).toBe('Approval (write) change "Raise replicas": needs approval');
+    const blocks = JSON.stringify(message?.blocks);
+    expect(blocks).toContain('*Change:* Raise replicas');
+    expect(blocks).toContain('change values.yaml');
+    expect(blocks).toContain('The console shows all of it.');
+    for (const block of message?.blocks ?? []) {
+      const text = (block as { text?: { text?: string } }).text?.text ?? '';
+      expect(text.length).toBeLessThanOrEqual(3_000);
+    }
+    await approvals.cancelAll();
+  });
+
+  it('closes a request decided in the console, saying who decided', async () => {
+    const { slack, approvals, req } = await setup();
+    const channel = approvals.channelFor('C0CHANNEL', undefined);
+    const outcome = channel.request(req);
+    await Promise.resolve();
+    await channel.settle(req.id, { decision: 'approved', by: 'console:omar' });
+    expect(await outcome).toEqual({ decision: 'approved', by: 'console:omar' });
+    expect(slack.updated.at(-1)?.text).toContain('approved by console:omar in the console');
+  });
+
   it('accepts an approver’s click once and updates the message', async () => {
     const { slack, approvals, req } = await setup();
     const outcome = approvals.channelFor('C0CHANNEL', undefined).request(req);
