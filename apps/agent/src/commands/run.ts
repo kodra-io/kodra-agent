@@ -9,6 +9,7 @@ import { ConsoleChat } from '../console/chat.ts';
 import { budgetRefusal } from '../budget.ts';
 import { InvestigationLog } from '../console/data.ts';
 import { consoleApi } from '../console/routes.ts';
+import { SettingsStore } from '../console/settings.ts';
 import { startConsoleServer, type ConsoleAccount } from '../console/server.ts';
 import { CONSOLE_TOKEN_ENV } from '../console/token.ts';
 import type { Context } from '../context.ts';
@@ -30,6 +31,8 @@ const refuseAll: ApprovalChannel = {
 };
 
 const DEFAULT_HEALTH_PORT = 8080;
+/** The exit code for "restart me": settings changed (EX_TEMPFAIL). */
+export const RESTART_EXIT_CODE = 75;
 
 /**
  * The service: Slack (Socket Mode) for conversations and approvals, the alert monitoring
@@ -52,6 +55,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   unavailable = [...new Set(runtime.host.failures().map((f) => f.displayName))];
 
   const startedAt = new Date();
+  const restart = new AbortController();
   const investigationLog = new InvestigationLog(runtime.config.spec.audit.path, ctx.redactor);
   let consoleServer: Server | null = null;
   const consoleOn = runtime.config.spec.console.enabled;
@@ -222,12 +226,30 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             gate,
           });
         }
+        const settings = new SettingsStore({
+          configPath: opts.configPath,
+          audit: runtime.audit,
+          redactor: ctx.redactor,
+          env: runtime.env,
+          fetch: ctx.fetch,
+          kubernetes: ctx.kubernetes,
+          probeTimeoutMs: ctx.probeTimeoutMs,
+        });
         const api = consoleApi(
           runtime,
           { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },
           investigationLog,
           consoleApprovals,
           consoleChat,
+          {
+            store: settings,
+            // After the response is sent, so the page hears that the save worked.
+            restart: () => {
+              setTimeout(() => {
+                restart.abort();
+              }, 300);
+            },
+          },
         );
         consoleServer = await startConsoleServer({
           port: ctx.consolePort ?? runtime.config.spec.console.port,
@@ -253,7 +275,23 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       healthPort: portOf(health),
       ...(consoleServer ? { consolePort: portOf(consoleServer) } : {}),
     });
-    await waitForStop(ctx);
+    await Promise.race([
+      waitForStop(ctx),
+      new Promise<void>((resolve) => {
+        restart.signal.addEventListener(
+          'abort',
+          () => {
+            resolve();
+          },
+          { once: true },
+        );
+      }),
+    ]);
+    if (restart.signal.aborted) {
+      // Settings changed: exit so Docker Compose (restart: unless-stopped) starts it again.
+      ctx.term.out('Restarting to apply the new settings.');
+      return RESTART_EXIT_CODE;
+    }
     ctx.term.out('Stopping.');
     return 0;
   } finally {

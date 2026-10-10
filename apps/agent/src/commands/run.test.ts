@@ -389,6 +389,74 @@ describe('kodra-agent run', () => {
     expect(audit).toContain('"event":"control","actor":"console:omar"');
   });
 
+  it('saves settings from the console, then exits so Compose restarts it', async () => {
+    const SHARED = 'run-settings-shared-token-3b2a'; // gitleaks:allow
+    const OMAR = 'run-settings-omar-token-6c5d'; // gitleaks:allow
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model:
+          '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        approvers: ['@omar', 'console:omar'],
+      }),
+      dir,
+    );
+    const stop = new AbortController();
+    let port = 0;
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN: SHARED, KODRA_CONSOLE_TOKEN_OMAR: OMAR },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      stopSignal: stop.signal,
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+      onReady: (info) => {
+        port = info.consolePort ?? 0;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (port ? true : undefined));
+    const base = `http://127.0.0.1:${String(port)}`;
+    const signIn = async (token: string) =>
+      (
+        (
+          await fetch(`${base}/api/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token }),
+          })
+        ).headers.get('set-cookie') ?? ''
+      ).split(';')[0] ?? '';
+    const post = (cookie: string, route: string, body: unknown) =>
+      fetch(`${base}/api/${route}`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+        body: JSON.stringify(body),
+      });
+    const patch = { limits: { monthlyBudgetUsd: 25 } };
+
+    const team = await signIn(SHARED);
+    expect((await post(team, 'settings/preview', { patch })).status).toBe(403);
+
+    const omar = await signIn(OMAR);
+    const view = (await (
+      await fetch(`${base}/api/settings`, { headers: { cookie: omar } })
+    ).json()) as {
+      base: string;
+      editable: boolean;
+    };
+    expect(view.editable).toBe(true);
+    const saved = await post(omar, 'settings/apply', { patch, base: view.base });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ restarting: true });
+    // run returns the restart code; Docker Compose starts the agent again.
+    expect(await running).toBe(75);
+    expect(t.output()).toContain('Restarting to apply the new settings.');
+    expect(await readFile(path, 'utf8')).toContain('monthlyBudgetUsd: 25');
+  });
+
   it('serves the console: token sign-in, then status and connectors, read-only', async () => {
     const CONSOLE_TOKEN = 'run-console-token-canary-91b2'; // gitleaks:allow
     const dir = await tempDir();

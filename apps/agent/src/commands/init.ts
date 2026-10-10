@@ -26,7 +26,7 @@ type Collected = Map<SecretUse, string>;
 
 class Abort extends Error {}
 
-const ENV_HEADER = [
+export const ENV_HEADER = [
   '# Written by `kodra-agent init`. Owner-only permissions (0600).',
   '# Never commit this file.',
 ].join('\n');
