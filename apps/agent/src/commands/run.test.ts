@@ -7,6 +7,7 @@ import { fakeLauncher } from '../test-fixtures/fake-connector.ts';
 import {
   asStreamResult,
   configYaml,
+  fakeSelfKubernetes,
   fakeServer,
   fakeSlack,
   json,
@@ -455,6 +456,80 @@ describe('kodra-agent run', () => {
     expect(await running).toBe(75);
     expect(t.output()).toContain('Restarting to apply the new settings.');
     expect(await readFile(path, 'utf8')).toContain('monthlyBudgetUsd: 25');
+  });
+
+  it('on Kubernetes, saves settings to its own ConfigMap and restarts its Deployment', async () => {
+    const OMAR = 'run-k8s-omar-token-9d8c'; // gitleaks:allow
+    const dir = await tempDir();
+    const text = configYaml({
+      target: 'kubernetes',
+      auditPath: posixPath(join(dir, 'audit.jsonl')),
+      model:
+        '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+      approvers: ['@omar', 'console:omar'],
+    });
+    const path = await writeConfig(text, dir);
+    const self = fakeSelfKubernetes(text);
+    const stop = new AbortController();
+    let port = 0;
+    const t = testContext({
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_TOKEN: 'run-k8s-shared-token-7b6a', // gitleaks:allow
+        KODRA_CONSOLE_TOKEN_OMAR: OMAR,
+        KODRA_AGENT_NAMESPACE: 'ops',
+        KODRA_AGENT_CONFIGMAP: 'agent',
+        KODRA_AGENT_DEPLOYMENT: 'agent',
+        KODRA_AGENT_SECRET: 'agent-env',
+      },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      selfKubernetes: () => self.client,
+      stopSignal: stop.signal,
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+      onReady: (info) => {
+        port = info.consolePort ?? 0;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (port ? true : undefined));
+    const base = `http://127.0.0.1:${String(port)}`;
+    const login = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: OMAR }),
+    });
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    const post = (route: string, body: unknown) =>
+      fetch(`${base}/api/${route}`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+        body: JSON.stringify(body),
+      });
+    const view = (await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json()) as {
+      base: string;
+      editable: boolean;
+    };
+    expect(view.editable).toBe(true);
+    const patch = { limits: { monthlyBudgetUsd: 25 } };
+    expect((await post('settings/apply', { patch, base: view.base })).status).toBe(200);
+    await until(() => (self.state.restartedAt.length > 0 ? true : undefined));
+    expect(self.state.configMap['kodra-agent.yaml']).toContain('monthlyBudgetUsd: 25');
+    expect(self.state.calls).toContain('patch deployment ops/agent');
+
+    const added = await post('people/add', { name: 'on-call' });
+    const { token } = (await added.json()) as { token: string };
+    expect(self.state.secret['KODRA_CONSOLE_TOKEN_ON_CALL']).toBe(token);
+    // The file on disk is not where a Kubernetes agent keeps its settings.
+    expect(await readFile(path, 'utf8')).toBe(text);
+
+    // The pod keeps running until Kubernetes stops it.
+    stop.abort();
+    expect(await running).toBe(0);
+    expect(t.output()).toContain('Restarting the Deployment to apply the new settings.');
+    expect(t.output()).not.toContain(token);
   });
 
   it('adds a console approver: the token comes back once, then it restarts', async () => {

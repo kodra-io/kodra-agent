@@ -1,3 +1,4 @@
+import { CONFIG_KEY, type SelfKubernetes } from './console/config-backend.ts';
 import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -249,4 +250,40 @@ export function scriptedModel(
     doStream: async (options) => asStreamResult(await answer(options)),
   });
   return Object.assign(model, { calls });
+}
+
+/** The agent's own ConfigMap, Secret, and Deployment, in memory. */
+export function fakeSelfKubernetes(config: string) {
+  const state = {
+    configMap: { [CONFIG_KEY]: config } as Record<string, string>,
+    secret: {} as Record<string, string>,
+    restartedAt: [] as string[],
+    calls: [] as string[],
+  };
+  const client: SelfKubernetes = {
+    readConfigMap(namespace, name) {
+      state.calls.push(`get configmap ${namespace}/${name}`);
+      return Promise.resolve({ ...state.configMap });
+    },
+    patchConfigMap(namespace, name, data) {
+      state.calls.push(`patch configmap ${namespace}/${name}`);
+      Object.assign(state.configMap, data);
+      return Promise.resolve();
+    },
+    patchSecret(namespace, name, data) {
+      state.calls.push(`patch secret ${namespace}/${name}`);
+      state.secret = Object.fromEntries(
+        Object.entries({ ...state.secret, ...data }).filter(
+          (e): e is [string, string] => e[1] !== null,
+        ),
+      );
+      return Promise.resolve();
+    },
+    restartDeployment(namespace, name, at) {
+      state.calls.push(`patch deployment ${namespace}/${name}`);
+      state.restartedAt.push(at);
+      return Promise.resolve();
+    },
+  };
+  return { client, state };
 }

@@ -58,6 +58,9 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.3 
   no privilege escalation, all capabilities dropped, `RuntimeDefault` seccomp.
 - `rbac.create` (off by default) creates the same namespace-scoped Role and RoleBinding as the
   bundle's `rbac.yaml`; `rbac.write` adds patch on deployments.
+- `console.editSettings` (on by default) lets console approvers change settings: a Role in
+  the release namespace allows get and patch on the agent's own ConfigMap, Secret, and
+  Deployment only, by name (`templates/self-rbac.yaml`). See `docs/console.md`.
 - `persistence.enabled` keeps the audit log on a PersistentVolumeClaim.
 
 ## Checks
@@ -67,7 +70,10 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.3 
   `ExecCredential` offline, a generated compose bundle runs
   `init --non-interactive` and `up` and answers `/healthz` and `/readyz`, `ship` runs inside
   the agent container on a sample app (build, smoke test, chart lint), and the chart
-  installs on a throwaway kind cluster with the bundle's values and becomes ready.
+  installs on a throwaway kind cluster with the bundle's values and becomes ready. On kind
+  it also checks the agent's access (`kubectl auth can-i`: its own objects only), saves a
+  setting from the console and waits for the new pod to run with it, and checks that a
+  `helm upgrade` with the same values keeps it.
 - `src/release.test.ts` keeps the CLI, bundle, and chart versions equal, checks that the chart
   accepts every value the bundle sets, and that the Dockerfile pins every image.
 

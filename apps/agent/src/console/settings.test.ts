@@ -4,7 +4,15 @@ import { parseAgentConfig } from '@kodra-agent/connectors';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AuditLog } from '../audit.ts';
 import { Redactor } from '../redactor.ts';
-import { fakeKubernetes, fakeServer, json, posixPath, tempDir } from '../test-helpers.ts';
+import {
+  fakeKubernetes,
+  fakeSelfKubernetes,
+  fakeServer,
+  json,
+  posixPath,
+  tempDir,
+} from '../test-helpers.ts';
+import { CONFIG_KEY, fileBackend, kubernetesBackend } from './config-backend.ts';
 import { moreAccess, patchConfigText, SettingsStore } from './settings.ts';
 
 const NEW_TOKEN = 'glpat-settings-new-token-4d1c2b3a'; // gitleaks:allow
@@ -53,7 +61,7 @@ async function setup(gitlabUrl = 'https://gitlab.example.com') {
   await writeFile(configPath, yaml(gitlabUrl, posixPath(auditPath)));
   const redactor = new Redactor();
   const store = new SettingsStore({
-    configPath,
+    backend: fileBackend(configPath),
     audit: new AuditLog(auditPath, redactor),
     redactor,
     env: { ANTHROPIC_API_KEY: 'k', GITLAB_TOKEN: 'old-token-1234' },
@@ -179,6 +187,78 @@ describe('SettingsStore', () => {
     const gitlab = view.connectors.find((c) => c.id === 'gitlab');
     expect(gitlab?.secrets[0]).toMatchObject({ key: 'token', set: true, writable: true });
     expect(JSON.stringify(view)).not.toContain('old-token-1234');
+  });
+
+  it('on Kubernetes, saves to its own ConfigMap and Secret', async () => {
+    server = await fakeServer({
+      '/api/v4/projects/acme%2Fapi': (req, res) => {
+        json(res, req.headers['private-token'] === NEW_TOKEN ? 200 : 401, {});
+      },
+    });
+    const files = await setup(server.url);
+    const text = (await readFile(files.configPath, 'utf8')).replace(
+      'target: compose',
+      'target: kubernetes',
+    );
+    const { client, state } = fakeSelfKubernetes(text);
+    const names = { namespace: 'ops', configMap: 'agent', deployment: 'agent', secret: 'env' };
+    const redactor = new Redactor();
+    const store = new SettingsStore({
+      backend: kubernetesBackend(client, names),
+      audit: new AuditLog(join(files.dir, 'audit.jsonl'), redactor),
+      redactor,
+      env: { ANTHROPIC_API_KEY: 'k', GITLAB_TOKEN: 'old-token-1234' },
+      fetch: globalThis.fetch,
+      kubernetes: fakeKubernetes(),
+      probeTimeoutMs: 2000,
+    });
+    const view = await store.view(null);
+    expect(view).toMatchObject({ target: 'kubernetes', editable: true, why: null });
+    expect(view.connectors.find((c) => c.id === 'gitlab')?.secrets[0]?.writable).toBe(true);
+
+    const patch = { limits: { monthlyBudgetUsd: 25 } };
+    const preview = await store.preview(patch);
+    expect(await store.apply(patch, preview.base, 'console:omar')).toMatchObject({ ok: true });
+    expect(state.configMap[CONFIG_KEY]).toContain('monthlyBudgetUsd: 25');
+    expect(await store.setSecret('gitlab', 'token', NEW_TOKEN, 'console:omar')).toMatchObject({
+      status: 'pass',
+    });
+    expect(state.secret).toEqual({ GITLAB_TOKEN: NEW_TOKEN });
+    expect(await store.undo('console:omar')).toBe(true);
+    expect(state.configMap[CONFIG_KEY]).toBe(text);
+
+    // Without the agent's Secret, the config is editable but secrets are not.
+    const noSecret = new SettingsStore({
+      backend: kubernetesBackend(client, { ...names, secret: null }),
+      audit: new AuditLog(join(files.dir, 'audit.jsonl'), redactor),
+      redactor,
+      env: {},
+      fetch: globalThis.fetch,
+      kubernetes: fakeKubernetes(),
+      probeTimeoutMs: 2000,
+    });
+    const limited = await noSecret.view(null);
+    expect(limited.editable).toBe(true);
+    expect(limited.connectors.find((c) => c.id === 'gitlab')?.secrets[0]?.writable).toBe(false);
+    expect(await noSecret.canEditSecrets()).toBe(false);
+  });
+
+  it('is read-only when the config does not live where the agent can change it', async () => {
+    const files = await setup();
+    await writeFile(
+      files.configPath,
+      (await readFile(files.configPath, 'utf8')).replace('target: compose', 'target: kubernetes'),
+    );
+    const before = await readFile(files.configPath, 'utf8');
+    const view = await files.store.view(null);
+    expect(view).toMatchObject({ editable: false, why: 'kubernetes', undoable: false });
+    const patch = { limits: { monthlyBudgetUsd: 25 } };
+    const result = await files.store.apply(patch, view.base, 'console:omar');
+    expect(result).toMatchObject({ ok: false, errors: ['settings cannot be changed here'] });
+    expect(await files.store.setSecret('gitlab', 'token', NEW_TOKEN, 'console:omar')).toMatchObject(
+      { status: 'fail' },
+    );
+    expect(await readFile(files.configPath, 'utf8')).toBe(before);
   });
 
   it('tests a connection the way doctor does', async () => {

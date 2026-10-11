@@ -184,6 +184,11 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
       {view && !view.editable && (
         <p className="rounded-xl border border-line bg-raised p-4">{t('settings.kubernetes')}</p>
       )}
+      {view?.editable && view.target === 'kubernetes' && me.canApprove && (
+        <p className="rounded-xl border border-line bg-raised p-4">
+          {t('settings.kubernetesSaved')}
+        </p>
+      )}
       {view?.editable && !me.canApprove && (
         <p className="rounded-xl border border-line bg-raised p-4">{t('settings.viewOnly')}</p>
       )}

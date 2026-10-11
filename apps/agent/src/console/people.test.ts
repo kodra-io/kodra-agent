@@ -7,6 +7,7 @@ import { Redactor } from '../redactor.ts';
 import { fakeKubernetes, posixPath, tempDir } from '../test-helpers.ts';
 import { People } from './people.ts';
 import { SessionRegistry } from './server.ts';
+import { fileBackend } from './config-backend.ts';
 import { SettingsStore } from './settings.ts';
 
 const OMAR_TOKEN = 'people-omar-token-5e4d3c2b'; // gitleaks:allow
@@ -42,7 +43,7 @@ async function setup(target = 'compose') {
   const redactor = new Redactor();
   const env = { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN_OMAR: OMAR_TOKEN };
   const store = new SettingsStore({
-    configPath,
+    backend: fileBackend(configPath),
     audit: new AuditLog(auditPath, redactor),
     redactor,
     env,

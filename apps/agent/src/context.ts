@@ -2,6 +2,7 @@ import type { ModelConfig } from '@kodra-agent/schema';
 import type { LanguageModel } from 'ai';
 import type { Limits } from './agent.ts';
 import type { Logger, Prompter, Terminal } from './io.ts';
+import type { SelfKubernetes } from './console/config-backend.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
 import type { HostOptions } from './mcp/host.ts';
 import type { ProbeContext } from './probes.ts';
@@ -47,6 +48,8 @@ export interface Context {
   shipSmokeTimeoutMs?: number;
   /** The agent's own container id (null on a host); detected when not set. */
   selfContainer?: string | null;
+  /** The agent's access to its own ConfigMap, Secret, and Deployment (tests pass a fake). */
+  selfKubernetes?: () => SelfKubernetes;
 }
 
 export const AGENT_NAMESPACE = 'kodra-agent';

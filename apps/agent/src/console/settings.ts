@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
 import {
   connectors as allConnectors,
   getConnector,
@@ -17,21 +15,21 @@ import {
 import { secretRefFor } from '@kodra-agent/templates';
 import { parseDocument } from 'yaml';
 import type { AuditLog } from '../audit.ts';
-import { ENV_HEADER } from '../commands/init.ts';
 import { components, secretLabel } from '../config.ts';
 import { unifiedDiff } from '../diff.ts';
-import { dropEnvKeys, renderEnvFile, writePrivateFile } from '../env-file.ts';
 import type { KubernetesFactory } from '../kubernetes.ts';
 import { probeIds, runProbe, type ProbeResult } from '../probes.ts';
 import type { Redactor } from '../redactor.ts';
 import { resolveAll } from '../secrets.ts';
+import type { ConfigBackend } from './config-backend.ts';
 
 /**
  * Settings from the console (M8c): an approver edits kodra-agent.yaml through a patch that
  * keeps the file's comments, sees the diff and any access it adds, and saves; the agent keeps
  * the previous file (Undo puts it back), audits the change, and restarts to apply it.
- * Secrets are write-only: checked first, then written to .env. Docker Compose only for now;
- * on Kubernetes the config is a ConfigMap the agent cannot change yet.
+ * Secrets are write-only: checked first, then written to .env (or the agent's Secret). Where it
+ * all lives is the ConfigBackend: files on Docker Compose, the agent's own ConfigMap and Secret
+ * on Kubernetes.
  */
 
 export interface ConnectorPatch {
@@ -219,7 +217,8 @@ export interface SettingsView {
 }
 
 export interface SettingsDeps {
-  configPath: string;
+  /** Where the settings live: files for Docker Compose, or the agent's own ConfigMap and Secret. */
+  backend: ConfigBackend;
   audit: AuditLog;
   redactor: Redactor;
   /** The environment the agent started with (.env and the process). */
@@ -232,17 +231,28 @@ export interface SettingsDeps {
 
 export class SettingsStore {
   private readonly deps: SettingsDeps;
-  private readonly backupPath: string;
-  private readonly envPath: string;
+  private readonly backend: ConfigBackend;
 
   constructor(deps: SettingsDeps) {
     this.deps = deps;
-    this.backupPath = `${deps.configPath}.previous`;
-    this.envPath = join(dirname(deps.configPath), '.env');
+    this.backend = deps.backend;
   }
 
   async text(): Promise<string> {
-    return readFile(this.deps.configPath, 'utf8');
+    return this.backend.read();
+  }
+
+  /** Compose edits files; Kubernetes edits the agent's own ConfigMap, if the chart allows it. */
+  private editable(config: AgentConfig): boolean {
+    return (
+      (config.spec.target === 'compose' && this.backend.where === 'files') ||
+      (config.spec.target === 'kubernetes' && this.backend.where === 'kubernetes')
+    );
+  }
+
+  /** Whether settings and secrets can be saved here (People needs both, for tokens). */
+  async canEditSecrets(): Promise<boolean> {
+    return this.editable(this.parse(await this.text())) && this.backend.envWritable;
   }
 
   private parse(text: string): AgentConfig {
@@ -254,16 +264,15 @@ export class SettingsStore {
   async view(lastChange: SettingsView['lastChange']): Promise<SettingsView> {
     const text = await this.text();
     const config = this.parse(text);
-    const compose = config.spec.target === 'compose';
+    const editable = this.editable(config);
+    const envWritable = editable && this.backend.envWritable;
     const comps = new Map(components(config).map((c) => [c.id, c]));
     const env = this.deps.env;
-    const undoable = await readFile(this.backupPath, 'utf8')
-      .then(() => true)
-      .catch(() => false);
+    const undoable = editable && (await this.backend.readPrevious()) !== null;
     return {
       target: config.spec.target,
-      editable: compose,
-      why: compose ? null : 'kubernetes',
+      editable,
+      why: editable ? null : config.spec.target,
       base: hash(text),
       model: { provider: config.spec.model.provider, name: config.spec.model.name },
       policy: {
@@ -300,7 +309,7 @@ export class SettingsStore {
               required: s.required,
               set: ref?.scheme === 'env' ? Boolean(env[ref.name]) : ref !== undefined,
               writable:
-                compose && (ref === undefined ? s.defaultRef === 'env' : ref.scheme === 'env'),
+                envWritable && (ref === undefined ? s.defaultRef === 'env' : ref.scheme === 'env'),
               ref: ref?.scheme === 'file' ? ref.path : `\${env:${envName}}`,
               description: s.description,
               howToCreate: s.howToCreate,
@@ -361,10 +370,10 @@ export class SettingsStore {
   async apply(patch: SettingsPatch, base: string, by: string): Promise<Preview | 'stale'> {
     const text = await this.text();
     if (hash(text) !== base) return 'stale';
+    if (!this.editable(this.parse(text))) return this.refused(text);
     const preview = await this.preview(patch);
     if (!preview.ok || preview.diff === '') return preview;
-    await writeFile(this.backupPath, text, 'utf8');
-    await this.writeConfig(patchConfigText(text, patch));
+    await this.backend.save(patchConfigText(text, patch), text);
     await this.deps.audit.append({
       event: 'settings',
       actor: by,
@@ -379,10 +388,10 @@ export class SettingsStore {
    */
   async applyNow(patch: SettingsPatch, by: string, detail: string): Promise<Preview> {
     const text = await this.text();
+    if (!this.editable(this.parse(text))) return this.refused(text);
     const preview = await this.preview(patch);
     if (!preview.ok || preview.diff === '') return preview;
-    await writeFile(this.backupPath, text, 'utf8');
-    await this.writeConfig(patchConfigText(text, patch));
+    await this.backend.save(patchConfigText(text, patch), text);
     await this.deps.audit.append({ event: 'settings', actor: by, detail });
     return preview;
   }
@@ -394,21 +403,28 @@ export class SettingsStore {
   /** Sets and removes keys in .env (values are registered with the redactor first). */
   async writeEnv(set: ReadonlyMap<string, string>, remove: readonly string[] = []): Promise<void> {
     for (const value of set.values()) this.deps.redactor.add(value);
-    const existing = await readFile(this.envPath, 'utf8').catch(() => null);
-    await writePrivateFile(
-      this.envPath,
-      renderEnvFile(dropEnvKeys(existing, remove), set, ENV_HEADER),
-    );
+    await this.backend.writeEnv(set, remove);
+  }
+
+  private refused(text: string): Preview {
+    return {
+      ok: false,
+      errors: ['settings cannot be changed here'],
+      diff: '',
+      base: hash(text),
+      moreAccess: [],
+      changed: [],
+    };
   }
 
   /** Puts the previous file back (and keeps the current one, so Undo can be undone). */
   async undo(by: string): Promise<boolean> {
-    const previous = await readFile(this.backupPath, 'utf8').catch(() => null);
-    if (previous === null) return false;
     const current = await this.text();
+    if (!this.editable(this.parse(current))) return false;
+    const previous = await this.backend.readPrevious();
+    if (previous === null) return false;
     this.parse(previous);
-    await writeFile(this.backupPath, current, 'utf8');
-    await this.writeConfig(previous);
+    await this.backend.save(previous, current);
     await this.deps.audit.append({ event: 'settings', actor: by, detail: 'undid the last change' });
     return true;
   }
@@ -422,8 +438,8 @@ export class SettingsStore {
     if (trimmed.length < 4) return { status: 'fail', message: 'that value is too short' };
     this.deps.redactor.add(trimmed);
     const config = this.parse(await this.text());
-    if (config.spec.target !== 'compose') {
-      return { status: 'fail', message: "on Kubernetes, secrets live in the agent's Secret" };
+    if (!this.editable(config) || !this.backend.envWritable) {
+      return { status: 'fail', message: 'secrets cannot be changed here' };
     }
     const comp = components(config).find((c) => c.id === connector);
     const use = comp?.secrets.find((s) => s.spec.key === key);
@@ -443,11 +459,7 @@ export class SettingsStore {
       timeoutMs: this.deps.probeTimeoutMs,
     });
     if (result.status === 'fail') return result;
-    const existing = await readFile(this.envPath, 'utf8').catch(() => null);
-    await writePrivateFile(
-      this.envPath,
-      renderEnvFile(existing, new Map([[use.ref.name, trimmed]]), ENV_HEADER),
-    );
+    await this.backend.writeEnv(new Map([[use.ref.name, trimmed]]), []);
     await this.deps.audit.append({
       event: 'settings',
       actor: by,
@@ -482,11 +494,5 @@ export class SettingsStore {
       rows.push({ check: id, status: r.status, message: this.deps.redactor.redact(r.message) });
     }
     return rows;
-  }
-
-  private async writeConfig(text: string): Promise<void> {
-    const temp = `${this.deps.configPath}.${String(process.pid)}.tmp`;
-    await writeFile(temp, text, 'utf8');
-    await rename(temp, this.deps.configPath);
   }
 }

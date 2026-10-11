@@ -203,7 +203,7 @@
   "settings.tab.policy": "الموافقات والسياسة",
   "settings.tab.limits": "النموذج والحدود",
   "settings.tab.console": "لوحة التحكم",
-  "settings.kubernetes": "على Kubernetes، غيّر القيم في values.yaml ثم شغّل helm upgrade. التعديل من هنا قادم.",
+  "settings.kubernetes": "الإعدادات للعرض فقط هنا: الخيار console.editSettings في الـ chart متوقف. غيّر values.yaml ثم شغّل helm upgrade، أو فعّل console.editSettings.",
   "settings.viewOnly": "يمكنك العرض فقط. يغيّر الإعدادات صاحب موافقة في لوحة التحكم.",
   "settings.lastChange": "آخر تغيير: {detail}، {time}، بواسطة {who}.",
   "settings.undo": "التراجع عن آخر تغيير",
@@ -286,7 +286,7 @@
   "access.read-only": "قراءة فقط",
   "access.read-write-approved": "قراءة وكتابة، بموافقة",
   "settings.tab.people": "الأشخاص والرموز",
-  "people.kubernetes": "على Kubernetes، رموز الدخول محفوظة في Secret الخاص بالوكيل. غيّرها هناك ثم أعد تشغيل الوكيل.",
+  "people.kubernetes": "رموز الدخول للعرض فقط هنا. على Kubernetes يحتاج الوكيل إلى الخيار console.editSettings وإلى existingSecret لتغييرها.",
   "people.accounts": "من يمكنه الدخول",
   "people.accountsIntro": "الرمز المشترك يتيح لفريقك العرض والمحادثة. لكل صاحب موافقة في لوحة التحكم رمز خاص به ويمكنه الموافقة على التغييرات.",
   "people.shared": "الدخول المشترك (الفريق)",
@@ -320,5 +320,6 @@
   "people.who": "من",
   "people.since": "وقت الدخول",
   "people.lastSeen": "آخر ظهور",
-  "people.signOut": "تسجيل خروج"
+  "people.signOut": "تسجيل خروج",
+  "settings.kubernetesSaved": "الإعدادات المحفوظة هنا موجودة في ConfigMap الخاص بالوكيل. قبل helm upgrade بإعدادات مختلفة، ابدأ من تلك النسخة (انظر ملاحظات الـ chart)."
 }

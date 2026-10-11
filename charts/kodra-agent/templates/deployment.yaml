@@ -44,6 +44,21 @@ spec:
               value: /etc/kodra-agent/kodra-agent.yaml
             - name: KODRA_AGENT_HEALTH_PORT
               value: "8080"
+            {{- if and .Values.console.enabled .Values.console.editSettings .Values.serviceAccount.automountToken }}
+            # The agent's own objects, which self-rbac.yaml lets it patch (console settings).
+            - name: KODRA_AGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KODRA_AGENT_CONFIGMAP
+              value: {{ include "kodra-agent.fullname" . }}
+            - name: KODRA_AGENT_DEPLOYMENT
+              value: {{ include "kodra-agent.fullname" . }}
+            {{- with .Values.existingSecret }}
+            - name: KODRA_AGENT_SECRET
+              value: {{ . }}
+            {{- end }}
+            {{- end }}
           {{- with .Values.existingSecret }}
           envFrom:
             - secretRef:

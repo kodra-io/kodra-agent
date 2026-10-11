@@ -9,6 +9,12 @@ import { ConsoleApprovals } from '../console/approvals.ts';
 import { ConsoleChat } from '../console/chat.ts';
 import { budgetRefusal } from '../budget.ts';
 import { InvestigationLog } from '../console/data.ts';
+import {
+  fileBackend,
+  kubernetesBackend,
+  realSelfKubernetes,
+  selfNames,
+} from '../console/config-backend.ts';
 import { People } from '../console/people.ts';
 import { consoleApi } from '../console/routes.ts';
 import { SettingsStore } from '../console/settings.ts';
@@ -228,8 +234,20 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             gate,
           });
         }
+        // Kubernetes: the chart names the agent's own objects and lets it patch only those.
+        const self = runtime.config.spec.target === 'kubernetes' ? selfNames(runtime.env) : null;
+        let kube: ReturnType<typeof kubernetesBackend> | null = null;
+        if (self) {
+          try {
+            kube = kubernetesBackend((ctx.selfKubernetes ?? realSelfKubernetes)(), self);
+          } catch (error) {
+            ctx.term.err(
+              `Settings are read-only: no access to the cluster (${error instanceof Error ? error.message : String(error)}).`,
+            );
+          }
+        }
         const settings = new SettingsStore({
-          configPath: opts.configPath,
+          backend: kube ?? fileBackend(opts.configPath),
           audit: runtime.audit,
           redactor: ctx.redactor,
           env: runtime.env,
@@ -255,7 +273,17 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             // After the response is sent, so the page hears that the save worked.
             restart: () => {
               setTimeout(() => {
-                restart.abort();
+                if (!kube) {
+                  restart.abort();
+                  return;
+                }
+                // A new pod picks up the new ConfigMap and Secret; this one is stopped.
+                ctx.term.out('Restarting the Deployment to apply the new settings.');
+                kube.restart(new Date()).catch((error: unknown) => {
+                  ctx.term.err(
+                    `Could not restart the Deployment (${error instanceof Error ? error.message : String(error)}). Run kubectl rollout restart.`,
+                  );
+                });
               }, 300);
             },
           },
