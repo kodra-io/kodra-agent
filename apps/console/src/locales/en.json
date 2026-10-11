@@ -203,7 +203,7 @@
   "settings.tab.policy": "Approvals and policy",
   "settings.tab.limits": "Model and limits",
   "settings.tab.console": "Console",
-  "settings.kubernetes": "On Kubernetes, change the values in values.yaml and run helm upgrade. Editing them here is coming.",
+  "settings.kubernetes": "Settings are read-only here: the chart's console.editSettings is off. Change values.yaml and run helm upgrade, or turn console.editSettings on.",
   "settings.viewOnly": "You can look, but only a console approver can change settings.",
   "settings.lastChange": "Last change: {detail}, {time}, by {who}.",
   "settings.undo": "Undo last change",
@@ -286,7 +286,7 @@
   "access.read-only": "Read only",
   "access.read-write-approved": "Read and write, with approval",
   "settings.tab.people": "People and tokens",
-  "people.kubernetes": "On Kubernetes, sign-in tokens live in the agent's Secret. Change them there and restart the agent.",
+  "people.kubernetes": "Sign-in tokens are read-only here. On Kubernetes, the agent needs the chart's console.editSettings and an existingSecret to change them.",
   "people.accounts": "Who can sign in",
   "people.accountsIntro": "The shared token lets your team look and chat. Each console approver has their own token and can approve changes.",
   "people.shared": "Shared sign-in (team)",
@@ -320,5 +320,6 @@
   "people.who": "Who",
   "people.since": "Signed in",
   "people.lastSeen": "Last seen",
-  "people.signOut": "Sign out"
+  "people.signOut": "Sign out",
+  "settings.kubernetesSaved": "Settings saved here live in the agent's ConfigMap. Before a helm upgrade with a changed config, start from that copy (see the chart notes)."
 }

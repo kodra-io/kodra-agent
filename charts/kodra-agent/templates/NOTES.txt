@@ -8,6 +8,13 @@ Check it:
 Open the web console:
   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kodra-agent.fullname" . }}-console {{ .Values.console.port }}:{{ .Values.console.port }}
   then http://localhost:{{ .Values.console.port }}, signing in with KODRA_CONSOLE_TOKEN, or a console approver's own KODRA_CONSOLE_TOKEN_<NAME>, from the agent's Secret.
+{{- if .Values.console.editSettings }}
+
+Console approvers can change settings there. They are saved in the ConfigMap
+{{ include "kodra-agent.fullname" . }}-settings, and a helm upgrade with the same config keeps them.
+An upgrade with a changed config replaces them, so start from the console's copy first:
+  kubectl --namespace {{ .Release.Namespace }} get configmap {{ include "kodra-agent.fullname" . }}-settings -o jsonpath='{.data.kodra-agent\.yaml}' > kodra-agent.yaml
+{{- end }}
 {{- end }}
 {{- if not .Values.existingSecret }}
 

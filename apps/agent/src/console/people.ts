@@ -57,7 +57,7 @@ export class People {
     const config = await this.config();
     const approvers = config.spec.policy.approvals.approvers;
     return {
-      editable: config.spec.target === 'compose',
+      editable: await this.store.canEditSecrets(),
       people: [
         {
           who: SHARED_ACCOUNT,
@@ -78,10 +78,9 @@ export class People {
   }
 
   private async editable(): Promise<PeopleResult | null> {
-    const config = await this.config();
-    return config.spec.target === 'compose'
+    return (await this.store.canEditSecrets())
       ? null
-      : { ok: false, status: 409, error: "on Kubernetes, tokens live in the agent's Secret" };
+      : { ok: false, status: 409, error: 'sign-in tokens cannot be changed here' };
   }
 
   /** Adds `console:<name>` as an approver with a new token. */

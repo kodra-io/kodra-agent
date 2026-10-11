@@ -44,6 +44,10 @@ rbac:
 console:
   enabled: true
   port: 8081
+  # Lets console approvers change settings, secrets, and sign-in tokens from the console: the
+  # agent may then read and patch only its own ConfigMap and Secret, and restart its own
+  # Deployment. Needs serviceAccount.automountToken. Set false to keep settings read-only.
+  editSettings: true
 
 # The audit log (spec.audit.path in kodra-agent.yaml, /var/lib/kodra-agent by default).
 persistence:

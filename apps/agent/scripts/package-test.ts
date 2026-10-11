@@ -1,4 +1,5 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import {
   cpSync,
   existsSync,
@@ -29,7 +30,10 @@ import { getConnector } from '@kodra-agent/connectors';
  *   2. a generated compose bundle runs `init --non-interactive` and `up`, and the agent
  *      answers /healthz and /readyz;
  *   3. on a throwaway kind cluster, the chart installs with the bundle's values.yaml and
- *      the pod becomes ready (skip with --no-kind).
+ *      the pod becomes ready; a console approver changes a setting, the agent saves it in its
+ *      settings ConfigMap and restarts its Deployment, a helm upgrade with the same config keeps
+ *      it, and one with a changed config wins (skip with
+ *      --no-kind).
  * The kind kubeconfig goes to a temporary file: the user's kube context is never changed.
  */
 const IMAGE = process.env['KODRA_IMAGE'] ?? `${AGENT_IMAGE}:${AGENT_VERSION}`;
@@ -63,6 +67,7 @@ function show(cmd: string, args: string[], cwd?: string): void {
 function draft(
   target: AgentDraft['target'],
   connectors: AgentDraft['connectors'] = {},
+  approvers = '@ops',
 ): AgentDraft {
   return {
     ...emptyDraft(),
@@ -75,7 +80,7 @@ function draft(
       // Never called: these checks start the agent, not a conversation.
       fields: { ...modelFieldDefaults('ollama'), baseUrl: 'http://127.0.0.1:11434' },
     },
-    policy: { approvers: '@ops', expiresAfterMinutes: '15', destructiveActions: 'deny' },
+    policy: { approvers, expiresAfterMinutes: '15', destructiveActions: 'deny' },
   };
 }
 
@@ -83,9 +88,10 @@ function writeBundle(
   target: AgentDraft['target'],
   folder: string = target,
   connectors: AgentDraft['connectors'] = {},
+  approvers?: string,
 ): string {
   const dir = join(work, folder);
-  for (const file of generateBundle(draft(target, connectors)).files) {
+  for (const file of generateBundle(draft(target, connectors, approvers)).files) {
     const path = join(dir, file.path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, file.content.replaceAll(`${AGENT_IMAGE}:${AGENT_VERSION}`, IMAGE));
@@ -339,11 +345,18 @@ function shipInContainer(): void {
   spawnSync('docker', ['compose', 'down', '-v'], { cwd: dir, stdio: 'inherit' });
 }
 
-function kind(): void {
+async function kind(): Promise<void> {
   console.log('\n== Helm chart on kind, with the bundle values');
-  const dir = writeBundle('kubernetes');
+  const dir = writeBundle('kubernetes', 'kubernetes', {}, '@ops, console:ops');
+  const fullname = `${NAME}-kodra-agent`;
+  // `init --target kubernetes` makes these; random here, and never printed.
+  const shared = randomBytes(32).toString('base64url');
+  const approver = randomBytes(32).toString('base64url');
   const kubeconfig = join(work, 'kubeconfig');
-  const kubectl = (...args: string[]) => sh('kubectl', ['--kubeconfig', kubeconfig, ...args]);
+  const kubectl = Object.assign(
+    (...args: string[]) => sh('kubectl', ['--kubeconfig', kubeconfig, ...args]),
+    { kubeconfigArgs: ['--kubeconfig', kubeconfig] },
+  );
   show(KIND, [
     'create',
     'cluster',
@@ -366,38 +379,43 @@ function kind(): void {
       'generic',
       `${NAME}-secrets`,
       '--from-literal=KODRA_PACKAGE_TEST=1',
+      `--from-literal=KODRA_CONSOLE_TOKEN=${shared}`,
+      `--from-literal=KODRA_CONSOLE_TOKEN_OPS=${approver}`,
     );
     const [repository, tag] = [
       IMAGE.slice(0, IMAGE.lastIndexOf(':')),
       IMAGE.slice(IMAGE.lastIndexOf(':') + 1),
     ];
-    show(
-      'helm',
-      [
-        'install',
-        NAME,
-        CHART,
-        '--kubeconfig',
-        kubeconfig,
-        '--namespace',
-        'kodra-agent',
-        // From the bundle folder, as in the README (--set-file reads backslashes as escapes).
-        '-f',
-        'values.yaml',
-        '--set-file',
-        'config=kodra-agent.yaml',
-        '--set',
-        `image.repository=${repository}`,
-        '--set',
-        `image.tag=${tag}`,
-        '--set',
-        'image.pullPolicy=Never',
-        '--wait',
-        '--timeout',
-        '180s',
-      ],
-      dir,
-    );
+    const helm = (verb: 'install' | 'upgrade'): void => {
+      show(
+        'helm',
+        [
+          verb,
+          NAME,
+          CHART,
+          '--kubeconfig',
+          kubeconfig,
+          '--namespace',
+          'kodra-agent',
+          // From the bundle folder, as in the README (--set-file reads backslashes as escapes).
+          '-f',
+          'values.yaml',
+          '--set-file',
+          'config=kodra-agent.yaml',
+          '--set',
+          `image.repository=${repository}`,
+          '--set',
+          `image.tag=${tag}`,
+          '--set',
+          'image.pullPolicy=Never',
+          '--wait',
+          '--timeout',
+          '180s',
+        ],
+        dir,
+      );
+    };
+    helm('install');
     const pod = JSON.parse(
       kubectl(
         '-n',
@@ -421,6 +439,16 @@ function kind(): void {
     if (item.spec.securityContext?.runAsUser !== 10001)
       throw new Error('the agent pod does not run as 10001');
     console.log('kind: the chart installed and the agent pod is ready, as uid 10001');
+    await consoleSettingsOnKind(kubectl, fullname, approver, (changed) => {
+      // A changed config, as when someone edits kodra-agent.yaml and upgrades.
+      if (changed)
+        writeFileSync(
+          join(dir, 'kodra-agent.yaml'),
+          `${readFileSync(join(dir, 'kodra-agent.yaml'), 'utf8')}# changed
+`,
+        );
+      helm('upgrade');
+    });
   } catch (error) {
     spawnSync('kubectl', ['--kubeconfig', kubeconfig, '-n', 'kodra-agent', 'describe', 'pods'], {
       stdio: 'inherit',
@@ -448,12 +476,175 @@ function kind(): void {
   }
 }
 
+/**
+ * Console settings on Kubernetes: the agent may patch only its own ConfigMap, Secret, and
+ * Deployment; a saved setting reaches a new pod; a helm upgrade with the same config keeps it,
+ * and one with a changed config wins.
+ */
+async function consoleSettingsOnKind(
+  kubectl: ((...args: string[]) => string) & { kubeconfigArgs: string[] },
+  fullname: string,
+  token: string,
+  upgrade: (changed: boolean) => void,
+): Promise<void> {
+  const sa = `system:serviceaccount:kodra-agent:${NAME}`;
+  const can = (verb: string, resource: string) =>
+    spawnSync(
+      'kubectl',
+      [...kubectl.kubeconfigArgs, '-n', 'kodra-agent', 'auth', 'can-i', verb, resource, '--as', sa],
+      { encoding: 'utf8' },
+    ).stdout.trim();
+  const expected: [string, string, string][] = [
+    ['patch', `configmap/${fullname}-settings`, 'yes'],
+    // Helm's own ConfigMap stays Helm's.
+    ['patch', `configmap/${fullname}`, 'no'],
+    ['patch', `secret/${NAME}-secrets`, 'yes'],
+    ['patch', `deployment/${fullname}`, 'yes'],
+    ['patch', 'configmap/other', 'no'],
+    ['get', 'secret/other', 'no'],
+    ['list', 'secrets', 'no'],
+    ['delete', `configmap/${fullname}`, 'no'],
+  ];
+  for (const [verb, resource, answer] of expected) {
+    if (can(verb, resource) !== answer) {
+      throw new Error(`the agent's access to ${verb} ${resource} is not "${answer}"`);
+    }
+  }
+
+  const port = 18081;
+  const base = `http://127.0.0.1:${String(port)}`;
+  const forward = () =>
+    spawn(
+      'kubectl',
+      [
+        ...kubectl.kubeconfigArgs,
+        '-n',
+        'kodra-agent',
+        'port-forward',
+        `svc/${fullname}-console`,
+        `${String(port)}:8081`,
+      ],
+      { stdio: 'ignore' },
+    );
+  const signIn = async () => {
+    const login = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (login.status !== 200) throw new Error(`console sign-in: HTTP ${String(login.status)}`);
+    return (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+  };
+  const reachable = () =>
+    untilAsync(
+      'the console through port-forward',
+      async () => (await fetch(`${base}/api/session`).catch(() => null))?.ok === true,
+      60_000,
+    );
+
+  let pf = forward();
+  try {
+    await reachable();
+    let cookie = await signIn();
+    const view = (await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json()) as {
+      editable?: boolean;
+      base?: string;
+    };
+    if (view.editable !== true) throw new Error('settings are not editable on Kubernetes');
+    const saved = await fetch(`${base}/api/settings/apply`, {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+      body: JSON.stringify({ patch: { limits: { monthlyBudgetUsd: 25 } }, base: view.base }),
+    });
+    if (saved.status !== 200) throw new Error(`saving settings: HTTP ${String(saved.status)}`);
+
+    const configMap = () =>
+      JSON.parse(
+        kubectl('-n', 'kodra-agent', 'get', 'configmap', `${fullname}-settings`, '-o', 'json'),
+      ) as { data: Record<string, string> };
+    if (!configMap().data['kodra-agent.yaml']?.includes('monthlyBudgetUsd: 25')) {
+      throw new Error('the ConfigMap does not have the new setting');
+    }
+    await until(
+      'the Deployment restart',
+      () =>
+        kubectl(
+          '-n',
+          'kodra-agent',
+          'get',
+          'deployment',
+          fullname,
+          '-o',
+          'jsonpath={.spec.template.metadata.annotations.kodra\\.io/restartedAt}',
+        ).trim() !== '',
+      30_000,
+    );
+    show('kubectl', [
+      ...kubectl.kubeconfigArgs,
+      '-n',
+      'kodra-agent',
+      'rollout',
+      'status',
+      `deployment/${fullname}`,
+      '--timeout',
+      '180s',
+    ]);
+
+    // The budget the running pod uses, through a fresh port-forward (pods get replaced).
+    const budget = async () => {
+      pf.kill();
+      pf = forward();
+      await reachable();
+      cookie = await signIn();
+      const status = (await (
+        await fetch(`${base}/api/status`, { headers: { cookie } })
+      ).json()) as {
+        budget?: { limit?: number | null };
+      };
+      return status.budget?.limit ?? null;
+    };
+    const rollout = () => {
+      show('kubectl', [
+        ...kubectl.kubeconfigArgs,
+        '-n',
+        'kodra-agent',
+        'rollout',
+        'status',
+        `deployment/${fullname}`,
+        '--timeout',
+        '180s',
+      ]);
+    };
+    if ((await budget()) !== 25) throw new Error('the new pod did not load the new setting');
+    console.log('kind: a console setting was saved to the ConfigMap and a new pod runs with it');
+
+    pf.kill();
+    upgrade(false);
+    rollout();
+    const after = configMap().data;
+    if (!after['kodra-agent.yaml']?.includes('monthlyBudgetUsd: 25') || (await budget()) !== 25) {
+      throw new Error('helm upgrade with the same config dropped the console setting');
+    }
+    console.log('kind: helm upgrade with the same config kept the console setting');
+
+    pf.kill();
+    upgrade(true);
+    rollout();
+    if ((await budget()) === 25) {
+      throw new Error('helm upgrade with a changed config did not replace the console setting');
+    }
+    console.log('kind: helm upgrade with a changed config replaced the console setting');
+  } finally {
+    pf.kill();
+  }
+}
+
 try {
   servers();
   eksToken();
   await compose();
   shipInContainer();
-  if (!process.argv.includes('--no-kind')) kind();
+  if (!process.argv.includes('--no-kind')) await kind();
   console.log('\nAll package checks passed.');
 } catch (error) {
   console.error(

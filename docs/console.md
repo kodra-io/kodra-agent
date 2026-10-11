@@ -131,8 +131,30 @@ and only then writes it to `.env`; the value is never shown again, logged, or se
 Secrets that are files (a kubeconfig) live on a read-only mount: put the new file on the host
 and restart.
 
-On Kubernetes the settings are read-only for now: change `values.yaml` and run
-`helm upgrade`.
+### On Kubernetes
+
+With the chart's `console.editSettings` (on by default), the same page works on Kubernetes:
+
+- The config is saved in a settings ConfigMap of the agent's own, `<release>-settings`, next to
+  the one Helm manages, with the previous copy (`kodra-agent.yaml.previous`) for Undo and the
+  hash of the Helm config it was made from. Secrets and sign-in tokens are saved in its
+  Secret (`existingSecret`).
+- To apply a change, the agent restarts its own Deployment, as `kubectl rollout restart`
+  does. The new pod mounts the settings ConfigMap and reads the Secret into its environment.
+- The chart's Role lets the agent get and patch exactly three objects, by name: the settings
+  ConfigMap, its Secret, and its Deployment. Not Helm's ConfigMap, nothing else in the
+  namespace, and no list, create, or delete. It uses the pod's own service account, never a
+  kubeconfig the connectors use, so `serviceAccount.automountToken` must stay on.
+- Helm creates the settings ConfigMap empty and never sets its data, so a `helm upgrade`
+  never conflicts with the console's changes (with Helm 4's server-side apply, a field the
+  agent changed in Helm's own ConfigMap would make every upgrade fail).
+- `helm upgrade` with the same config keeps what was saved in the console. An upgrade with a
+  changed config wins: the agent starts from it and sets the console's copy aside, and says
+  so in its log. To keep the console's changes, start from its copy, as the chart notes show:
+  `kubectl get configmap <release>-settings -o jsonpath='{.data.kodra-agent\.yaml}' > kodra-agent.yaml`.
+
+Set `console.editSettings: false` to keep settings read-only: then change `values.yaml` and
+run `helm upgrade`. Without `existingSecret`, the config is editable but secrets are not.
 
 ### People and tokens
 
@@ -140,12 +162,12 @@ Console approvers get a **People and tokens** tab in Settings. Nobody else sees 
 API answers 403 to anyone else.
 
 - **Add a console approver** (`console:<name>`). The agent creates their token, writes it to
-  `.env`, adds them to the approvers, and restarts.
+  `.env` (or the Secret, on Kubernetes), adds them to the approvers, and restarts.
 - **Rotate token** for the shared sign-in or any console approver. The old token stops
   working when the agent comes back, and so do the sessions made with it. Rotating your own
   token signs you out: sign in with the new one.
-- **Remove** a console approver. Their token is deleted from `.env`. The last console
-  approver cannot be removed.
+- **Remove** a console approver. Their token is deleted from `.env` (or the Secret). The last
+  console approver cannot be removed.
 - **Signed in now** lists the browsers that used the console since the agent started, with
   when they signed in and were last seen. **Sign out** ends a session and its live streams
   at once. Sign-outs are kept in `console-sessions.json` next to the audit log, so a restart
@@ -154,8 +176,8 @@ API answers 403 to anyone else.
 A new token is shown once, in the browser of the approver who asked, and stays on screen
 while the agent restarts. Copy it and send it privately. It is registered with the redactor
 and is never audited, logged, or shown again; the audit log only records who added, rotated,
-or removed whom. On Kubernetes the tokens live in the agent's Secret, so this tab is
-read-only there.
+or removed whom. On Kubernetes this tab needs `console.editSettings` and `existingSecret`;
+without them it is read-only.
 
 ## Pausing changes
 
