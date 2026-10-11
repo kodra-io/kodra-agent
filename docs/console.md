@@ -135,19 +135,23 @@ and restart.
 
 With the chart's `console.editSettings` (on by default), the same page works on Kubernetes:
 
-- The config is saved in the agent's own ConfigMap, with the previous one next to it
-  (`kodra-agent.yaml.previous`) for Undo. Secrets and sign-in tokens are saved in its Secret
-  (`existingSecret`).
+- The config is saved in a settings ConfigMap of the agent's own, `<release>-settings`, next to
+  the one Helm manages, with the previous copy (`kodra-agent.yaml.previous`) for Undo and the
+  hash of the Helm config it was made from. Secrets and sign-in tokens are saved in its
+  Secret (`existingSecret`).
 - To apply a change, the agent restarts its own Deployment, as `kubectl rollout restart`
-  does. The new pod mounts the new ConfigMap and reads the Secret into its environment.
-- The chart's Role lets the agent get and patch exactly three objects, by name: that
-  ConfigMap, that Secret, and that Deployment. Nothing else in the namespace, and no list,
-  create, or delete. It uses the pod's own service account, never a kubeconfig the
-  connectors use, so `serviceAccount.automountToken` must stay on.
-- `helm upgrade` with the same config keeps what was saved in the console (Helm only changes
-  what changed between releases). Before an upgrade with a changed config, start from the
-  ConfigMap's copy, as the chart notes show:
-  `kubectl get configmap <name> -o jsonpath='{.data.kodra-agent\.yaml}' > kodra-agent.yaml`.
+  does. The new pod mounts the settings ConfigMap and reads the Secret into its environment.
+- The chart's Role lets the agent get and patch exactly three objects, by name: the settings
+  ConfigMap, its Secret, and its Deployment. Not Helm's ConfigMap, nothing else in the
+  namespace, and no list, create, or delete. It uses the pod's own service account, never a
+  kubeconfig the connectors use, so `serviceAccount.automountToken` must stay on.
+- Helm creates the settings ConfigMap empty and never sets its data, so a `helm upgrade`
+  never conflicts with the console's changes (with Helm 4's server-side apply, a field the
+  agent changed in Helm's own ConfigMap would make every upgrade fail).
+- `helm upgrade` with the same config keeps what was saved in the console. An upgrade with a
+  changed config wins: the agent starts from it and sets the console's copy aside, and says
+  so in its log. To keep the console's changes, start from its copy, as the chart notes show:
+  `kubectl get configmap <release>-settings -o jsonpath='{.data.kodra-agent\.yaml}' > kodra-agent.yaml`.
 
 Set `console.editSettings: false` to keep settings read-only: then change `values.yaml` and
 run `helm upgrade`. Without `existingSecret`, the config is editable but secrets are not.

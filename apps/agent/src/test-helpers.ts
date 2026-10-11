@@ -1,4 +1,4 @@
-import { CONFIG_KEY, type SelfKubernetes } from './console/config-backend.ts';
+import type { SelfKubernetes } from './console/config-backend.ts';
 import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -252,10 +252,10 @@ export function scriptedModel(
   return Object.assign(model, { calls });
 }
 
-/** The agent's own ConfigMap, Secret, and Deployment, in memory. */
-export function fakeSelfKubernetes(config: string) {
+/** The agent's own settings ConfigMap (empty, as the chart makes it), Secret, and Deployment. */
+export function fakeSelfKubernetes() {
   const state = {
-    configMap: { [CONFIG_KEY]: config } as Record<string, string>,
+    configMap: {} as Record<string, string>,
     secret: {} as Record<string, string>,
     restartedAt: [] as string[],
     calls: [] as string[],

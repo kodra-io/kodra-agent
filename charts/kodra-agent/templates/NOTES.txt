@@ -11,8 +11,9 @@ Open the web console:
 {{- if .Values.console.editSettings }}
 
 Console approvers can change settings there. They are saved in the ConfigMap
-{{ include "kodra-agent.fullname" . }}. Before a helm upgrade with a changed config, start from that copy:
-  kubectl --namespace {{ .Release.Namespace }} get configmap {{ include "kodra-agent.fullname" . }} -o jsonpath='{.data.kodra-agent\.yaml}' > kodra-agent.yaml
+{{ include "kodra-agent.fullname" . }}-settings, and a helm upgrade with the same config keeps them.
+An upgrade with a changed config replaces them, so start from the console's copy first:
+  kubectl --namespace {{ .Release.Namespace }} get configmap {{ include "kodra-agent.fullname" . }}-settings -o jsonpath='{.data.kodra-agent\.yaml}' > kodra-agent.yaml
 {{- end }}
 {{- end }}
 {{- if not .Values.existingSecret }}

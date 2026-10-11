@@ -469,7 +469,7 @@ describe('kodra-agent run', () => {
       approvers: ['@omar', 'console:omar'],
     });
     const path = await writeConfig(text, dir);
-    const self = fakeSelfKubernetes(text);
+    const self = fakeSelfKubernetes();
     const stop = new AbortController();
     let port = 0;
     const t = testContext({
@@ -481,6 +481,7 @@ describe('kodra-agent run', () => {
         KODRA_AGENT_CONFIGMAP: 'agent',
         KODRA_AGENT_DEPLOYMENT: 'agent',
         KODRA_AGENT_SECRET: 'agent-env',
+        KODRA_AGENT_SETTINGS_DIR: join(dir, 'settings'),
       },
       modelFactory: () => scriptedModel(),
       launcher: fakeLauncher(),

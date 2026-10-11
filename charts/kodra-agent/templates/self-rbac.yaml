@@ -1,6 +1,14 @@
 {{- if and .Values.console.enabled .Values.console.editSettings .Values.serviceAccount.automountToken }}
-# Settings from the console: the agent may read and patch its own ConfigMap and Secret, and
-# restart its own Deployment. resourceNames limits each rule to exactly those objects.
+# Settings from the console. This ConfigMap is the agent's: Helm creates it empty and never
+# sets its data, so the console's changes never conflict with a helm upgrade. The Role lets the
+# agent read and patch only it, its Secret, and its Deployment (resourceNames), nothing else.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kodra-agent.fullname" . }}-settings
+  labels:
+    {{- include "kodra-agent.labels" . | nindent 4 }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -10,7 +18,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
-    resourceNames: [{{ include "kodra-agent.fullname" . | quote }}]
+    resourceNames: [{{ printf "%s-settings" (include "kodra-agent.fullname" .) | quote }}]
     verbs: ["get", "patch"]
   {{- with .Values.existingSecret }}
   - apiGroups: [""]

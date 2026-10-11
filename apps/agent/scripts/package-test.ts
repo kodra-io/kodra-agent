@@ -31,7 +31,8 @@ import { getConnector } from '@kodra-agent/connectors';
  *      answers /healthz and /readyz;
  *   3. on a throwaway kind cluster, the chart installs with the bundle's values.yaml and
  *      the pod becomes ready; a console approver changes a setting, the agent saves it in its
- *      own ConfigMap and restarts its Deployment, and a helm upgrade keeps it (skip with
+ *      settings ConfigMap and restarts its Deployment, a helm upgrade with the same config keeps
+ *      it, and one with a changed config wins (skip with
  *      --no-kind).
  * The kind kubeconfig goes to a temporary file: the user's kube context is never changed.
  */
@@ -438,7 +439,14 @@ async function kind(): Promise<void> {
     if (item.spec.securityContext?.runAsUser !== 10001)
       throw new Error('the agent pod does not run as 10001');
     console.log('kind: the chart installed and the agent pod is ready, as uid 10001');
-    await consoleSettingsOnKind(kubectl, fullname, approver, () => {
+    await consoleSettingsOnKind(kubectl, fullname, approver, (changed) => {
+      // A changed config, as when someone edits kodra-agent.yaml and upgrades.
+      if (changed)
+        writeFileSync(
+          join(dir, 'kodra-agent.yaml'),
+          `${readFileSync(join(dir, 'kodra-agent.yaml'), 'utf8')}# changed
+`,
+        );
       helm('upgrade');
     });
   } catch (error) {
@@ -470,13 +478,14 @@ async function kind(): Promise<void> {
 
 /**
  * Console settings on Kubernetes: the agent may patch only its own ConfigMap, Secret, and
- * Deployment; a saved setting reaches a new pod; a helm upgrade with the same values keeps it.
+ * Deployment; a saved setting reaches a new pod; a helm upgrade with the same config keeps it,
+ * and one with a changed config wins.
  */
 async function consoleSettingsOnKind(
   kubectl: ((...args: string[]) => string) & { kubeconfigArgs: string[] },
   fullname: string,
   token: string,
-  upgrade: () => void,
+  upgrade: (changed: boolean) => void,
 ): Promise<void> {
   const sa = `system:serviceaccount:kodra-agent:${NAME}`;
   const can = (verb: string, resource: string) =>
@@ -486,7 +495,9 @@ async function consoleSettingsOnKind(
       { encoding: 'utf8' },
     ).stdout.trim();
   const expected: [string, string, string][] = [
-    ['patch', `configmap/${fullname}`, 'yes'],
+    ['patch', `configmap/${fullname}-settings`, 'yes'],
+    // Helm's own ConfigMap stays Helm's.
+    ['patch', `configmap/${fullname}`, 'no'],
     ['patch', `secret/${NAME}-secrets`, 'yes'],
     ['patch', `deployment/${fullname}`, 'yes'],
     ['patch', 'configmap/other', 'no'],
@@ -548,9 +559,9 @@ async function consoleSettingsOnKind(
     if (saved.status !== 200) throw new Error(`saving settings: HTTP ${String(saved.status)}`);
 
     const configMap = () =>
-      JSON.parse(kubectl('-n', 'kodra-agent', 'get', 'configmap', fullname, '-o', 'json')) as {
-        data: Record<string, string>;
-      };
+      JSON.parse(
+        kubectl('-n', 'kodra-agent', 'get', 'configmap', `${fullname}-settings`, '-o', 'json'),
+      ) as { data: Record<string, string> };
     if (!configMap().data['kodra-agent.yaml']?.includes('monthlyBudgetUsd: 25')) {
       throw new Error('the ConfigMap does not have the new setting');
     }
@@ -579,27 +590,50 @@ async function consoleSettingsOnKind(
       '180s',
     ]);
 
-    // The new pod loaded the new config: its budget is the one just saved.
-    pf.kill();
-    pf = forward();
-    await reachable();
-    cookie = await signIn();
-    const status = (await (await fetch(`${base}/api/status`, { headers: { cookie } })).json()) as {
-      budget?: { limit?: number | null };
+    // The budget the running pod uses, through a fresh port-forward (pods get replaced).
+    const budget = async () => {
+      pf.kill();
+      pf = forward();
+      await reachable();
+      cookie = await signIn();
+      const status = (await (
+        await fetch(`${base}/api/status`, { headers: { cookie } })
+      ).json()) as {
+        budget?: { limit?: number | null };
+      };
+      return status.budget?.limit ?? null;
     };
-    if (status.budget?.limit !== 25) throw new Error('the new pod did not load the new setting');
+    const rollout = () => {
+      show('kubectl', [
+        ...kubectl.kubeconfigArgs,
+        '-n',
+        'kodra-agent',
+        'rollout',
+        'status',
+        `deployment/${fullname}`,
+        '--timeout',
+        '180s',
+      ]);
+    };
+    if ((await budget()) !== 25) throw new Error('the new pod did not load the new setting');
     console.log('kind: a console setting was saved to the ConfigMap and a new pod runs with it');
 
     pf.kill();
-    upgrade();
+    upgrade(false);
+    rollout();
     const after = configMap().data;
-    if (
-      !after['kodra-agent.yaml']?.includes('monthlyBudgetUsd: 25') ||
-      !after['kodra-agent.yaml.previous']
-    ) {
-      throw new Error('helm upgrade with the same values dropped the console setting');
+    if (!after['kodra-agent.yaml']?.includes('monthlyBudgetUsd: 25') || (await budget()) !== 25) {
+      throw new Error('helm upgrade with the same config dropped the console setting');
     }
-    console.log('kind: helm upgrade with the same values kept the console setting');
+    console.log('kind: helm upgrade with the same config kept the console setting');
+
+    pf.kill();
+    upgrade(true);
+    rollout();
+    if ((await budget()) === 25) {
+      throw new Error('helm upgrade with a changed config did not replace the console setting');
+    }
+    console.log('kind: helm upgrade with a changed config replaced the console setting');
   } finally {
     pf.kill();
   }

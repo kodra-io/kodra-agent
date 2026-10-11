@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { dirname, join } from 'node:path';
 import pkg from '../../package.json' with { type: 'json' };
@@ -14,6 +15,7 @@ import {
   kubernetesBackend,
   realSelfKubernetes,
   selfNames,
+  startupConfig,
 } from '../console/config-backend.ts';
 import { People } from '../console/people.ts';
 import { consoleApi } from '../console/routes.ts';
@@ -55,7 +57,19 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     () => ready,
     () => unavailable,
   );
-  const runtime = await startRuntime(opts.configPath, ctx);
+  // Kubernetes: start from the console's saved copy if it was made from this Helm config.
+  const self = selfNames(ctx.env);
+  let configPath = opts.configPath;
+  if (self) {
+    const chosen = await startupConfig(opts.configPath, self.settingsDir).catch(() => null);
+    if (chosen?.setAside) {
+      ctx.term.out(
+        'The config from Helm changed since settings were saved in the console: using it, and setting the console copy aside.',
+      );
+    }
+    configPath = chosen?.path ?? configPath;
+  }
+  const runtime = await startRuntime(configPath, ctx);
   if (!runtime) {
     await closeServer(health);
     return 1;
@@ -235,11 +249,14 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           });
         }
         // Kubernetes: the chart names the agent's own objects and lets it patch only those.
-        const self = runtime.config.spec.target === 'kubernetes' ? selfNames(runtime.env) : null;
         let kube: ReturnType<typeof kubernetesBackend> | null = null;
-        if (self) {
+        if (self && runtime.config.spec.target === 'kubernetes') {
           try {
-            kube = kubernetesBackend((ctx.selfKubernetes ?? realSelfKubernetes)(), self);
+            kube = kubernetesBackend(
+              (ctx.selfKubernetes ?? realSelfKubernetes)(),
+              self,
+              await readFile(opts.configPath, 'utf8'),
+            );
           } catch (error) {
             ctx.term.err(
               `Settings are read-only: no access to the cluster (${error instanceof Error ? error.message : String(error)}).`,

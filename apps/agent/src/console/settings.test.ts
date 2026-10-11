@@ -200,11 +200,17 @@ describe('SettingsStore', () => {
       'target: compose',
       'target: kubernetes',
     );
-    const { client, state } = fakeSelfKubernetes(text);
-    const names = { namespace: 'ops', configMap: 'agent', deployment: 'agent', secret: 'env' };
+    const { client, state } = fakeSelfKubernetes();
+    const names = {
+      namespace: 'ops',
+      configMap: 'agent-settings',
+      deployment: 'agent',
+      secret: 'env',
+      settingsDir: '/etc/kodra-agent-settings',
+    };
     const redactor = new Redactor();
     const store = new SettingsStore({
-      backend: kubernetesBackend(client, names),
+      backend: kubernetesBackend(client, names, text),
       audit: new AuditLog(join(files.dir, 'audit.jsonl'), redactor),
       redactor,
       env: { ANTHROPIC_API_KEY: 'k', GITLAB_TOKEN: 'old-token-1234' },
@@ -229,7 +235,7 @@ describe('SettingsStore', () => {
 
     // Without the agent's Secret, the config is editable but secrets are not.
     const noSecret = new SettingsStore({
-      backend: kubernetesBackend(client, { ...names, secret: null }),
+      backend: kubernetesBackend(client, { ...names, secret: null }, text),
       audit: new AuditLog(join(files.dir, 'audit.jsonl'), redactor),
       redactor,
       env: {},

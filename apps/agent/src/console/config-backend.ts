@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
@@ -12,8 +13,13 @@ import { dropEnvKeys, renderEnvFile, writePrivateFile } from '../env-file.ts';
 
 /**
  * Where the console's settings live. With Docker Compose: kodra-agent.yaml, its `.previous`
- * copy, and `.env` next to it. On Kubernetes: the agent's own ConfigMap (the config and its
- * previous copy) and Secret, which the chart lets it read and patch and nothing else.
+ * copy, and `.env` next to it. On Kubernetes: a settings ConfigMap of the agent's own, next to
+ * the one Helm manages, and the agent's Secret; the chart lets it read and patch only those.
+ *
+ * Helm's ConfigMap is never written: with server-side apply (Helm 4), a field another manager
+ * changed makes every later `helm upgrade` fail. The settings ConfigMap holds the console's
+ * copy of the config, its previous copy, and the hash of the Helm config it was made from, so
+ * an upgrade with the same config keeps the console's changes and a changed one wins.
  */
 export interface ConfigBackend {
   readonly where: 'files' | 'kubernetes';
@@ -54,22 +60,56 @@ export function fileBackend(configPath: string): ConfigBackend {
 /** The agent's own objects, from the environment the chart sets. */
 export interface SelfNames {
   namespace: string;
+  /** The settings ConfigMap (not the one Helm manages). */
   configMap: string;
   deployment: string;
   /** The Secret the agent's environment comes from; without one, secrets are read-only. */
   secret: string | null;
+  /** Where the settings ConfigMap is mounted. */
+  settingsDir: string;
 }
 
 export const CONFIG_KEY = 'kodra-agent.yaml';
 export const PREVIOUS_KEY = 'kodra-agent.yaml.previous';
+/** The sha256 of the Helm config the console's copy was made from. */
+export const BASE_KEY = 'base';
 export const RESTARTED_AT = 'kodra.io/restartedAt';
+
+export function configHash(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
 
 export function selfNames(env: Readonly<Record<string, string | undefined>>): SelfNames | null {
   const namespace = env['KODRA_AGENT_NAMESPACE'];
   const configMap = env['KODRA_AGENT_CONFIGMAP'];
   const deployment = env['KODRA_AGENT_DEPLOYMENT'];
-  if (!namespace || !configMap || !deployment) return null;
-  return { namespace, configMap, deployment, secret: env['KODRA_AGENT_SECRET'] || null };
+  const settingsDir = env['KODRA_AGENT_SETTINGS_DIR'];
+  if (!namespace || !configMap || !deployment || !settingsDir) return null;
+  return {
+    namespace,
+    configMap,
+    deployment,
+    secret: env['KODRA_AGENT_SECRET'] || null,
+    settingsDir,
+  };
+}
+
+/**
+ * The config a Kubernetes agent starts with: the console's copy when it was made from the
+ * Helm config it has now, else the Helm config (`setAside` says a console copy was ignored).
+ */
+export async function startupConfig(
+  basePath: string,
+  settingsDir: string,
+): Promise<{ path: string; setAside: boolean }> {
+  const base = await readFile(basePath, 'utf8');
+  const [copy, made] = await Promise.all([
+    readFile(join(settingsDir, CONFIG_KEY), 'utf8').catch(() => null),
+    readFile(join(settingsDir, BASE_KEY), 'utf8').catch(() => null),
+  ]);
+  if (copy === null) return { path: basePath, setAside: false };
+  if (made?.trim() !== configHash(base)) return { path: basePath, setAside: true };
+  return { path: join(settingsDir, CONFIG_KEY), setAside: false };
 }
 
 /** The few calls the agent makes on its own objects, behind an interface for tests. */
@@ -120,27 +160,34 @@ export function realSelfKubernetes(): SelfKubernetes {
   };
 }
 
+/** `base` is the config Helm gave the pod (its mounted kodra-agent.yaml). */
 export function kubernetesBackend(
   client: SelfKubernetes,
   names: SelfNames,
+  base: string,
 ): ConfigBackend & { restart(at: Date): Promise<void> } {
   const { namespace, configMap, deployment, secret } = names;
+  const baseHash = configHash(base);
+  // Read from the API, not the mounted files, which the kubelet updates only after a while.
+  // A copy made from another Helm config is ignored, as at startup.
+  const current = async () => {
+    const data = await client.readConfigMap(namespace, configMap);
+    return data[BASE_KEY] === baseHash && data[CONFIG_KEY] !== undefined ? data : null;
+  };
   return {
     where: 'kubernetes',
     envWritable: secret !== null,
-    // Read from the API, not the mounted file, which the kubelet updates only after a while.
     async read() {
-      const text = (await client.readConfigMap(namespace, configMap))[CONFIG_KEY];
-      if (text === undefined) throw new Error(`ConfigMap ${configMap} has no ${CONFIG_KEY}`);
-      return text;
+      return (await current())?.[CONFIG_KEY] ?? base;
     },
     async readPrevious() {
-      return (await client.readConfigMap(namespace, configMap))[PREVIOUS_KEY] ?? null;
+      return (await current())?.[PREVIOUS_KEY] ?? null;
     },
     async save(text, previous) {
       await client.patchConfigMap(namespace, configMap, {
         [CONFIG_KEY]: text,
         [PREVIOUS_KEY]: previous,
+        [BASE_KEY]: baseHash,
       });
     },
     async writeEnv(set, remove) {
