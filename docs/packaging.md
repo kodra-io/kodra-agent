@@ -46,7 +46,7 @@ For an npm server, change the version in `docker/mcp/npm/<name>/package.json` an
 `charts/kodra-agent` takes the `values.yaml` from a Kubernetes bundle as is:
 
 ```sh
-helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.3 \
+helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.2.0 \
   --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml
 ```
 
@@ -84,7 +84,7 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.3 
 1. Set the new version in `apps/agent/package.json`, `charts/kodra-agent/Chart.yaml`
    (`version` and `appVersion`), and `AGENT_VERSION` in `packages/templates/src/bundle.ts`.
    `src/release.test.ts` fails until all of them match.
-2. Merge to `main`, then tag: `git tag v0.1.3 && git push origin v0.1.3`.
+2. Merge to `main`, then tag: `git tag v0.2.0 && git push origin v0.2.0`.
 3. The `Release` workflow builds the image for linux/amd64 and linux/arm64 with SBOM and
    provenance attestations, pushes it and the chart to GHCR, signs both with cosign
    (keyless), and creates the GitHub release with the chart, an SPDX SBOM, and `SHA256SUMS`.
@@ -94,7 +94,7 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.1.3 
 Verify a release:
 
 ```sh
-cosign verify ghcr.io/kodra-io/kodra-agent:0.1.3 \
+cosign verify ghcr.io/kodra-io/kodra-agent:0.2.0 \
   --certificate-identity-regexp '^https://github.com/kodra-io/kodra-agent/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
