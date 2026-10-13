@@ -28,7 +28,8 @@ import { getConnector } from '@kodra-agent/connectors';
  * bundle's image), following the bundle README:
  *   1. every preinstalled MCP server starts offline on a read-only root filesystem;
  *   2. a generated compose bundle runs `init --non-interactive` and `up`, and the agent
- *      answers /healthz and /readyz;
+ *      answers /healthz and /readyz; a console approver changes a setting, and Compose
+ *      restarts the agent with it;
  *   3. on a throwaway kind cluster, the chart installs with the bundle's values.yaml and
  *      the pod becomes ready; a console approver changes a setting, the agent saves it in its
  *      settings ConfigMap and restarts its Deployment, a helm upgrade with the same config keeps
@@ -173,7 +174,7 @@ function servers(): void {
 
 async function compose(): Promise<void> {
   console.log('\n== Compose bundle: init, up, health');
-  const dir = writeBundle('compose');
+  const dir = writeBundle('compose', 'compose', {}, '@ops, console:ops');
   writeFileSync(join(dir, '.env'), linuxEnv(false));
   const dc = (...args: string[]) => {
     show('docker', ['compose', ...args], dir);
@@ -212,6 +213,7 @@ async function compose(): Promise<void> {
     await until('/readyz in compose', () => probe('/readyz'), 30_000);
     console.log('compose: /healthz and /readyz answer');
     await consoleCheck(dir);
+    await consoleSettingsOnCompose(dir);
   } catch (error) {
     spawnSync('docker', ['compose', 'logs', '--no-color'], { cwd: dir, stdio: 'inherit' });
     throw error;
@@ -283,6 +285,58 @@ async function consoleCheck(dir: string): Promise<void> {
     throw new Error('the shared console token must not be able to approve');
   }
   console.log(`console: signed in on ${base}, agent ${status.version}; writes are guarded`);
+}
+
+/**
+ * Console settings on Compose: a console approver saves a setting, the agent writes
+ * kodra-agent.yaml (keeping .previous) and exits 75, and Compose starts it again with it.
+ */
+async function consoleSettingsOnCompose(dir: string): Promise<void> {
+  const env = readFileSync(join(dir, '.env'), 'utf8');
+  const token = /^KODRA_CONSOLE_TOKEN_OPS=(.+)$/m.exec(env)?.[1]?.trim();
+  if (!token) throw new Error('init did not create KODRA_CONSOLE_TOKEN_OPS');
+  const base = 'http://127.0.0.1:8081';
+  const login = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (login.status !== 200)
+    throw new Error(`approver sign-in failed: HTTP ${String(login.status)}`);
+  const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+  const view = (await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json()) as {
+    editable?: boolean;
+    base?: string;
+  };
+  if (view.editable !== true) throw new Error('settings are not editable on Compose');
+
+  const container = sh('docker', ['compose', 'ps', '-q', 'kodra-agent'], dir).trim();
+  const restarts = () =>
+    Number(sh('docker', ['inspect', '-f', '{{.RestartCount}}', container]).trim());
+  const before = restarts();
+  const saved = await fetch(`${base}/api/settings/apply`, {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+    body: JSON.stringify({ patch: { limits: { monthlyBudgetUsd: 25 } }, base: view.base }),
+  });
+  if (saved.status !== 200) throw new Error(`saving settings: HTTP ${String(saved.status)}`);
+  await until('Compose to restart the agent', () => restarts() > before, 60_000);
+
+  const config = readFileSync(join(dir, 'kodra-agent.yaml'), 'utf8');
+  if (!/monthlyBudgetUsd: 25\b/.test(config))
+    throw new Error('kodra-agent.yaml does not have the saved budget');
+  if (!existsSync(join(dir, 'kodra-agent.yaml.previous')))
+    throw new Error('the save did not keep kodra-agent.yaml.previous');
+  // The session is signed with the token, so it survives the restart.
+  await untilAsync(
+    'the console after the restart',
+    async () => {
+      const res = await fetch(`${base}/api/session`, { headers: { cookie } }).catch(() => null);
+      return res?.ok === true && ((await res.json()) as { signedIn?: boolean }).signedIn === true;
+    },
+    60_000,
+  );
+  console.log('compose: a console setting was saved, Compose restarted the agent, still signed in');
 }
 
 async function untilAsync(what: string, check: () => Promise<boolean>, ms: number): Promise<void> {
