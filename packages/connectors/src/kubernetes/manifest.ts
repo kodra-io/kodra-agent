@@ -48,6 +48,9 @@ version = "v1"
 kind = "ClusterRoleBinding"
 `;
 
+/** The agent never changes itself: its Deployment, pods, config, or Secret (PLAN-v0.2 M11). */
+const notSelf: ToolGuard = { kind: 'not-self', namespaceArg: 'namespace', nameArg: 'name' };
+
 const inNamespace: ToolGuard[] = [
   {
     kind: 'arg-in-setting',
@@ -146,7 +149,14 @@ export default defineManifest({
     pods_log: inNamespace,
     resources_get: inNamespace,
     resources_list: inNamespace,
-    resources_scale: inNamespace,
+    resources_scale: [...inNamespace, notSelf],
+    pods_exec: [notSelf],
+    pods_run: [notSelf],
+    pods_delete: [notSelf],
+    resources_delete: [notSelf],
+    resources_create_or_update: [
+      { kind: 'not-self', namespaceArg: 'namespace', resourceArg: 'resource' },
+    ],
   },
   runtime: {
     type: 'mcp-stdio',

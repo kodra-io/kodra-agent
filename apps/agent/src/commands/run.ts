@@ -23,6 +23,7 @@ import {
   startupConfig,
 } from '../console/config-backend.ts';
 import { People } from '../console/people.ts';
+import { PolicyGate } from '../console/policy-gate.ts';
 import { consoleApi } from '../console/routes.ts';
 import { SettingsStore } from '../console/settings.ts';
 import { SessionRegistry, startConsoleServer, type ConsoleAccount } from '../console/server.ts';
@@ -125,6 +126,11 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     const slackInput = runtime.inputs.find((i) => i.component.id === 'slack');
     let channelId: string | null = null;
     let api: SlackApi | null = null;
+    // Freeze overrides and policy changes are told to everyone in the agent's Slack channel.
+    const announce = async (text: string) => {
+      if (api && channelId) await api.postMessage({ channel: channelId, text });
+    };
+    const deps = (channel: ApprovalChannel) => ({ ...runtime.deps(channel), announce });
     if (slackInput) {
       const { botToken, appToken } = slackInput.secrets;
       if (!botToken || !appToken) {
@@ -155,7 +161,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         redactor: ctx.redactor,
         channelId,
         approverIds: approvers.ids,
-        deps: runtime.deps,
+        deps,
         alsoAsk: consoleChannels,
         gate,
       });
@@ -164,6 +170,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       await slack.start({
         onMention: (m) => conv.onMention(m),
         onDirectMessage: (m) => conv.onDirectMessage(m),
+        onSubmission: (s) => appr.handleSubmission(s),
         onAction: async (a) => {
           await appr.handleAction(a);
         },
@@ -244,7 +251,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           const slackChannel =
             approvals && channelId ? [approvals.channelFor(channelId, undefined)] : [];
           consoleChat = new ConsoleChat({
-            deps: runtime.deps,
+            deps,
             approvals: fanOut([...consoleChannels, ...slackChannel]),
             redactor: ctx.redactor,
             gate,
@@ -280,6 +287,21 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         });
         await sessions.load();
         const people = new People({ store: settings, sessions, env: runtime.env });
+        // Policy changes from the console: announced (team) or held for a second approver
+        // (strict), through the same approvals as any change.
+        const effective = resolvePolicy(runtime.config.spec);
+        const policyGate = new PolicyGate({
+          mode: effective.policyChanges,
+          approvals: fanOut([
+            ...consoleChannels,
+            ...(approvals && channelId ? [approvals.channelFor(channelId, undefined)] : []),
+          ]),
+          approvers: allApprovers(effective),
+          expiresAfterMinutes: effective.default.expiresAfterMinutes,
+          audit: runtime.audit,
+          redactor: ctx.redactor,
+          announce,
+        });
         const api = consoleApi(
           runtime,
           { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },
@@ -289,6 +311,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           {
             store: settings,
             people,
+            gate: policyGate,
             // After the response is sent, so the page hears that the save worked.
             restart: () => {
               setTimeout(() => {

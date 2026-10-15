@@ -12,7 +12,9 @@ import {
 } from 'ai';
 import type { EffectivePolicy } from '@kodra-agent/schema';
 import {
+  decisionAudit,
   newApprovalRequest,
+  overrideNotice,
   rulesFor,
   type ApprovalChannel,
   type ApprovalOutcome,
@@ -22,7 +24,14 @@ import { clip, PROPOSE_CHANGE, proposeChangeTool } from './changes.ts';
 import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
-import { decide, describeGuards, touchedBy, type Decision, type PolicyInput } from './policy.ts';
+import {
+  decide,
+  describeGuards,
+  touchedBy,
+  type Decision,
+  type PolicyInput,
+  type SelfTarget,
+} from './policy.ts';
 import { StreamingRedactor, type Redactor } from './redactor.ts';
 
 /** Guardrails for every task (golden rules 4, 5, and 6). */
@@ -59,10 +68,14 @@ export interface AgentDeps {
   audit: AuditLog;
   redactor: Redactor;
   term: Terminal;
+  /** Tells all approvers something they must know, like a freeze override (Slack channel). */
+  announce?: (text: string) => Promise<void>;
   policy: {
     destructiveActions: 'deny' | 'require-approval';
     /** Approval rules per environment (resolvePolicy). */
     effective: EffectivePolicy;
+    /** The agent's own objects, which no tool may change. */
+    self?: SelfTarget | null;
   };
   limits?: Limits;
   actor?: string;
@@ -159,8 +172,10 @@ export function policyInputFor(
   hosted: HostedTool,
   args: Readonly<Record<string, unknown>>,
   destructiveActions: 'deny' | 'require-approval',
+  self: SelfTarget | null = null,
 ): PolicyInput {
   return {
+    self,
     risk: hosted.risk,
     access: hosted.access,
     destructiveActions,
@@ -253,7 +268,9 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
               }
             : pausedReason
               ? { kind: 'block', reason: pausedReason }
-              : decide(policyInputFor(hosted, args, deps.policy.destructiveActions));
+              : decide(
+                  policyInputFor(hosted, args, deps.policy.destructiveActions, deps.policy.self),
+                );
         // Which environment's rules apply; a call spanning two is refused.
         const rules = rulesFor(deps.policy.effective, touchedBy(hosted.guards, args));
         if (decision.kind === 'approve' && !rules.ok) {
@@ -288,7 +305,9 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
               ),
               requestedBy: actor,
             },
-            rules.ok ? rules.rules : { ...deps.policy.effective.default, environment: null },
+            rules.ok
+              ? rules.rules
+              : { ...deps.policy.effective.default, environment: null, freeze: null },
           );
           await deps.audit.append({
             ...base,
@@ -316,10 +335,9 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
           await deps.audit.append({
             ...base,
             event: 'approval.decision',
-            actor: outcome.decision === 'expired' ? actor : outcome.by,
-            decision: outcome.decision,
-            detail: note ? `${req.id}; ${note}` : req.id,
+            ...decisionAudit(req, outcome, actor, note),
           });
+          await recordOverride(deps, req, outcome, base);
           deps.events?.({
             type: 'decision',
             call,
@@ -397,6 +415,28 @@ export interface TurnResult {
   messages: ModelMessage[];
   stoppedBy?: 'token-budget' | 'timeout' | 'step-limit' | 'user';
   usage: TurnUsage;
+}
+
+/**
+ * A change that overrode a freeze is audited on its own record and announced to all approvers
+ * (PLAN-v0.2 M11). A failed announcement never undoes the decision.
+ */
+export async function recordOverride(
+  deps: Pick<AgentDeps, 'audit' | 'announce' | 'redactor'>,
+  req: ApprovalRequest,
+  outcome: ApprovalOutcome,
+  base: { actor: string; task?: string; connector?: string; tool?: string },
+): Promise<void> {
+  const notice = overrideNotice(req, outcome);
+  if (!notice) return;
+  const text = deps.redactor.redact(notice);
+  await deps.audit.append({
+    ...base,
+    actor: outcome.decision === 'approved' ? outcome.by : base.actor,
+    event: 'override',
+    detail: clip(`${req.id}; ${text}`, 3_500),
+  });
+  await deps.announce?.(text).catch(() => undefined);
 }
 
 /**

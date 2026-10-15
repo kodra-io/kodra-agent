@@ -1,5 +1,6 @@
 import {
   progressLabel,
+  REFUSALS,
   type ApprovalOutcome,
   type ApprovalRequest,
   type BallotProgress,
@@ -7,10 +8,14 @@ import {
 } from '../approvals.ts';
 import type { AuditLog } from '../audit.ts';
 import type { Redactor } from '../redactor.ts';
-import type { IncomingAction, SlackApi } from './api.ts';
+import type { IncomingAction, IncomingSubmission, SlackApi } from './api.ts';
 
 export const APPROVE_ACTION = 'kodra_approve';
 export const DENY_ACTION = 'kodra_deny';
+/** The modal that asks for a change reference or a break-glass reason before approving. */
+export const APPROVE_MODAL = 'kodra_approve_modal';
+const CHANGE_REF_BLOCK = 'change_ref';
+const REASON_BLOCK = 'reason';
 
 interface Pending {
   req: ApprovalRequest;
@@ -91,27 +96,83 @@ export class SlackApprovals {
   /** Handles a button click. Returns what happened, for logging and tests. */
   async handleAction(
     action: IncomingAction,
-  ): Promise<'approved' | 'denied' | 'counted' | 'refused' | 'unknown'> {
+  ): Promise<'approved' | 'denied' | 'counted' | 'refused' | 'asked' | 'unknown'> {
     const entry = this.pending.get(action.value);
     if (!entry) return 'unknown';
-    const base = {
-      actor: action.user,
-      connector: entry.req.connector,
-      tool: entry.req.tool,
-      risk: entry.req.risk === 'unclassified' ? ('unclassified' as const) : entry.req.risk,
+    const approve = action.actionId === APPROVE_ACTION;
+    const { req } = entry;
+    // A change reference or a break-glass reason is asked in a modal, after the usual checks.
+    const needs = req.ballot.needs;
+    if (approve && (needs.changeRef || needs.reason) && !req.ballot.cannotApprove(action.user)) {
+      if (this.now() > req.expiresAt) return this.vote(action.user, req, approve);
+      if (!action.triggerId) return 'refused';
+      await this.opts.api.openModal(action.triggerId, this.modal(req));
+      return 'asked';
+    }
+    return this.vote(action.user, req, approve);
+  }
+
+  /** A submitted approval modal: the vote with what it asked for, or errors to show in it. */
+  async handleSubmission(submission: IncomingSubmission): Promise<Record<string, string> | null> {
+    if (submission.callbackId !== APPROVE_MODAL) return null;
+    const entry = this.pending.get(submission.privateMetadata);
+    if (!entry) return null;
+    const details = {
+      changeRef: submission.values[CHANGE_REF_BLOCK],
+      reason: submission.values[REASON_BLOCK],
     };
-    if (this.now() > entry.req.expiresAt) {
-      await this.finish(entry.req.id, { decision: 'expired' }, 'expired: nothing was run');
+    const result = entry.req.ballot.refusal(submission.user);
+    if (result === null) {
+      const check = this.checkDetails(entry.req, details);
+      if (check) return check;
+    }
+    await this.vote(submission.user, entry.req, true, details);
+    return null;
+  }
+
+  /** Errors for the modal's inputs, so a missing or malformed value is fixed in place. */
+  private checkDetails(
+    req: ApprovalRequest,
+    details: { changeRef?: string | undefined; reason?: string | undefined },
+  ): Record<string, string> | null {
+    const needs = req.ballot.needs;
+    const errors: Record<string, string> = {};
+    if (needs.reason && !details.reason?.trim()) errors[REASON_BLOCK] = REFUSALS['reason-missing'];
+    const ref = details.changeRef?.trim() ?? '';
+    const pattern = req.ballot.rules.changeRefPattern;
+    if (needs.changeRef && ref === '') errors[CHANGE_REF_BLOCK] = REFUSALS['change-ref-missing'];
+    else if (needs.changeRef && pattern && !new RegExp(pattern).test(ref)) {
+      errors[CHANGE_REF_BLOCK] = `${REFUSALS['change-ref-format']} Expected: ${pattern}`;
+    }
+    return Object.keys(errors).length > 0 ? errors : null;
+  }
+
+  private async vote(
+    voter: string,
+    req: ApprovalRequest,
+    approve: boolean,
+    details: { changeRef?: string | undefined; reason?: string | undefined } = {},
+  ): Promise<'approved' | 'denied' | 'counted' | 'refused' | 'unknown'> {
+    const entry = this.pending.get(req.id);
+    if (!entry) return 'unknown';
+    const base = {
+      actor: voter,
+      connector: req.connector,
+      tool: req.tool,
+      risk: req.risk === 'unclassified' ? ('unclassified' as const) : req.risk,
+    };
+    if (this.now() > req.expiresAt) {
+      await this.finish(req.id, { decision: 'expired' }, 'expired: nothing was run');
       return 'refused';
     }
-    const result = entry.req.ballot.vote(action.user, action.actionId === APPROVE_ACTION);
+    const result = req.ballot.vote(voter, approve, details);
     switch (result.kind) {
       case 'refused':
         await this.opts.audit.append({
           ...base,
           event: 'approval.decision',
           decision: 'blocked',
-          detail: `${entry.req.id}; click refused: ${result.reason}`,
+          detail: `${req.id}; click refused: ${result.reason}`,
         });
         return 'refused';
       case 'closed':
@@ -121,13 +182,61 @@ export class SlackApprovals {
           ...base,
           event: 'approval.vote',
           decision: 'approved',
-          detail: `${entry.req.id}; ${progressLabel(result.progress)}`,
+          detail: `${req.id}; ${progressLabel(result.progress)}`,
         });
         return 'counted';
       case 'decided':
-        await this.finish(entry.req.id, result.outcome, outcomeLabel(result.outcome));
+        await this.finish(req.id, result.outcome, outcomeLabel(result.outcome));
         return result.outcome.decision === 'approved' ? 'approved' : 'denied';
     }
+  }
+
+  private modal(req: ApprovalRequest): unknown {
+    const r = (s: string) => this.opts.redactor.redact(s);
+    const needs = req.ballot.needs;
+    const freeze = req.ballot.rules.freeze;
+    const pattern = req.ballot.rules.changeRefPattern;
+    const what = req.title ?? `${req.connector}/${req.tool}`;
+    const blocks: unknown[] = [
+      { type: 'section', text: { type: 'mrkdwn', text: r(`*Approve:* ${what}`) } },
+    ];
+    if (freeze) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: r(
+            `*${req.environment ?? 'This environment'} is frozen* (${freeze.name}, until ${freeze.until} ${freeze.timezone}). Approving overrides the freeze, and every approver is told.`,
+          ),
+        },
+      });
+    }
+    if (needs.reason) {
+      blocks.push({
+        type: 'input',
+        block_id: REASON_BLOCK,
+        label: { type: 'plain_text', text: 'Reason for overriding the freeze' },
+        element: { type: 'plain_text_input', action_id: 'value', multiline: true, max_length: 500 },
+      });
+    }
+    if (needs.changeRef) {
+      blocks.push({
+        type: 'input',
+        block_id: CHANGE_REF_BLOCK,
+        label: { type: 'plain_text', text: 'Change reference' },
+        ...(pattern ? { hint: { type: 'plain_text', text: `Format: ${pattern}` } } : {}),
+        element: { type: 'plain_text_input', action_id: 'value', max_length: 100 },
+      });
+    }
+    return {
+      type: 'modal',
+      callback_id: APPROVE_MODAL,
+      private_metadata: req.id,
+      title: { type: 'plain_text', text: 'Approve change' },
+      submit: { type: 'plain_text', text: 'Approve' },
+      close: { type: 'plain_text', text: 'Cancel' },
+      blocks,
+    };
   }
 
   /** Shows "1 of 2 approved" on the message, with the buttons still there. */
@@ -185,6 +294,10 @@ export class SlackApprovals {
       req.environment ? `Environment: *${req.environment}*` : null,
       needed > 1 ? `Needs ${String(needed)} different approvers` : null,
       req.ballot.rules.allowSelfApproval ? null : 'The requester cannot approve it',
+      req.ballot.rules.requireChangeRef ? 'Needs a change reference' : null,
+      req.ballot.rules.freeze
+        ? `Frozen (${req.ballot.rules.freeze.name}, until ${req.ballot.rules.freeze.until} ${req.ballot.rules.freeze.timezone}): approving overrides it and needs a reason`
+        : null,
     ].filter((s): s is string => s !== null);
     const blocks: unknown[] = [
       {
@@ -268,6 +381,14 @@ export class SlackApprovals {
 /** How a decision reads on the Slack message, wherever it was made. */
 export function outcomeLabel(outcome: ApprovalOutcome): string {
   if (outcome.decision === 'expired') return 'expired: nothing was run';
+  if (outcome.decision === 'approved') {
+    const extra = [
+      outcome.changeRef ? `change ${outcome.changeRef}` : null,
+      outcome.override ? `freeze override: ${outcome.override}` : null,
+    ].filter((s): s is string => s !== null);
+    const by = `approved by ${outcome.by.split(', ').map(who).join(', ')}`;
+    return extra.length > 0 ? `${by} (${extra.join('; ')})` : by;
+  }
   if (outcome.by === 'policy') {
     return `${outcome.decision}: ${('note' in outcome ? outcome.note : undefined) ?? 'refused by policy'}`;
   }

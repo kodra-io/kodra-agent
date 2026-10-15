@@ -1,3 +1,4 @@
+import type { PolicyGate } from './policy-gate.ts';
 import type { Runtime } from '../runtime.ts';
 import type { ConsoleApprovals } from './approvals.ts';
 import type { ConsoleChat } from './chat.ts';
@@ -52,7 +53,7 @@ export function consoleApi(
   investigations: InvestigationLog,
   pending: ConsoleApprovals,
   chat: ConsoleChat | null,
-  settings?: { store: SettingsStore; restart: () => void; people?: People },
+  settings?: { store: SettingsStore; restart: () => void; people?: People; gate?: PolicyGate },
 ): ConsoleApi {
   const auditPath = runtime.config.spec.audit.path;
   const model = `${runtime.config.spec.model.provider}/${runtime.config.spec.model.name}`;
@@ -103,8 +104,12 @@ export function consoleApi(
       if (typeof body['approve'] !== 'boolean') {
         return { status: 400, body: { error: 'approve must be true or false' } };
       }
-      const note = typeof body['note'] === 'string' ? body['note'] : undefined;
-      const { result, reason, refusal } = await pending.decide(user, id, body['approve'], note);
+      const text = (key: string) => (typeof body[key] === 'string' ? body[key] : undefined);
+      const { result, reason, refusal } = await pending.decide(user, id, body['approve'], {
+        note: text('note'),
+        changeRef: text('changeRef'),
+        reason: text('reason'),
+      });
       const error = reason ?? DECISION_ERROR[result];
       return {
         status: DECISION_STATUS[result],
@@ -154,10 +159,16 @@ export function consoleApi(
         : null;
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
+    const { gate } = settings;
     routes['settings'] = async () => {
       const last = (await readAudit(auditPath)).filter((r) => r.event === 'settings').at(-1);
-      return store.view(last ? { by: last.actor, at: last.ts, detail: last.detail ?? '' } : null);
+      const view = await store.view(
+        last ? { by: last.actor, at: last.ts, detail: last.detail ?? '' } : null,
+      );
+      return { ...view, policyChanges: gate?.mode ?? 'audited', waiting: gate?.pending() ?? [] };
     };
+    /** A policy change in strict waits for a second approver; 202 says it is waiting. */
+    const held = (id: string) => ({ status: 202, body: { pending: id } });
     actions['settings/preview'] = async ({ user, body }) => {
       if (!user.canApprove) return approverOnly;
       const patch = patchOf(body);
@@ -168,16 +179,51 @@ export function consoleApi(
       if (!user.canApprove) return approverOnly;
       const patch = patchOf(body);
       if (!patch) return { status: 400, body: { error: 'send a patch' } };
-      const result = await store.apply(patch, str(body['base']), user.name);
+      const base = str(body['base']);
+      const preview = await store.preview(patch);
+      if (preview.ok && preview.diff !== '' && preview.policy && gate?.mode === 'second-approver') {
+        if (preview.base !== base) {
+          return { status: 409, body: { error: 'the settings changed meanwhile; review again' } };
+        }
+        const title = `changed ${preview.changed.join(', ')}`;
+        const id = gate.hold(
+          user.name,
+          title,
+          preview.diff,
+          async () => {
+            const applied = await store.apply(patch, base, user.name);
+            if (applied === 'stale') return 'the settings changed after it was asked';
+            return applied.ok ? null : applied.errors.join('; ');
+          },
+          restart,
+        );
+        return { status: 202, body: { ...preview, pending: id } };
+      }
+      const result = await store.apply(patch, base, user.name);
       if (result === 'stale') {
         return { status: 409, body: { error: 'the settings changed meanwhile; review again' } };
       }
       if (!result.ok || result.diff === '') return { status: 400, body: result };
+      if (result.policy)
+        await gate?.announce(user.name, `changed ${result.changed.join(', ')}`, result.diff);
       restart();
       return { status: 200, body: { ...result, restarting: true } };
     };
     actions['settings/undo'] = async ({ user }) => {
       if (!user.canApprove) return approverOnly;
+      const undo = await store.undoPreview();
+      if (undo?.policy && gate?.mode === 'second-approver') {
+        return held(
+          gate.hold(
+            user.name,
+            'undid the last change',
+            undo.diff,
+            async () => ((await store.undo(user.name)) ? null : 'there was nothing to undo'),
+            restart,
+          ),
+        );
+      }
+      if (undo?.policy) await gate?.announce(user.name, 'undid the last change', undo.diff);
       if (!(await store.undo(user.name))) {
         return { status: 409, body: { error: 'there is no earlier change to undo' } };
       }
@@ -221,17 +267,59 @@ export function consoleApi(
         body: { ...(result.token ? { token: result.token } : {}), restarting: restarts },
       };
     };
-    routes['people'] = ({ user }) =>
-      user.canApprove ? people.view() : new Forbidden(approverOnly.body.error);
+    const gate = settings.gate;
+    routes['people'] = async ({ user }) =>
+      user.canApprove
+        ? { ...(await people.view()), waiting: gate?.pending() ?? [] }
+        : new Forbidden(approverOnly.body.error);
+    /**
+     * Adding or removing an approver is a policy change (M11): announced, or in strict held
+     * for a second approver. A held add gets its token afterwards, with Rotate.
+     */
+    const policyChange = async (
+      action: 'add' | 'remove',
+      name: string,
+      by: string,
+      run: (withToken: boolean) => Promise<PeopleResult>,
+    ) => {
+      const who = name.startsWith('console:') ? name : `console:${name}`;
+      const title =
+        action === 'add' ? `added ${who} as an approver` : `removed ${who} as an approver`;
+      const diff = `${action === 'add' ? '+' : '-'} approver ${who}`;
+      if (gate?.mode === 'second-approver') {
+        const checked = await people.check(action, name);
+        if (!checked.ok) return reply(checked, false);
+        const id = gate.hold(
+          by,
+          title,
+          diff,
+          async () => {
+            const result = await run(false);
+            return result.ok ? null : result.error;
+          },
+          restart,
+        );
+        return { status: 202, body: { pending: id } };
+      }
+      const result = await run(true);
+      if (result.ok) await gate?.announce(by, title, diff);
+      return reply(result, true);
+    };
     actions['people/add'] = async ({ user, body }) =>
-      user.canApprove ? reply(await people.add(str(body['name']), user.name), true) : approverOnly;
+      user.canApprove
+        ? policyChange('add', str(body['name']), user.name, (withToken) =>
+            people.add(str(body['name']), user.name, withToken),
+          )
+        : approverOnly;
     actions['people/rotate'] = async ({ user, body }) =>
       user.canApprove
         ? reply(await people.rotate(str(body['who']), user.name), true)
         : approverOnly;
     actions['people/remove'] = async ({ user, body }) =>
       user.canApprove
-        ? reply(await people.remove(str(body['who']), user.name), true)
+        ? policyChange('remove', str(body['who']), user.name, () =>
+            people.remove(str(body['who']), user.name),
+          )
         : approverOnly;
     actions['people/sign-out'] = async ({ user, body }) =>
       user.canApprove ? reply(await people.signOut(str(body['id'])), false) : approverOnly;

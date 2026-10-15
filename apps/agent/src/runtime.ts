@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isSecretRequired, resolvePolicy, type AgentConfig } from '@kodra-agent/schema';
 import { alwaysBlocked, type AgentDeps } from './agent.ts';
+import { selfTarget } from './policy.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
 import { budgetState, type BudgetState } from './budget.ts';
@@ -189,6 +190,7 @@ export async function startRuntime(
       policy: {
         destructiveActions: config.spec.policy.destructiveActions,
         effective: resolvePolicy(config.spec),
+        self: selfTarget(env),
       },
       limits: ctx.limits ?? {
         maxSteps: config.spec.limits.maxSteps,

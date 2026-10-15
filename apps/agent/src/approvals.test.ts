@@ -83,7 +83,7 @@ describe('Ballot', () => {
       'You asked for this change, so someone else must approve it.',
     );
     expect(req.ballot.vote('U01ASKER', true)).toMatchObject({ kind: 'refused' });
-    expect(req.ballot.vote('U01ASKER', false, 'wrong one')).toEqual({
+    expect(req.ballot.vote('U01ASKER', false, { note: 'wrong one' })).toEqual({
       kind: 'decided',
       outcome: { decision: 'denied', by: 'U01ASKER', note: 'wrong one' },
     });

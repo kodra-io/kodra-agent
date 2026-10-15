@@ -214,6 +214,19 @@ const toolGuard = z.discriminatedUnion('kind', [
     from: z.string().regex(ID).optional(),
   }),
   z.strictObject({
+    /**
+     * Never the agent's own objects (M11): its Deployment and pods, config, settings ConfigMap,
+     * Secret, and ServiceAccount. A missing namespace counts as the agent's own, which is the
+     * default for a server running in the agent's pod.
+     */
+    kind: z.literal('not-self'),
+    namespaceArg: z.string().min(1),
+    /** The object's name; with neither this nor resourceArg, the whole namespace is off limits. */
+    nameArg: z.string().min(1).optional(),
+    /** An argument holding whole manifests (YAML or JSON), read for their namespace and name. */
+    resourceArg: z.string().min(1).optional(),
+  }),
+  z.strictObject({
     kind: z.literal('not-default-branch'),
     /** Branch argument, like `branch`. A missing branch means the default branch: blocked. */
     branchArg: z.string().min(1),

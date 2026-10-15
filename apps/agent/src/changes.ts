@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import { dynamicTool, jsonSchema, type Tool } from 'ai';
 import type { ChangeStep } from '@kodra-agent/schema';
-import { newApprovalRequest, rulesFor } from './approvals.ts';
+import { decisionAudit, newApprovalRequest, rulesFor } from './approvals.ts';
 import { unifiedDiff } from './diff.ts';
 import type { FileReader } from './forge-files.ts';
 import type { HostedTool } from './mcp/host.ts';
 import { decide, touchedBy, type Risk } from './policy.ts';
-import { wrapUntrusted, type AgentDeps } from './agent.ts';
+import { recordOverride, wrapUntrusted, type AgentDeps } from './agent.ts';
 
 /**
  * Proposed changes (M9): the model proposes several tool calls as one change, the agent
@@ -243,6 +243,7 @@ export function proposeChangeTool(
           destructiveActions: deps.policy.destructiveActions,
           guards: tool.guards,
           args,
+          self: deps.policy.self ?? null,
           settings: tool.settings,
           ...(tool.defaultBranches ? { defaultBranches: tool.defaultBranches } : {}),
           ...(tool.sharedSettings ? { sharedSettings: tool.sharedSettings } : {}),
@@ -328,13 +329,17 @@ export function proposeChangeTool(
       const note =
         outcome.decision === 'denied' && outcome.note ? clip(r(outcome.note), 500) : undefined;
       await deps.audit.append({
-        actor: outcome.decision === 'expired' ? actor : outcome.by,
         task,
         event: 'approval.decision',
         connector: connectors,
         tool: PROPOSE_CHANGE,
-        decision: outcome.decision,
-        detail: note ? `${req.id}; ${note}` : req.id,
+        ...decisionAudit(req, outcome, actor, note),
+      });
+      await recordOverride(deps, req, outcome, {
+        actor,
+        task,
+        connector: connectors,
+        tool: PROPOSE_CHANGE,
       });
       deps.events?.({
         type: 'decision',
