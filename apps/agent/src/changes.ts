@@ -322,6 +322,9 @@ export function proposeChangeTool(
         expiresAt: req.expiresAt.toISOString(),
         environment: req.environment,
         needed: req.ballot.rules.minApprovers,
+        needs: req.ballot.needs,
+        changeRefPattern: req.ballot.rules.changeRefPattern,
+        freeze: req.ballot.rules.freeze,
         title,
         ...(req.preview ? { preview: req.preview } : {}),
       });

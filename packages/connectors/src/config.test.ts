@@ -387,3 +387,51 @@ ${environments}
     );
   });
 });
+
+describe('change control', () => {
+  const plain = (result: ParseResult) =>
+    messages(result).map((m) => m.replace(/^kodra-agent\.yaml:\d+:\d+ /, ''));
+  const withProduction = (extra: string) => `apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: test-agent
+spec:
+  profile: team
+  target: kubernetes
+${ollama}  policy:
+    approvals:
+      approvers: ['U01', 'U02']
+  environments:
+    - name: production
+      production: true
+      namespaces: [shop]
+${extra}
+`;
+
+  it('accepts freezes and change references', () => {
+    const result = parseAgentConfig(
+      withProduction(`      approvals: {requireChangeRef: true, changeRefPattern: '^CHG[0-9]{7}$'}
+      freezes:
+        - {name: weekend, timezone: Asia/Amman, weekly: {from: 'Thu 18:00', to: 'Sat 23:59'}}
+        - {name: year-end, timezone: Asia/Amman, dates: {from: '2026-12-28', to: '2027-01-02'}}`),
+    );
+    expect(result.ok ? [] : plain(result)).toEqual([]);
+  });
+
+  it('refuses bad freezes and a bad pattern, with readable messages', () => {
+    const result = parseAgentConfig(
+      withProduction(`      approvals: {changeRefPattern: '([a-z'}
+      freezes:
+        - {name: a, timezone: Mars/Olympus, weekly: {from: 'Thursday 18:00', to: 'Sat 23:59'}}
+        - {name: b, timezone: UTC, dates: {from: '2027-01-02', to: '2026-12-28'}}
+        - {name: c, timezone: UTC}`),
+    );
+    expect(plain(result)).toEqual([
+      'spec.environments.0.approvals.changeRefPattern: is not a valid regular expression',
+      'spec.environments.0.freezes.0.timezone: must be a time zone like Asia/Amman or UTC',
+      'spec.environments.0.freezes.0.weekly.from: must be a weekday and a time, like Thu 18:00',
+      'spec.environments.0.freezes.1.dates: from must not be after to',
+      'spec.environments.0.freezes.2: needs either weekly or dates, not both',
+    ]);
+  });
+});

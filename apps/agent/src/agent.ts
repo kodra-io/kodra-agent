@@ -120,6 +120,10 @@ export type TurnEvent =
       environment: string | null;
       /** How many different approvers it needs. */
       needed: number;
+      /** What approving needs: a change reference, a reason (the environment is frozen). */
+      needs?: { changeRef: boolean; reason: boolean };
+      changeRefPattern?: string | null;
+      freeze?: { name: string; until: string; timezone: string } | null;
       title?: string;
       preview?: string;
     }
@@ -326,6 +330,9 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
             expiresAt: req.expiresAt.toISOString(),
             environment: req.environment,
             needed: req.ballot.rules.minApprovers,
+            needs: req.ballot.needs,
+            changeRefPattern: req.ballot.rules.changeRefPattern,
+            freeze: req.ballot.rules.freeze,
           });
           const outcome = await waitForApproval(deps.approvals, req, options.abortSignal);
           const note =

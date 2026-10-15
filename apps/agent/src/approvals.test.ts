@@ -4,7 +4,9 @@ import { memoryTerminal } from './io.ts';
 import { Redactor } from './redactor.ts';
 import {
   cliApprovalChannel,
+  decisionAudit,
   fanOut,
+  overrideNotice,
   newApprovalRequest,
   progressLabel,
   requesterOf,
@@ -186,6 +188,119 @@ describe('cliApprovalChannel', () => {
     expect(await cliApprovalChannel(prompter, term).request(ask({}, 'agent'))).toEqual({
       decision: 'approved',
       by: 'cli',
+    });
+  });
+});
+
+describe('change references and break-glass', () => {
+  const freeze = { name: 'weekend', timezone: 'Asia/Amman', until: 'Sat 23:59' };
+
+  it('needs a change reference that matches the pattern, from the first approval', () => {
+    const req = ask({ minApprovers: 2, requireChangeRef: true, changeRefPattern: '^CHG[0-9]{7}$' });
+    expect(req.ballot.needs).toEqual({ changeRef: true, reason: false });
+    expect(req.ballot.vote('U02', true)).toMatchObject({
+      kind: 'refused',
+      code: 'change-ref-missing',
+    });
+    expect(req.ballot.vote('U02', true, { changeRef: 'chg-1' })).toMatchObject({
+      kind: 'refused',
+      code: 'change-ref-format',
+    });
+    expect(req.ballot.vote('U02', true, { changeRef: ' CHG1234567 ' })).toMatchObject({
+      kind: 'counted',
+    });
+    // Later approvers see it and confirm; they need not type it again.
+    expect(req.ballot.needs.changeRef).toBe(false);
+    expect(req.ballot.vote('U03', true)).toEqual({
+      kind: 'decided',
+      outcome: { decision: 'approved', by: 'U02, U03', changeRef: 'CHG1234567' },
+    });
+  });
+
+  it('needs a reason to override a freeze, and records it', () => {
+    const req = ask({ freeze, environment: 'production' });
+    expect(req.ballot.needs).toEqual({ changeRef: false, reason: true });
+    expect(req.ballot.vote('U02', true, { reason: '  ' })).toMatchObject({
+      kind: 'refused',
+      code: 'reason-missing',
+    });
+    const result = req.ballot.vote('U02', true, { reason: 'Checkout is down.' });
+    expect(result).toEqual({
+      kind: 'decided',
+      outcome: { decision: 'approved', by: 'U02', override: 'Checkout is down.' },
+    });
+    if (result.kind !== 'decided') return;
+    expect(decisionAudit(req, result.outcome, 'slack:U01ASKER', undefined)).toEqual({
+      actor: 'U02',
+      decision: 'approved',
+      detail: `${req.id}; break-glass during weekend: Checkout is down.`,
+    });
+    expect(overrideNotice(req, result.outcome)).toBe(
+      'Freeze override in production: U02 approved "k8s/scale" during weekend (until Sat 23:59 Asia/Amman). Reason: Checkout is down.',
+    );
+  });
+
+  it('applies the freeze when the request is made, and needs two approvers in strict', () => {
+    const environments = [
+      {
+        name: 'production',
+        production: true,
+        namespaces: ['shop'],
+        repos: [],
+        freezes: [
+          { name: 'weekend', timezone: 'UTC', weekly: { from: 'Sat 00:00', to: 'Sat 23:59' } },
+        ],
+      },
+    ];
+    const saturday = new Date('2026-10-17T12:00:00Z');
+    const monday = new Date('2026-10-19T12:00:00Z');
+    const policy = (profile: 'team' | 'strict') =>
+      resolvePolicy({
+        profile,
+        policy: { approvals: { approvers: ['U01', 'U02', 'U03', 'U04'], expiresAfterMinutes: 15 } },
+        environments,
+      });
+    const touched = { namespaces: ['shop'], repos: [] };
+    expect(rulesFor(policy('team'), touched, saturday)).toMatchObject({
+      ok: true,
+      rules: { freeze: { name: 'weekend' }, minApprovers: 1 },
+    });
+    expect(rulesFor(policy('team'), touched, monday)).toMatchObject({
+      ok: true,
+      rules: { freeze: null },
+    });
+    // Strict production already needs two; a break-glass override never needs fewer.
+    expect(rulesFor(policy('strict'), touched, saturday)).toMatchObject({
+      ok: true,
+      rules: { minApprovers: 2, requireChangeRef: true },
+    });
+  });
+
+  it('asks for the reason and the reference at the terminal', async () => {
+    const prompter = scriptedPrompter([true, 'Payments are failing.', 'CHG7654321']);
+    const term = memoryTerminal(new Redactor());
+    const outcome = await cliApprovalChannel(prompter, term).request(
+      ask({ freeze, requireChangeRef: true, changeRefPattern: '^CHG[0-9]{7}$' }, 'agent'),
+    );
+    expect(outcome).toEqual({
+      decision: 'approved',
+      by: 'cli',
+      changeRef: 'CHG7654321',
+      override: 'Payments are failing.',
+    });
+    expect(term.stdout.join('\n')).toContain('is frozen (weekend, until Sat 23:59 Asia/Amman)');
+  });
+
+  it('refuses at the terminal when the reference is malformed, and runs nothing', async () => {
+    const prompter = scriptedPrompter([true, 'nope']);
+    const term = memoryTerminal(new Redactor());
+    const outcome = await cliApprovalChannel(prompter, term).request(
+      ask({ requireChangeRef: true, changeRefPattern: '^CHG[0-9]{7}$' }, 'agent'),
+    );
+    expect(outcome).toEqual({
+      decision: 'denied',
+      by: 'policy',
+      note: 'The change reference does not have the required format.',
     });
   });
 });
