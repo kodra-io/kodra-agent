@@ -510,3 +510,57 @@ test('fits a phone screen @mobile', async ({ page }) => {
   );
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('a production change needs two approvers, and the requester cannot approve it', async ({
+  page,
+}) => {
+  const production = {
+    id: 'req-prod',
+    connector: 'kubernetes',
+    tool: 'resources_scale',
+    risk: 'write',
+    args: '{"namespace":"shop","replicas":4}',
+    reason: 'More traffic.',
+    requestedBy: 'slack:U1',
+    expiresAt: '2026-10-09T09:30:00.000Z',
+    environment: 'production',
+    needed: 2,
+    approvedBy: [] as string[],
+    cannotApprove: null as string | null,
+  };
+  let waitingList = [
+    production,
+    {
+      ...production,
+      id: 'req-mine',
+      reason: 'My own change.',
+      requestedBy: 'console:omar',
+      cannotApprove: 'self',
+    },
+  ];
+  await page.route('**/api/approvals/pending', (route) => route.fulfill({ json: waitingList }));
+  await page.route('**/api/approvals/decide', (route) => {
+    waitingList = waitingList.map((p) =>
+      p.id === 'req-prod'
+        ? { ...p, approvedBy: ['console:omar'], cannotApprove: 'already-approved' }
+        : p,
+    );
+    return route.fulfill({ json: { result: 'counted' } });
+  });
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Approvals' }).click();
+  const waiting = page.getByRole('group', { name: 'Needs approval' });
+
+  const card = waiting.filter({ hasText: 'More traffic.' });
+  await expect(card).toContainText('Environment: production');
+  await expect(card).toContainText('0 of 2 approved');
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await card.getByRole('button', { name: 'Yes, run it' }).click();
+  await expect(card.getByRole('status')).toHaveText(
+    'Your approval is counted. It needs another approver.',
+  );
+
+  const mine = waiting.filter({ hasText: 'My own change.' });
+  await expect(mine).toContainText('You asked for this change, so someone else must approve it.');
+  await expect(mine.getByRole('button', { name: 'Approve' })).toHaveCount(0);
+});

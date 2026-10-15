@@ -115,6 +115,30 @@ function checkGuard(guard: ToolGuard, input: PolicyInput): string | null {
 }
 
 /**
+ * The namespaces and repos a call touches, read from its guards (PLAN-v0.2 M10), so the call
+ * can be placed in an environment. Arguments that are missing touch nothing.
+ */
+export function touchedBy(
+  guards: readonly ToolGuard[],
+  args: Readonly<Record<string, unknown>>,
+): { namespaces: string[]; repos: string[] } {
+  const namespaces = new Set<string>();
+  const repos = new Set<string>();
+  for (const guard of guards) {
+    if (guard.kind === 'arg-in-setting') {
+      const value = args[guard.arg];
+      if (guard.scope === 'namespace' && typeof value === 'string' && value !== '') {
+        namespaces.add(value);
+      }
+    } else {
+      const repo = repoFrom(args, guard.repoArg, guard.ownerArg);
+      if (repo) repos.add(repo);
+    }
+  }
+  return { namespaces: [...namespaces], repos: [...repos] };
+}
+
+/**
  * The limits a tool's guards set, in words the model can follow up front (for example
  * "namespace must be one of: dev"), so it does not spend steps on calls the policy blocks.
  */

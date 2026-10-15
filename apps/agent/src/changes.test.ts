@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
+import { resolvePolicy, type EffectivePolicy } from '@kodra-agent/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runTurn, type AgentDeps } from './agent.ts';
 import type { ApprovalOutcome, ApprovalRequest } from './approvals.ts';
@@ -11,7 +12,7 @@ import { jsonLogger, memoryTerminal } from './io.ts';
 import { ConnectorHost } from './mcp/host.ts';
 import { Redactor } from './redactor.ts';
 import { fakeGitComponent, fakeLauncher } from './test-fixtures/fake-connector.ts';
-import { tempDir } from './test-helpers.ts';
+import { tempDir, testPolicy } from './test-helpers.ts';
 
 type GenerateResult = Awaited<ReturnType<MockLanguageModelV4['doGenerate']>>;
 const SECRET = 'sk-change-preview-secret-71c4'; // gitleaks:allow
@@ -66,6 +67,7 @@ async function setup(opts: {
   responses: GenerateResult[];
   decide?: (req: ApprovalRequest) => ApprovalOutcome | Promise<ApprovalOutcome>;
   readOnly?: boolean;
+  policy?: EffectivePolicy;
 }) {
   const dir = await tempDir();
   const recordPath = join(dir, 'calls.jsonl');
@@ -112,7 +114,7 @@ async function setup(opts: {
     audit: new AuditLog(auditPath, redactor),
     redactor,
     term: memoryTerminal(redactor),
-    policy: { destructiveActions: 'deny', expiresAfterMinutes: 15 },
+    policy: { destructiveActions: 'deny', effective: opts.policy ?? testPolicy() },
     ...(opts.readOnly ? { readOnly: true } : {}),
   };
   const recorded = async () =>
@@ -179,6 +181,37 @@ describe('propose_change', () => {
       actor: 'console:omar',
       decision: 'approved',
     });
+  });
+
+  it("asks under the repo's environment, or the default policy outside every one", async () => {
+    const policy = (repos: string[]) =>
+      resolvePolicy({
+        profile: 'team',
+        policy: { approvals: { approvers: ['U01', 'U02'], expiresAfterMinutes: 15 } },
+        environments: [{ name: 'production', production: true, namespaces: [], repos }],
+      });
+    const inside = await setup({
+      policy: policy(['ACME/api']),
+      responses: [propose(change([branchStep, prStep])), answer('Done.')],
+    });
+    await runTurn(inside.deps, [], 'raise replicas', 'ch-env');
+    expect(inside.requests[0]?.environment).toBe('production');
+    expect(inside.requests[0]?.ballot.rules.allowSelfApproval).toBe(false);
+    await host?.close();
+
+    // The repo is in no environment here, so the default policy applies.
+    const elsewhere = await setup({
+      policy: resolvePolicy({
+        profile: 'team',
+        policy: { approvals: { approvers: ['U01', 'U02'], expiresAfterMinutes: 15 } },
+        environments: [
+          { name: 'production', production: true, namespaces: ['shop'], repos: ['acme/other'] },
+        ],
+      }),
+      responses: [propose(change([branchStep, prStep])), answer('Done.')],
+    });
+    await runTurn(elsewhere.deps, [], 'raise replicas', 'ch-env2');
+    expect(elsewhere.requests[0]?.environment).toBeNull();
   });
 
   it('proposes nothing when a step is blocked, and asks nobody', async () => {

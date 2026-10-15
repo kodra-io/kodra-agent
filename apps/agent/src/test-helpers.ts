@@ -1,3 +1,5 @@
+import type { EffectivePolicy } from '@kodra-agent/schema';
+import type { RequestRules } from './approvals.ts';
 import type { SelfKubernetes } from './console/config-backend.ts';
 import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -144,7 +146,7 @@ ${opts.model ?? '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.
 ${opts.connectors ?? '    {}'}
   policy:
     approvals:
-      approvers: [${(opts.approvers ?? ['@omar']).map((a) => `'${a}'`).join(', ')}]
+      approvers: [${(opts.approvers ?? ['U01OMAR']).map((a) => `'${a}'`).join(', ')}]
   audit:
     path: ${opts.auditPath}
 `;
@@ -286,4 +288,26 @@ export function fakeSelfKubernetes() {
     },
   };
   return { client, state };
+}
+
+/** Approval rules for tests: one approver from U0APPROVER or console:omar, self-approval allowed. */
+export function testRules(over: Partial<RequestRules> = {}): RequestRules {
+  return {
+    environment: null,
+    approvers: ['U0APPROVER', 'console:omar'],
+    minApprovers: 1,
+    allowSelfApproval: true,
+    expiresAfterMinutes: 15,
+    ...over,
+  };
+}
+
+/** A starter policy with no environments, for agent tests. */
+export function testPolicy(): EffectivePolicy {
+  const { approvers, minApprovers, allowSelfApproval, expiresAfterMinutes } = testRules();
+  return {
+    profile: 'starter',
+    default: { approvers, minApprovers, allowSelfApproval, expiresAfterMinutes },
+    environments: [],
+  };
 }

@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../schema/kodra-agent.schema.json
+# Starter profile: one person or a small team getting started. Docker Compose, GitHub,
+# Prometheus, and Slack. Self-approval is allowed and one approval is enough.
+apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: side-project-agent
+spec:
+  profile: starter
+  target: compose
+  model:
+    provider: anthropic
+    name: '<model-id>'
+    apiKey: ${env:ANTHROPIC_API_KEY}
+  connectors:
+    github:
+      enabled: true
+      access: read-write-approved
+      config:
+        repos: ['my-org/web-app']
+      secrets:
+        token: ${env:GITHUB_TOKEN}
+    prometheus:
+      enabled: true
+      config:
+        url: http://prometheus:9090
+    slack:
+      enabled: true
+      config:
+        channel: '#ops'
+      secrets:
+        botToken: ${env:SLACK_BOT_TOKEN}
+        appToken: ${env:SLACK_APP_TOKEN}
+  policy:
+    approvals:
+      # Slack user ids. You can write @name here: `kodra-agent init` looks it up and writes the id.
+      approvers: ['U0123ABCD']

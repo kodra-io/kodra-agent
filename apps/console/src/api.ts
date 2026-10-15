@@ -129,9 +129,12 @@ export async function session(): Promise<Session> {
 /** An API error with the server's message. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** Why an approval was refused, as a code to translate. */
+  readonly refusal: string | undefined;
+  constructor(status: number, message: string, refusal?: string) {
     super(message);
     this.status = status;
+    this.refusal = refusal;
   }
 }
 
@@ -143,8 +146,10 @@ export async function post<T>(route: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (res.status === 401) throw new SignedOut();
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `HTTP ${String(res.status)}`);
+  const data = (await res.json().catch(() => ({}))) as { error?: string; refusal?: string };
+  if (!res.ok) {
+    throw new ApiError(res.status, data.error ?? `HTTP ${String(res.status)}`, data.refusal);
+  }
   return data as T;
 }
 
@@ -158,6 +163,13 @@ export interface PendingApproval {
   reason: string;
   requestedBy: string;
   expiresAt: string;
+  /** The environment's name, or null for the default policy. */
+  environment: string | null;
+  /** Different approvers needed, and who has approved so far. */
+  needed: number;
+  approvedBy: string[];
+  /** Why the signed-in person cannot approve this one (a code), or null when they can. */
+  cannotApprove: string | null;
   /** A proposed change: its title and preview (a diff for file edits). */
   title?: string;
   preview?: string;
@@ -208,6 +220,8 @@ export type ChatEvent = { seq: number; ts: string } & (
       args: string;
       reason: string;
       expiresAt: string;
+      environment?: string | null;
+      needed?: number;
       title?: string;
       preview?: string;
     }

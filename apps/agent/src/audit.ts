@@ -12,6 +12,8 @@ export const auditRecordSchema = z.strictObject({
     'tool.call',
     'approval.request',
     'approval.decision',
+    /** One approver's approval, when a change needs more than one (detail: "1 of 2"). */
+    'approval.vote',
     'result',
     'error',
     /** The agent paused or resumed by a person (detail says which). */

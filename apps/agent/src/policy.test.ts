@@ -1,6 +1,6 @@
 import type { AccessLevel, ToolGuard } from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
-import { decide, describeGuards, type Decision, type Risk } from './policy.ts';
+import { decide, describeGuards, touchedBy, type Decision, type Risk } from './policy.ts';
 
 const base = {
   destructiveActions: 'deny' as const,
@@ -269,5 +269,36 @@ describe('describeGuards', () => {
     expect(describeGuards([guards[0] as ToolGuard], {})).toEqual([
       'namespace is required and must be one of: none configured',
     ]);
+  });
+});
+
+describe('touchedBy', () => {
+  const guards: ToolGuard[] = [
+    {
+      kind: 'arg-in-setting',
+      arg: 'namespace',
+      setting: 'namespaces',
+      required: true,
+      scope: 'namespace',
+    },
+    { kind: 'arg-in-setting', arg: 'kind', setting: 'kinds', required: false },
+    { kind: 'repo-in-setting', ownerArg: 'owner', repoArg: 'repo', setting: 'repos' },
+    { kind: 'not-default-branch', branchArg: 'branch', ownerArg: 'owner', repoArg: 'repo' },
+  ];
+
+  it('reads the namespace and repo a call touches from its guards', () => {
+    expect(
+      touchedBy(guards, {
+        namespace: 'shop',
+        kind: 'Pod',
+        owner: 'acme',
+        repo: 'api',
+        branch: 'x',
+      }),
+    ).toEqual({ namespaces: ['shop'], repos: ['acme/api'] });
+  });
+
+  it('touches nothing when the arguments are missing', () => {
+    expect(touchedBy(guards, {})).toEqual({ namespaces: [], repos: [] });
   });
 });

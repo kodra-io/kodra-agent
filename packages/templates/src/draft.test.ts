@@ -75,6 +75,29 @@ describe('URL hash', () => {
     expect(decoded.ok && decoded.draft.console).toEqual({ enabled: false, chat: true });
   });
 
+  it('starts links made before profiles as starter, with no environments', () => {
+    const raw: Partial<ReturnType<typeof composeDraft>> = structuredClone(composeDraft());
+    delete raw.profile;
+    delete raw.environments;
+    const decoded = decodeDraft(encodeRaw(raw));
+    expect(decoded.ok && [decoded.draft.profile, decoded.draft.environments]).toEqual([
+      'starter',
+      [],
+    ]);
+  });
+
+  it('keeps the profile and environments in the link', () => {
+    const draft = {
+      ...composeDraft(),
+      profile: 'strict' as const,
+      environments: [
+        { name: 'production', production: true, namespaces: 'payments', repos: '', approvers: '' },
+      ],
+    };
+    const decoded = decodeDraft(encodeDraft(draft));
+    expect(decoded.ok && decoded.draft).toEqual(draft);
+  });
+
   it('falls back to a valid access level', () => {
     const raw = structuredClone(composeDraft());
     const prometheus = raw.connectors['prometheus'];

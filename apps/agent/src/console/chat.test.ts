@@ -8,7 +8,7 @@ import { jsonLogger, memoryTerminal } from '../io.ts';
 import { ConnectorHost } from '../mcp/host.ts';
 import { Redactor } from '../redactor.ts';
 import { fakeComponent, fakeLauncher } from '../test-fixtures/fake-connector.ts';
-import { scriptedModel, tempDir } from '../test-helpers.ts';
+import { scriptedModel, tempDir, testPolicy } from '../test-helpers.ts';
 import { ConsoleApprovals } from './approvals.ts';
 import { ConsoleChat, type ChatEvent } from './chat.ts';
 
@@ -71,7 +71,7 @@ async function setup(opts: {
     audit,
     redactor,
     term: memoryTerminal(redactor),
-    policy: { destructiveActions: 'deny', expiresAfterMinutes: 15 },
+    policy: { destructiveActions: 'deny', effective: testPolicy() },
   });
   const chat = new ConsoleChat({
     deps,
@@ -236,8 +236,12 @@ describe('ConsoleChat', () => {
     expect(request).toMatchObject({ type: 'approval', tool: 'resources_scale', reason: 'spike' });
     expect(pending.list()).toHaveLength(1);
     // The viewer who asked cannot approve; an approver can.
-    expect(await pending.decide(viewer, pending.list()[0]?.id ?? '', true)).toBe('refused');
-    expect(await pending.decide(approver, pending.list()[0]?.id ?? '', true)).toBe('approved');
+    expect((await pending.decide(viewer, pending.list()[0]?.id ?? '', true)).result).toBe(
+      'refused',
+    );
+    expect((await pending.decide(approver, pending.list()[0]?.id ?? '', true)).result).toBe(
+      'approved',
+    );
     const events = await collect(chat, sent.conversation, idle);
     expect(events.map((e) => (e.type === 'tool' ? `tool:${e.state}` : e.type))).toContain(
       'tool:ok',

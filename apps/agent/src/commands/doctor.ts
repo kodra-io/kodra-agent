@@ -1,12 +1,13 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AuditLog } from '../audit.ts';
-import { isSecretRequired } from '@kodra-agent/schema';
+import { allApprovers, isSecretRequired, resolvePolicy } from '@kodra-agent/schema';
 import { components, loadConfig, secretLabel, type SecretUse } from '../config.ts';
 import type { Context } from '../context.ts';
 import { parseEnvFile } from '../env-file.ts';
 import { probeIds, runProbe, type ProbeStatus } from '../probes.ts';
 import { resolveAll } from '../secrets.ts';
+import { approverNames } from '../slack/names.ts';
 
 export interface DoctorOptions {
   configPath: string;
@@ -43,6 +44,25 @@ export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number>
     check: 'kodra-agent.yaml',
     message: `valid (${config.apiVersion})`,
   });
+  // Rules nobody can satisfy already fail validation; names still need init (M10).
+  const effective = resolvePolicy(config.spec);
+  const names = approverNames(allApprovers(effective));
+  add(
+    names.length > 0
+      ? {
+          status: 'fail',
+          component: 'config',
+          check: 'approvers',
+          message: `${names.join(', ')} ${names.length === 1 ? 'is a name, not a Slack user id, so it cannot' : 'are names, not Slack user ids, so they cannot'} approve`,
+          hint: 'Run `kodra-agent init` to look the names up and write their Slack user ids, or put the ids (U…) in kodra-agent.yaml yourself.',
+        }
+      : {
+          status: 'pass',
+          component: 'config',
+          check: 'approvers',
+          message: `${effective.profile} profile, ${String(effective.environments.length)} environment${effective.environments.length === 1 ? '' : 's'}`,
+        },
+  );
 
   // Inside the container compose already loads .env; outside it, read it too.
   const envPath = join(dir, '.env');

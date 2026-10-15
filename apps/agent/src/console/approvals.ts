@@ -1,4 +1,10 @@
-import type { ApprovalOutcome, ApprovalRequest, SettleableChannel } from '../approvals.ts';
+import {
+  progressLabel,
+  type ApprovalOutcome,
+  type Refusal,
+  type ApprovalRequest,
+  type SettleableChannel,
+} from '../approvals.ts';
 import type { AuditLog } from '../audit.ts';
 
 /** Who is signed in to the console: `console` (the shared token) or `console:<name>`. */
@@ -17,12 +23,35 @@ export interface PendingApproval {
   reason: string;
   requestedBy: string;
   expiresAt: string;
+  /** The environment's name, or null for the default policy. */
+  environment: string | null;
+  /** Different approvers needed, and who has approved so far. */
+  needed: number;
+  approvedBy: string[];
+  /** Why the signed-in person cannot approve this one, or null when they can. */
+  cannotApprove: Refusal | 'not-console-approver' | null;
   /** A proposed change: its title and preview (a diff for file edits). */
   title?: string;
   preview?: string;
 }
 
-export type ConsoleDecision = 'approved' | 'denied' | 'refused' | 'expired' | 'unknown';
+export type ConsoleDecision =
+  | 'approved'
+  | 'denied'
+  /** Counted, and more approvers are needed. */
+  | 'counted'
+  | 'refused'
+  | 'expired'
+  | 'unknown';
+
+export interface ConsoleDecisionResult {
+  result: ConsoleDecision;
+  /** Why a vote was refused, in words for the person who tried, and as a code to translate. */
+  reason?: string;
+  refusal?: Refusal | 'not-console-approver';
+}
+
+const NOT_A_CONSOLE_APPROVER = 'Only a console approver can decide.';
 
 interface Pending {
   req: ApprovalRequest;
@@ -31,9 +60,10 @@ interface Pending {
 }
 
 /**
- * Approval requests answered in the console. A decision counts only from a console
- * approver, before the request expires, and only once; a refused one is audited with who
- * tried. Accepted decisions are audited by the agent, like Slack clicks.
+ * Approval requests answered in the console. Each decision is a vote on the request's ballot
+ * (the environment's approvers, self-approval, how many approvers), only before the request
+ * expires; a refused one is audited with who tried and why. Final decisions are audited by
+ * the agent, like Slack clicks.
  */
 export class ConsoleApprovals {
   private readonly pending = new Map<string, Pending>();
@@ -53,19 +83,30 @@ export class ConsoleApprovals {
     },
   };
 
-  list(): PendingApproval[] {
-    return [...this.pending.values()].map(({ req }) => ({
-      id: req.id,
-      connector: req.connector,
-      tool: req.tool,
-      risk: req.risk,
-      args: req.args,
-      reason: req.reason,
-      requestedBy: req.requestedBy,
-      expiresAt: req.expiresAt.toISOString(),
-      ...(req.title ? { title: req.title } : {}),
-      ...(req.preview ? { preview: req.preview } : {}),
-    }));
+  /** Waiting requests, with whether `user` can approve each one. */
+  list(user?: ConsoleUser): PendingApproval[] {
+    return [...this.pending.values()].map(({ req }) => {
+      const progress = req.ballot.progress;
+      const cannotApprove = user?.canApprove
+        ? req.ballot.refusal(user.name)
+        : 'not-console-approver';
+      return {
+        id: req.id,
+        connector: req.connector,
+        tool: req.tool,
+        risk: req.risk,
+        args: req.args,
+        reason: req.reason,
+        requestedBy: req.requestedBy,
+        expiresAt: req.expiresAt.toISOString(),
+        environment: req.environment,
+        needed: progress.needed,
+        approvedBy: progress.approvedBy,
+        cannotApprove,
+        ...(req.title ? { title: req.title } : {}),
+        ...(req.preview ? { preview: req.preview } : {}),
+      };
+    });
   }
 
   async decide(
@@ -73,33 +114,51 @@ export class ConsoleApprovals {
     id: string,
     approve: boolean,
     note?: string,
-  ): Promise<ConsoleDecision> {
+  ): Promise<ConsoleDecisionResult> {
     const entry = this.pending.get(id);
-    if (!entry) return 'unknown';
-    if (!user.canApprove) {
+    if (!entry) return { result: 'unknown' };
+    const base = {
+      actor: user.name,
+      connector: entry.req.connector,
+      tool: entry.req.tool,
+      risk: entry.req.risk,
+    };
+    const refuse = async (
+      reason: string,
+      refusal: Refusal | 'not-console-approver',
+    ): Promise<ConsoleDecisionResult> => {
       await this.audit.append({
+        ...base,
         event: 'approval.decision',
-        actor: user.name,
-        connector: entry.req.connector,
-        tool: entry.req.tool,
-        risk: entry.req.risk,
         decision: 'blocked',
-        detail: `${id}; click refused: not an approver`,
+        detail: `${id}; click refused: ${reason}`,
       });
-      return 'refused';
-    }
+      return { result: 'refused', reason, refusal };
+    };
+    if (!user.canApprove) return refuse(NOT_A_CONSOLE_APPROVER, 'not-console-approver');
     if (this.now() > entry.req.expiresAt) {
       this.finish(id, { decision: 'expired' });
-      return 'expired';
+      return { result: 'expired' };
     }
     const trimmed = note?.trim().slice(0, 500);
-    this.finish(
-      id,
-      approve
-        ? { decision: 'approved', by: user.name }
-        : { decision: 'denied', by: user.name, ...(trimmed ? { note: trimmed } : {}) },
-    );
-    return approve ? 'approved' : 'denied';
+    const vote = entry.req.ballot.vote(user.name, approve, trimmed || undefined);
+    switch (vote.kind) {
+      case 'refused':
+        return refuse(vote.reason, vote.code);
+      case 'closed':
+        return { result: 'unknown' };
+      case 'counted':
+        await this.audit.append({
+          ...base,
+          event: 'approval.vote',
+          decision: 'approved',
+          detail: `${id}; ${progressLabel(vote.progress)}`,
+        });
+        return { result: 'counted' };
+      case 'decided':
+        this.finish(id, vote.outcome);
+        return { result: vote.outcome.decision === 'approved' ? 'approved' : 'denied' };
+    }
   }
 
   /** Refuses every open request, for shutdown. */

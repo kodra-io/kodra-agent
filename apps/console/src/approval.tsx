@@ -22,7 +22,11 @@ export function ApprovalCard({
   onDecided,
   onSignedOut,
 }: {
-  approval: Omit<PendingApproval, 'requestedBy'> & { requestedBy?: string };
+  approval: Omit<
+    PendingApproval,
+    'requestedBy' | 'environment' | 'needed' | 'approvedBy' | 'cannotApprove'
+  > &
+    Partial<PendingApproval>;
   canApprove: boolean;
   onDecided: () => void;
   onSignedOut: () => void;
@@ -31,6 +35,18 @@ export function ApprovalCard({
   const [step, setStep] = useState<Step>('ask');
   const [note, setNote] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
+  const [counted, setCounted] = useState(false);
+  const needed = a.needed ?? 1;
+  const approvedBy = a.approvedBy ?? [];
+  // A console approver may still be unable to approve this one: they asked for it, or
+  // already approved it. The agent checks again anyway.
+  const refusalText = (code: string) => {
+    const key = code === 'not-console-approver' ? 'approval.cannot' : `approval.refused.${code}`;
+    return has(key) ? t(key) : code;
+  };
+  const blocked =
+    a.cannotApprove && a.cannotApprove !== 'not-console-approver' ? a.cannotApprove : null;
+  const allowed = canApprove && !blocked && !counted;
   const noteId = useId();
   const titleId = useId();
   // A proposed change is named by its title; a single tool call by connector/tool.
@@ -41,11 +57,20 @@ export function ApprovalCard({
     setStep('sending');
     setProblem(null);
     try {
-      await decide(a.id, approve, approve ? undefined : note.trim());
+      const { result } = await decide(a.id, approve, approve ? undefined : note.trim());
+      if (result === 'counted') {
+        setCounted(true);
+        setStep('closed');
+      }
       onDecided();
     } catch (e) {
       if (e instanceof SignedOut) {
         onSignedOut();
+        return;
+      }
+      if (e instanceof ApiError && e.status === 403 && e.refusal) {
+        setProblem(refusalText(e.refusal));
+        setStep('closed');
         return;
       }
       const key: MessageKey | null =
@@ -81,8 +106,15 @@ export function ApprovalCard({
             </span>
           </span>
         </div>
-        <span className="text-xs text-ink-secondary">
-          {has(risk) ? t(risk) : a.risk} · {t('approval.expires', { time: time(a.expiresAt) })}
+        <span className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+          {a.environment && (
+            <span className="rounded-full border border-line-strong bg-raised px-2 py-0.5 font-semibold text-ink">
+              {t('approval.environment', { name: a.environment })}
+            </span>
+          )}
+          <span>
+            {has(risk) ? t(risk) : a.risk} · {t('approval.expires', { time: time(a.expiresAt) })}
+          </span>
         </span>
       </div>
 
@@ -96,6 +128,17 @@ export function ApprovalCard({
         {a.requestedBy && (
           <p className="text-xs text-ink-secondary">
             {t('approvals.by')}: <Ltr>{a.requestedBy}</Ltr>
+          </p>
+        )}
+        {needed > 1 && (
+          <p className="text-xs font-semibold">
+            {t('approval.progress', { done: approvedBy.length, needed })}
+            {approvedBy.length > 0 && (
+              <span className="font-normal text-ink-secondary">
+                {' · '}
+                {t('approval.approvedBy')}: <Ltr>{approvedBy.join(', ')}</Ltr>
+              </span>
+            )}
           </p>
         )}
         {a.preview ? (
@@ -127,8 +170,16 @@ export function ApprovalCard({
         )}
 
         {!canApprove && <p className="text-ink-secondary">{t('approval.cannot')}</p>}
+        {canApprove && blocked && !problem && (
+          <p className="text-ink-secondary">{refusalText(blocked)}</p>
+        )}
+        {counted && (
+          <p role="status" className="font-semibold text-ok-text">
+            {t('approval.counted')}
+          </p>
+        )}
 
-        {canApprove && step === 'ask' && (
+        {allowed && step === 'ask' && (
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -154,7 +205,7 @@ export function ApprovalCard({
           </div>
         )}
 
-        {canApprove && step === 'confirm' && (
+        {allowed && step === 'confirm' && (
           <div className="rounded-lg bg-primary-tint p-3">
             <p className="font-semibold">{t('approval.confirm', { action })}</p>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -174,7 +225,7 @@ export function ApprovalCard({
           </div>
         )}
 
-        {canApprove && step === 'deny' && (
+        {allowed && step === 'deny' && (
           <form
             onSubmit={(e) => {
               e.preventDefault();

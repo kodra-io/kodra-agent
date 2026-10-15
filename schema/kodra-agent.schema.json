@@ -29,6 +29,15 @@
     "spec": {
       "type": "object",
       "properties": {
+        "profile": {
+          "default": "starter",
+          "type": "string",
+          "enum": [
+            "starter",
+            "team",
+            "strict"
+          ]
+        },
         "target": {
           "type": "string",
           "enum": [
@@ -767,6 +776,14 @@
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 1440
+                },
+                "minApprovers": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5
+                },
+                "allowSelfApproval": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -789,6 +806,72 @@
           ],
           "additionalProperties": false,
           "description": "Approval and safety policy."
+        },
+        "environments": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
+              },
+              "production": {
+                "default": false,
+                "type": "boolean"
+              },
+              "namespaces": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+                }
+              },
+              "repos": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.-]+(\\/[A-Za-z0-9_.-]+)+$"
+                }
+              },
+              "approvers": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(@[A-Za-z0-9][A-Za-z0-9._-]{0,79}|[UW][A-Z0-9]{2,}|console:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?)$"
+                }
+              },
+              "approvals": {
+                "default": {},
+                "type": "object",
+                "properties": {
+                  "minApprovers": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "allowSelfApproval": {
+                    "type": "boolean"
+                  },
+                  "expiresAfterMinutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1440
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false,
+            "description": "Namespaces and repositories with their own approval rules."
+          }
         },
         "audit": {
           "default": {},

@@ -3,8 +3,14 @@ import { stat, mkdir, mkdtemp, readFile, rm, writeFile, copyFile, access } from 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { detectStack, planShip, shipPrBody, type SourceProvider } from '@kodra-agent/templates';
+import { resolvePolicy } from '@kodra-agent/schema';
 import { policyInputFor } from '../agent.ts';
-import { cliApprovalChannel, newApprovalRequest, type ApprovalChannel } from '../approvals.ts';
+import {
+  cliApprovalChannel,
+  newApprovalRequest,
+  rulesFor,
+  type ApprovalChannel,
+} from '../approvals.ts';
 import type { AuditLog } from '../audit.ts';
 import type { Context } from '../context.ts';
 import type { HostedTool, ConnectorInput } from '../mcp/host.ts';
@@ -363,6 +369,15 @@ async function openPullRequest(i: PrInput): Promise<number> {
       };
 
   const destructive = runtime.config.spec.policy.destructiveActions;
+  // The push and the pull request go to one repo, so one environment's rules apply.
+  const rules = rulesFor(resolvePolicy(runtime.config.spec), {
+    namespaces: [],
+    repos: [source.repo],
+  });
+  if (!rules.ok) {
+    ctx.term.err(`Blocked by policy: ${rules.reason}. Nothing was pushed.`);
+    return 1;
+  }
   for (const [tool, args] of [
     [branchTool, pushArgs],
     [prTool, prArgs],
@@ -414,7 +429,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
         'Ship: push the verified Dockerfile, CI, and Helm chart to a new branch and open a pull request.',
       requestedBy: 'ship',
     },
-    runtime.config.spec.policy.approvals.expiresAfterMinutes,
+    rules.rules,
   );
   const base = { actor: 'ship', task, connector: source.provider, risk: 'write' } as const;
   await runtime.audit.append({

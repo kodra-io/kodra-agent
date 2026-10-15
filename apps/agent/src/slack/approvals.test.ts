@@ -1,14 +1,21 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { newApprovalRequest } from '../approvals.ts';
+import { newApprovalRequest, type RequestRules } from '../approvals.ts';
 import { AuditLog } from '../audit.ts';
 import { Redactor } from '../redactor.ts';
-import { fakeSlack, tempDir } from '../test-helpers.ts';
+import { fakeSlack, tempDir, testRules } from '../test-helpers.ts';
 import { resolveApprovers } from './approvers.ts';
 import { APPROVE_ACTION, DENY_ACTION, SlackApprovals } from './approvals.ts';
 
-async function setup(opts: { approvers?: string[]; minutes?: number; now?: () => Date } = {}) {
+async function setup(
+  opts: {
+    approvers?: string[];
+    minutes?: number;
+    now?: () => Date;
+    rules?: Partial<RequestRules>;
+  } = {},
+) {
   const slack = fakeSlack();
   const auditPath = join(await tempDir(), 'audit.jsonl');
   const redactor = new Redactor();
@@ -17,7 +24,6 @@ async function setup(opts: { approvers?: string[]; minutes?: number; now?: () =>
     api: slack.api,
     audit: new AuditLog(auditPath, redactor),
     redactor,
-    approverIds: new Set(opts.approvers ?? ['U0APPROVER']),
     ...(opts.now ? { now: opts.now } : {}),
   });
   const req = newApprovalRequest(
@@ -29,7 +35,11 @@ async function setup(opts: { approvers?: string[]; minutes?: number; now?: () =>
       reason: 'traffic spike',
       requestedBy: 'slack:U0ASKER',
     },
-    opts.minutes ?? 15,
+    testRules({
+      approvers: opts.approvers ?? ['U0APPROVER'],
+      expiresAfterMinutes: opts.minutes ?? 15,
+      ...opts.rules,
+    }),
   );
   const audit = async () =>
     (await readFile(auditPath, 'utf8').catch(() => ''))
@@ -107,6 +117,49 @@ describe('SlackApprovals', () => {
     expect(buttonsOf(slack.updated[0]?.blocks)).toBeUndefined();
   });
 
+  it('needs two different approvers in production, never the requester, and shows progress', async () => {
+    const { slack, approvals, req, audit } = await setup({
+      approvers: ['U0ASKER', 'U0ONE', 'U0TWO'],
+      rules: { environment: 'production', minApprovers: 2, allowSelfApproval: false },
+    });
+    const outcome = approvals.channelFor('C0CHANNEL', undefined).request(req);
+    await Promise.resolve();
+    const posted = JSON.stringify(slack.posted[0]?.blocks);
+    expect(posted).toContain('Environment: *production*');
+    expect(posted).toContain('Needs 2 different approvers');
+    expect(posted).toContain('The requester cannot approve it');
+
+    const click = (user: string) =>
+      approvals.handleAction({ user, actionId: APPROVE_ACTION, value: req.id });
+    expect(await click('U0ASKER')).toBe('refused');
+    expect(await click('U0ONE')).toBe('counted');
+    expect(JSON.stringify(slack.updated.at(-1)?.blocks)).toContain('1 of 2 approved by <@U0ONE>');
+    expect(buttonsOf(slack.updated.at(-1)?.blocks)).toBeDefined();
+    expect(await click('U0ONE')).toBe('refused');
+    expect(await click('U0TWO')).toBe('approved');
+    expect(await outcome).toEqual({ decision: 'approved', by: 'U0ONE, U0TWO' });
+    expect(JSON.stringify(slack.updated.at(-1)?.blocks)).toContain(
+      'approved by <@U0ONE>, <@U0TWO>',
+    );
+    expect(
+      (await audit()).map((r) => [r['event'], r['actor'], r['decision'], r['detail']]),
+    ).toEqual([
+      [
+        'approval.decision',
+        'U0ASKER',
+        'blocked',
+        `${req.id}; click refused: You asked for this change, so someone else must approve it.`,
+      ],
+      ['approval.vote', 'U0ONE', 'approved', `${req.id}; 1 of 2 approved`],
+      [
+        'approval.decision',
+        'U0ONE',
+        'blocked',
+        `${req.id}; click refused: You already approved this. It needs another approver.`,
+      ],
+    ]);
+  });
+
   it('records a deny', async () => {
     const { approvals, req } = await setup();
     const outcome = approvals.channelFor('C0CHANNEL', undefined).request(req);
@@ -156,23 +209,9 @@ describe('SlackApprovals', () => {
 });
 
 describe('resolveApprovers', () => {
-  const users = [
-    { id: 'U01OMAR', name: 'omar', displayName: 'Omar A' },
-    { id: 'U02SARA', name: 'sara.k', displayName: 'sara' },
-    { id: 'U03ALEX', name: 'alex1', displayName: 'alex' },
-    { id: 'U04ALEX', name: 'alex2', displayName: 'alex' },
-  ];
-
-  it('keeps ids and resolves handles by username or display name', () => {
-    const result = resolveApprovers(['@omar', '@sara', 'U09DIRECT'], users);
-    expect([...result.ids].sort()).toEqual(['U01OMAR', 'U02SARA', 'U09DIRECT']);
-    expect(result.unresolved).toEqual([]);
-  });
-
-  it('matches nobody for an unknown or ambiguous name', () => {
-    expect(resolveApprovers(['@nobody', '@alex'], users)).toEqual({
-      ids: new Set(),
-      unresolved: ['@nobody', '@alex'],
-    });
+  it('keeps user ids and console approvers, and leaves names unresolved', () => {
+    const result = resolveApprovers(['@omar', 'U09DIRECT', 'W0GRID', 'console:omar']);
+    expect([...result.ids].sort()).toEqual(['U09DIRECT', 'W0GRID']);
+    expect(result.unresolved).toEqual(['@omar']);
   });
 });

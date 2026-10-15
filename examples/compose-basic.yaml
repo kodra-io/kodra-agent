@@ -41,7 +41,8 @@ spec:
   policy:
     approvals:
       required: true
-      approvers: ['@omar']
+      # Slack user ids. You can write @name here: `kodra-agent init` looks it up and writes the id.
+      approvers: ['U0123ABCD']
       expiresAfterMinutes: 15
     destructiveActions: deny
   audit:

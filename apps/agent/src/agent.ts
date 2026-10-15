@@ -10,8 +10,10 @@ import {
   type StopCondition,
   type Tool,
 } from 'ai';
+import type { EffectivePolicy } from '@kodra-agent/schema';
 import {
   newApprovalRequest,
+  rulesFor,
   type ApprovalChannel,
   type ApprovalOutcome,
   type ApprovalRequest,
@@ -20,7 +22,7 @@ import { clip, PROPOSE_CHANGE, proposeChangeTool } from './changes.ts';
 import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
-import { decide, describeGuards, type Decision, type PolicyInput } from './policy.ts';
+import { decide, describeGuards, touchedBy, type Decision, type PolicyInput } from './policy.ts';
 import { StreamingRedactor, type Redactor } from './redactor.ts';
 
 /** Guardrails for every task (golden rules 4, 5, and 6). */
@@ -57,7 +59,11 @@ export interface AgentDeps {
   audit: AuditLog;
   redactor: Redactor;
   term: Terminal;
-  policy: { destructiveActions: 'deny' | 'require-approval'; expiresAfterMinutes: number };
+  policy: {
+    destructiveActions: 'deny' | 'require-approval';
+    /** Approval rules per environment (resolvePolicy). */
+    effective: EffectivePolicy;
+  };
   limits?: Limits;
   actor?: string;
   /** Investigations: every tool that is not a read is blocked, whatever the access level. */
@@ -97,6 +103,10 @@ export type TurnEvent =
       args: string;
       reason: string;
       expiresAt: string;
+      /** The environment's name, or null for the default policy. */
+      environment: string | null;
+      /** How many different approvers it needs. */
+      needed: number;
       title?: string;
       preview?: string;
     }
@@ -170,7 +180,7 @@ export function policyInputFor(
  */
 export function alwaysBlocked(
   tool: HostedTool,
-  policy: AgentDeps['policy'],
+  policy: Pick<AgentDeps['policy'], 'destructiveActions'>,
   readOnly: boolean,
 ): boolean {
   if (readOnly && tool.risk !== 'read') return true;
@@ -235,7 +245,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
         };
 
         const pausedReason = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
-        const decision: Decision =
+        let decision: Decision =
           deps.readOnly && hosted.risk !== 'read'
             ? {
                 kind: 'block',
@@ -244,6 +254,11 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
             : pausedReason
               ? { kind: 'block', reason: pausedReason }
               : decide(policyInputFor(hosted, args, deps.policy.destructiveActions));
+        // Which environment's rules apply; a call spanning two is refused.
+        const rules = rulesFor(deps.policy.effective, touchedBy(hosted.guards, args));
+        if (decision.kind === 'approve' && !rules.ok) {
+          decision = { kind: 'block', reason: rules.reason };
+        }
 
         if (decision.kind === 'block') {
           deps.term.out(`  [blocked] ${source}: ${decision.reason}`);
@@ -273,7 +288,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
               ),
               requestedBy: actor,
             },
-            deps.policy.expiresAfterMinutes,
+            rules.ok ? rules.rules : { ...deps.policy.effective.default, environment: null },
           );
           await deps.audit.append({
             ...base,
@@ -290,6 +305,8 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
             args: req.args,
             reason: req.reason,
             expiresAt: req.expiresAt.toISOString(),
+            environment: req.environment,
+            needed: req.ballot.rules.minApprovers,
           });
           const outcome = await waitForApproval(deps.approvals, req, options.abortSignal);
           const note =

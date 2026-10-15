@@ -116,6 +116,32 @@ describe('doctor', () => {
     );
   });
 
+  it('flags approver names left in the config, which cannot approve', async () => {
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({ auditPath: posixPath(join(dir, 'audit.jsonl')), approvers: ['@omar', 'U02'] }),
+      dir,
+    );
+    const t = testContext();
+    expect(await doctor({ configPath: path, json: true }, t.ctx)).toBe(1);
+    expect(rowsOf(t).find((r) => r.check === 'approvers')).toMatchObject({
+      status: 'fail',
+      message: '@omar is a name, not a Slack user id, so it cannot approve',
+    });
+  });
+
+  it('reports the profile and environments when approvers are ids', async () => {
+    const { path } = await setup(
+      '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.1:9',
+    );
+    const t = testContext();
+    await doctor({ configPath: path, json: true }, t.ctx);
+    expect(rowsOf(t).find((r) => r.check === 'approvers')).toMatchObject({
+      status: 'pass',
+      message: 'starter profile, 0 environments',
+    });
+  });
+
   it('reports an invalid config with its line numbers', async () => {
     const dir = await tempDir();
     const path = await writeConfig(

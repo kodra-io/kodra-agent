@@ -1,4 +1,10 @@
-import type { ApprovalOutcome, ApprovalRequest, SettleableChannel } from '../approvals.ts';
+import {
+  progressLabel,
+  type ApprovalOutcome,
+  type ApprovalRequest,
+  type BallotProgress,
+  type SettleableChannel,
+} from '../approvals.ts';
 import type { AuditLog } from '../audit.ts';
 import type { Redactor } from '../redactor.ts';
 import type { IncomingAction, SlackApi } from './api.ts';
@@ -12,20 +18,21 @@ interface Pending {
   ts: string;
   resolve: (outcome: ApprovalOutcome) => void;
   timer: NodeJS.Timeout;
+  stopWatching: () => void;
 }
 
 export interface SlackApprovalsOptions {
   api: SlackApi;
   audit: AuditLog;
   redactor: Redactor;
-  approverIds: ReadonlySet<string>;
   now?: () => Date;
 }
 
 /**
- * Approval requests as Slack messages with Approve and Deny buttons. A click counts only
- * from a listed approver, before the request expires, and only once. Every click,
- * accepted or refused, is audited with the Slack user id.
+ * Approval requests as Slack messages with Approve and Deny buttons. Each click is a vote on
+ * the request's ballot, which applies the environment's rules (who may approve, self-approval,
+ * how many approvers), and only before the request expires. Every click, counted or refused,
+ * is audited with the Slack user id.
  */
 export class SlackApprovals {
   private readonly pending = new Map<string, Pending>();
@@ -66,14 +73,25 @@ export class SlackApprovals {
       const timer = setTimeout(() => {
         void this.finish(req.id, { decision: 'expired' }, 'expired: nothing was run');
       }, ms);
-      this.pending.set(req.id, { req, channel: posted.channel, ts: posted.ts, resolve, timer });
+      // Approvals made in the console show here too.
+      const stopWatching = req.ballot.onProgress((progress) => {
+        void this.showProgress(req.id, progress);
+      });
+      this.pending.set(req.id, {
+        req,
+        channel: posted.channel,
+        ts: posted.ts,
+        resolve,
+        timer,
+        stopWatching,
+      });
     });
   }
 
   /** Handles a button click. Returns what happened, for logging and tests. */
   async handleAction(
     action: IncomingAction,
-  ): Promise<'approved' | 'denied' | 'refused' | 'unknown'> {
+  ): Promise<'approved' | 'denied' | 'counted' | 'refused' | 'unknown'> {
     const entry = this.pending.get(action.value);
     if (!entry) return 'unknown';
     const base = {
@@ -82,28 +100,49 @@ export class SlackApprovals {
       tool: entry.req.tool,
       risk: entry.req.risk === 'unclassified' ? ('unclassified' as const) : entry.req.risk,
     };
-    if (!this.opts.approverIds.has(action.user)) {
-      await this.opts.audit.append({
-        ...base,
-        event: 'approval.decision',
-        decision: 'blocked',
-        detail: `${entry.req.id}; click refused: not an approver`,
-      });
-      return 'refused';
-    }
     if (this.now() > entry.req.expiresAt) {
       await this.finish(entry.req.id, { decision: 'expired' }, 'expired: nothing was run');
       return 'refused';
     }
-    const approved = action.actionId === APPROVE_ACTION;
-    await this.finish(
-      entry.req.id,
-      approved
-        ? { decision: 'approved', by: action.user }
-        : { decision: 'denied', by: action.user },
-      approved ? `approved by <@${action.user}>` : `denied by <@${action.user}>`,
-    );
-    return approved ? 'approved' : 'denied';
+    const result = entry.req.ballot.vote(action.user, action.actionId === APPROVE_ACTION);
+    switch (result.kind) {
+      case 'refused':
+        await this.opts.audit.append({
+          ...base,
+          event: 'approval.decision',
+          decision: 'blocked',
+          detail: `${entry.req.id}; click refused: ${result.reason}`,
+        });
+        return 'refused';
+      case 'closed':
+        return 'unknown';
+      case 'counted':
+        await this.opts.audit.append({
+          ...base,
+          event: 'approval.vote',
+          decision: 'approved',
+          detail: `${entry.req.id}; ${progressLabel(result.progress)}`,
+        });
+        return 'counted';
+      case 'decided':
+        await this.finish(entry.req.id, result.outcome, outcomeLabel(result.outcome));
+        return result.outcome.decision === 'approved' ? 'approved' : 'denied';
+    }
+  }
+
+  /** Shows "1 of 2 approved" on the message, with the buttons still there. */
+  private async showProgress(id: string, progress: BallotProgress): Promise<void> {
+    const entry = this.pending.get(id);
+    if (!entry) return;
+    const label = `${progressLabel(progress)} by ${progress.approvedBy.map(who).join(', ')}`;
+    await this.opts.api
+      .updateMessage({
+        channel: entry.channel,
+        ts: entry.ts,
+        text: this.summary(entry.req, label),
+        blocks: this.blocks(entry.req, null, label),
+      })
+      .catch(() => undefined);
   }
 
   /** Resolves a request once, updates its message, and stops its timer. */
@@ -112,6 +151,7 @@ export class SlackApprovals {
     if (!entry) return;
     this.pending.delete(id);
     clearTimeout(entry.timer);
+    entry.stopWatching();
     entry.resolve(outcome);
     await this.opts.api
       .updateMessage({
@@ -138,8 +178,14 @@ export class SlackApprovals {
     );
   }
 
-  private blocks(req: ApprovalRequest, outcome: string | null): unknown[] {
+  private blocks(req: ApprovalRequest, outcome: string | null, progress?: string): unknown[] {
     const r = (s: string) => this.opts.redactor.redact(s);
+    const needed = req.ballot.rules.minApprovers;
+    const rules = [
+      req.environment ? `Environment: *${req.environment}*` : null,
+      needed > 1 ? `Needs ${String(needed)} different approvers` : null,
+      req.ballot.rules.allowSelfApproval ? null : 'The requester cannot approve it',
+    ].filter((s): s is string => s !== null);
     const blocks: unknown[] = [
       {
         type: 'section',
@@ -186,6 +232,12 @@ export class SlackApprovals {
         });
       }
     }
+    if (rules.length > 0) {
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: r(rules.join(' · ')) }] });
+    }
+    if (outcome === null && progress) {
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: r(`*${progress}*`) }] });
+    }
     if (outcome === null) {
       blocks.push({
         type: 'actions',
@@ -216,8 +268,15 @@ export class SlackApprovals {
 /** How a decision reads on the Slack message, wherever it was made. */
 export function outcomeLabel(outcome: ApprovalOutcome): string {
   if (outcome.decision === 'expired') return 'expired: nothing was run';
-  const who = outcome.by.startsWith('console:')
-    ? `${outcome.by} in the console`
-    : `<@${outcome.by}>`;
-  return `${outcome.decision} by ${who}`;
+  if (outcome.by === 'policy') {
+    return `${outcome.decision}: ${('note' in outcome ? outcome.note : undefined) ?? 'refused by policy'}`;
+  }
+  return `${outcome.decision} by ${outcome.by.split(', ').map(who).join(', ')}`;
+}
+
+/** An approver as Slack shows them: a mention for a Slack user, the name for anyone else. */
+function who(voter: string): string {
+  if (voter.startsWith('console:')) return `${voter} in the console`;
+  if (voter === 'cli') return 'the terminal';
+  return `<@${voter}>`;
 }

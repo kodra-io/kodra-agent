@@ -32,8 +32,15 @@ const ollama = `  model:
 `;
 
 describe('examples', () => {
-  it('has the three documented examples', () => {
-    expect(examples.sort()).toEqual(['compose-basic.yaml', 'kubernetes.yaml', 'ollama-local.yaml']);
+  it('has the documented examples, one per profile among them', () => {
+    expect(examples.sort()).toEqual([
+      'compose-basic.yaml',
+      'kubernetes.yaml',
+      'ollama-local.yaml',
+      'starter.yaml',
+      'strict.yaml',
+      'team.yaml',
+    ]);
   });
 
   it.each(examples)('%s validates', (file) => {
@@ -283,5 +290,100 @@ describe('metadata', () => {
   it.each(['Payments', 'payments_agent', '-agent', 'a'.repeat(54)])('rejects name %s', (name) => {
     const text = config(ollama).replace('name: test-agent', `name: ${name}`);
     expect(messages(parseAgentConfig(text)).join('\n')).toContain('metadata.name');
+  });
+});
+
+describe('profiles and environments', () => {
+  // Without the file position, which the other tests cover.
+  const plain = (result: ParseResult) =>
+    messages(result).map((m) => m.replace(/^kodra-agent\.yaml:\d+:\d+ /, ''));
+  const withEnvironments = (profile: string, environments: string, approvers = "['U01', 'U02']") =>
+    `apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: test-agent
+spec:
+  profile: ${profile}
+  target: kubernetes
+${ollama}  policy:
+    approvals:
+      approvers: ${approvers}
+  environments:
+${environments}
+`;
+
+  it('defaults to the starter profile with no environments', () => {
+    const result = parseAgentConfig(config(ollama));
+    expect(result.ok && [result.config.spec.profile, result.config.spec.environments]).toEqual([
+      'starter',
+      [],
+    ]);
+  });
+
+  it('accepts environments with their own approvers and rules', () => {
+    const result = parseAgentConfig(
+      withEnvironments(
+        'team',
+        `    - name: production
+      production: true
+      namespaces: [checkout, payments]
+      repos: [acme/checkout-api]
+      approvers: ['U01', 'U02', 'console:omar']
+      approvals: {minApprovers: 1, allowSelfApproval: false}
+    - name: staging
+      namespaces: [staging]`,
+      ),
+    );
+    expect(result.ok ? [] : messages(result)).toEqual([]);
+    expect(result.ok && result.config.spec.environments[1]).toEqual({
+      name: 'staging',
+      production: false,
+      namespaces: ['staging'],
+      repos: [],
+      approvals: {},
+    });
+  });
+
+  it('refuses production rules nobody can satisfy, with a readable message', () => {
+    const result = parseAgentConfig(
+      withEnvironments(
+        'team',
+        `    - name: production
+      production: true
+      namespaces: [shop]`,
+        "['U01']",
+      ),
+    );
+    expect(plain(result)).toEqual([
+      'spec.environments.0.approvers: Production changes need someone other than the requester. Add a second approver.',
+    ]);
+  });
+
+  it('refuses an unknown profile and a bad namespace or repo', () => {
+    const text = withEnvironments(
+      'enterprise',
+      `    - name: prod
+      namespaces: [Shop]
+      repos: [checkout]`,
+    );
+    expect(plain(parseAgentConfig(text)).join('\n')).toEqual(
+      [
+        'spec.profile: must be starter, team, or strict',
+        'spec.environments.0.namespaces.0: must be a Kubernetes namespace: lowercase letters, digits, and hyphens',
+        'spec.environments.0.repos.0: must be a repository like owner/repo, or a GitLab project like group/project',
+      ].join('\n'),
+    );
+  });
+
+  it('needs the console for console approvers in an environment', () => {
+    const text = withEnvironments(
+      'starter',
+      `    - name: prod
+      namespaces: [shop]
+      approvers: ['console:omar']`,
+    ).replace('spec:\n', 'spec:\n  console: {enabled: false}\n');
+    expect(plain(parseAgentConfig(text))).toContain(
+      'spec.console.enabled: console approvers need the console: set spec.console.enabled to true.',
+    );
   });
 });

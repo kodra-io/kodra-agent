@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=../schema/kodra-agent.schema.json
+# Team profile: several people and more than one environment. Production changes need
+# someone other than the person who asked; staging changes do not.
+apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: product-team-agent
+spec:
+  profile: team
+  target: kubernetes
+  model:
+    provider: openai
+    name: '<model-id>'
+    apiKey: ${env:OPENAI_API_KEY}
+  connectors:
+    gitlab:
+      enabled: true
+      access: read-write-approved
+      config:
+        url: https://gitlab.com
+        projects: ['studio/api', 'studio/web', 'studio/infra']
+      secrets:
+        token: ${env:GITLAB_TOKEN}
+    gitlab-ci:
+      enabled: true
+    kubernetes:
+      enabled: true
+      access: read-write-approved
+      config:
+        namespaces: ['api', 'web', 'staging']
+    prometheus:
+      enabled: true
+      config:
+        url: http://prometheus.monitoring:9090
+        alertmanagerUrl: http://alertmanager.monitoring:9093
+    slack:
+      enabled: true
+      config:
+        channel: '#team-ops'
+      secrets:
+        botToken: ${env:SLACK_BOT_TOKEN}
+        appToken: ${env:SLACK_APP_TOKEN}
+  environments:
+    - name: production
+      production: true
+      namespaces: ['api', 'web']
+      repos: ['studio/infra']
+    - name: staging
+      namespaces: ['staging']
+  policy:
+    approvals:
+      approvers: ['U0123ABCD', 'U0456EFGH', 'console:lead']
+      expiresAfterMinutes: 30

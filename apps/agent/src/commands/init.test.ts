@@ -209,7 +209,7 @@ describe('init with no secrets to ask for', () => {
     const path = await writeConfig(
       configYaml({
         auditPath: posixPath(join(dir, 'audit.jsonl')),
-        approvers: ['@omar', 'console:on-call'],
+        approvers: ['U01OMAR', 'console:on-call'],
       }),
       dir,
     );
@@ -363,5 +363,82 @@ describe('init on kubernetes', () => {
       'Could not write Secret kodra-agent/test-agent-secrets (HTTP 403).',
     );
     expect(t.output()).not.toContain('k-key-1234');
+  });
+});
+
+describe('init and approver names', () => {
+  const SLACK =
+    "    slack:\n      enabled: true\n      config: {channel: '#ops'}\n      secrets: {botToken: '${env:SLACK_BOT_TOKEN}', appToken: '${env:SLACK_APP_TOKEN}'}";
+  const members = [
+    { id: 'U01OMAR', name: 'omar', profile: { display_name: 'Omar', real_name: 'Omar A' } },
+    { id: 'U03ALEX', name: 'alex1', profile: { display_name: 'alex' } },
+    { id: 'U04ALEX', name: 'alex2', profile: { display_name: 'alex' } },
+  ];
+
+  async function slackSetup(approvers: string[]) {
+    server = await fakeServer({
+      '/v1/models': (_q, res) => {
+        json(res, 200, { data: [] });
+      },
+      'POST /api/auth.test': (_q, res) => {
+        json(res, 200, { ok: true });
+      },
+      'POST /api/apps.connections.open': (_q, res) => {
+        json(res, 200, { ok: true });
+      },
+      'POST /api/users.list': (_q, res) => {
+        json(res, 200, { ok: true, members });
+      },
+    });
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit', 'audit.jsonl')),
+        model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        connectors: SLACK,
+        approvers,
+      }),
+      dir,
+    );
+    const env = {
+      ANTHROPIC_API_KEY: 'k',
+      SLACK_BOT_TOKEN: 'xoxb-names-test',
+      SLACK_APP_TOKEN: 'xapp-names-test',
+    };
+    return { dir, path, env, endpoints: { anthropic: server.url, slack: server.url } };
+  }
+
+  it('looks names up once, shows who matched, and writes the ids after a yes', async () => {
+    const { path, env, endpoints } = await slackSetup(['@omar', 'console:omar']);
+    // The key and two tokens, then yes to writing the ids.
+    const prompter = scriptedPrompter(['k', 'xoxb-names-test', 'xapp-names-test', true]);
+    const t = testContext({ prompter, env, endpoints });
+    expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
+    expect(t.output()).toContain('@omar -> U01OMAR (Omar A)');
+    const config = await readFile(path, 'utf8');
+    expect(config).toMatch(/approvers: \[ *'U01OMAR', 'console:omar' *\]/);
+    expect(config).not.toContain('@omar');
+    expect(t.output()).not.toContain('xoxb-names-test');
+  });
+
+  it('with --non-interactive, writes nothing when a name is ambiguous', async () => {
+    const { dir, path, env, endpoints } = await slackSetup(['@omar', '@alex']);
+    const before = await readFile(path, 'utf8');
+    const t = testContext({ env, endpoints });
+    expect(await init({ ...base, nonInteractive: true, configPath: path }, t.ctx)).toBe(1);
+    expect(t.term.stderr.join('\n')).toContain(
+      '@alex matches 2 people (U03ALEX, U04ALEX). Use the right user id instead.',
+    );
+    expect(t.term.stderr.at(-1)).toBe('Nothing was written.');
+    expect(await readFile(path, 'utf8')).toBe(before);
+    await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
+  });
+
+  it('with --non-interactive, writes the ids when every name matches one person', async () => {
+    const { path, env, endpoints } = await slackSetup(['@omar']);
+    const t = testContext({ env, endpoints });
+    expect(await init({ ...base, nonInteractive: true, configPath: path }, t.ctx)).toBe(0);
+    expect(await readFile(path, 'utf8')).toContain('U01OMAR');
+    expect(t.output()).toContain('Wrote 1 Slack user id into');
   });
 });

@@ -28,11 +28,19 @@ export interface ConsoleApi {
   streams: Record<string, StreamRoute>;
 }
 
-const DECISION_STATUS = { approved: 200, denied: 200, refused: 403, expired: 409, unknown: 404 };
+const DECISION_STATUS = {
+  approved: 200,
+  denied: 200,
+  counted: 200,
+  refused: 403,
+  expired: 409,
+  unknown: 404,
+};
 const DECISION_ERROR = {
   approved: undefined,
   denied: undefined,
-  refused: 'only a console approver can decide',
+  counted: undefined,
+  refused: 'you cannot decide this request',
   expired: 'this request expired; nothing was run',
   unknown: 'no such request, or it was already decided',
 };
@@ -73,7 +81,7 @@ export function consoleApi(
     usage: async () =>
       usage(await readAudit(auditPath), model, runtime.config.spec.console.pricing),
     approvals: async () => approvals(await readAudit(auditPath)),
-    'approvals/pending': () => pending.list(),
+    'approvals/pending': ({ user }) => pending.list(user),
     investigations: () => investigations.list(),
   };
 
@@ -96,11 +104,11 @@ export function consoleApi(
         return { status: 400, body: { error: 'approve must be true or false' } };
       }
       const note = typeof body['note'] === 'string' ? body['note'] : undefined;
-      const result = await pending.decide(user, id, body['approve'], note);
-      const error = DECISION_ERROR[result];
+      const { result, reason, refusal } = await pending.decide(user, id, body['approve'], note);
+      const error = reason ?? DECISION_ERROR[result];
       return {
         status: DECISION_STATUS[result],
-        body: error ? { error, result } : { result },
+        body: error ? { error, result, ...(refusal ? { refusal } : {}) } : { result },
       };
     },
   };

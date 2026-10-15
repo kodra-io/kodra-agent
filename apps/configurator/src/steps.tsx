@@ -17,6 +17,7 @@ import {
 } from '@kodra-agent/templates';
 import type { Dispatch } from 'react';
 import { useI18n, type MessageKey } from './i18n.tsx';
+import { ApprovalRulesSummary } from './policy-steps.tsx';
 import type { Action } from './state.ts';
 import { Badge, CopyButton, RadioCards, Section, Switch, TextField, useIssueText } from './ui.tsx';
 
@@ -378,15 +379,21 @@ export function ConnectorsStep(props: StepProps) {
 }
 
 const STEP_LABELS: Record<StepId | 'download', MessageKey> = {
+  profile: 'steps.profile',
   start: 'steps.start',
   model: 'steps.model',
   connectors: 'steps.connectors',
+  environments: 'steps.environments',
   review: 'steps.review',
   download: 'steps.download',
 };
 
 export function ReviewStep(
-  props: StepProps & { issues: DraftIssue[]; goTo: (step: StepId) => void },
+  props: StepProps & {
+    issues: DraftIssue[];
+    goTo: (step: StepId) => void;
+    onAddEnvironments: () => void;
+  },
 ) {
   const { draft, dispatch, errorFor, touch, issues, goTo } = props;
   const { t, lt } = useI18n();
@@ -470,7 +477,7 @@ export function ReviewStep(
           hint={t('review.approversHint')}
           value={draft.policy.approvers}
           fieldId="policy.approvers"
-          placeholder="@omar"
+          placeholder="U0123ABCD, console:omar"
           required
           ltr
           error={errorFor('policy.approvers')}
@@ -509,6 +516,8 @@ export function ReviewStep(
           ]}
         />
       </Section>
+
+      <ApprovalRulesSummary draft={draft} onAddEnvironments={props.onAddEnvironments} />
 
       <Section title={t('review.console')}>
         <div className="flex items-start justify-between gap-4">

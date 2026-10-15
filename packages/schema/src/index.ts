@@ -3,3 +3,4 @@ export * from './dependencies.ts';
 export * from './manifest.ts';
 export * from './parse.ts';
 export * from './secret-ref.ts';
+export * from './policy.ts';

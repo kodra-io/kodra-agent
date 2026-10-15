@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { resolvePolicy, type EffectivePolicy } from '@kodra-agent/schema';
 import { join } from 'node:path';
 import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,7 +18,7 @@ import { jsonLogger, memoryTerminal } from './io.ts';
 import { ConnectorHost } from './mcp/host.ts';
 import { REDACTED, Redactor } from './redactor.ts';
 import { fakeComponent, fakeLauncher } from './test-fixtures/fake-connector.ts';
-import { tempDir } from './test-helpers.ts';
+import { tempDir, testPolicy } from './test-helpers.ts';
 
 const usage = (n = 10) => ({
   inputTokens: { total: n, noCache: n, cacheRead: undefined, cacheWrite: undefined },
@@ -67,6 +68,7 @@ async function setup(opts: {
   approval?: ApprovalOutcome;
   tokenBudget?: number;
   secrets?: Record<string, string>;
+  policy?: EffectivePolicy;
 }) {
   const redactor = new Redactor();
   for (const v of Object.values(opts.secrets ?? {})) redactor.add(v);
@@ -92,7 +94,10 @@ async function setup(opts: {
     audit: new AuditLog(auditPath, redactor),
     redactor,
     term,
-    policy: { destructiveActions: opts.destructive ?? 'deny', expiresAfterMinutes: 15 },
+    policy: {
+      destructiveActions: opts.destructive ?? 'deny',
+      effective: opts.policy ?? testPolicy(),
+    },
     limits: { maxSteps: 6, timeoutMs: 30_000, tokenBudget: opts.tokenBudget ?? 100_000 },
   };
   const audit = async () =>
@@ -153,6 +158,27 @@ describe('agent loop', () => {
       decision: 'blocked',
       risk: 'read',
     });
+  });
+
+  it("applies the environment's approval rules to a write in its namespace", async () => {
+    const policy = resolvePolicy({
+      profile: 'strict',
+      policy: { approvals: { approvers: ['U01', 'U02', 'U03'], expiresAfterMinutes: 15 } },
+      environments: [{ name: 'production', production: true, namespaces: ['api'], repos: [] }],
+    });
+    const { deps, channel } = await setup({
+      access: 'read-write-approved',
+      policy,
+      responses: [
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', scale: 3 }),
+        answer('Scaled.'),
+      ],
+    });
+    await runTurn({ ...deps, actor: 'slack:U01' }, [], 'scale web to 3', 't-env');
+    const [req] = channel.requests;
+    expect(req?.environment).toBe('production');
+    expect(req?.ballot.rules).toMatchObject({ minApprovers: 2, allowSelfApproval: false });
+    expect(req?.ballot.requester).toBe('U01');
   });
 
   it('asks for approval for a write, with the reason, then runs it', async () => {

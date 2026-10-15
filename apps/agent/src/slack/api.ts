@@ -22,6 +22,8 @@ export interface SlackUser {
   id: string;
   name: string;
   displayName: string;
+  /** Full name, to show who a name matched. */
+  realName?: string;
 }
 
 export interface IncomingMessage {

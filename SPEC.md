@@ -1,7 +1,7 @@
 # Kodra Agent: Build Spec v0.1
 
 Owner: Omar Al-Amad (Kodra.io)
-Status: in implementation (M0). Decisions confirmed in section 14
+Status: MVP built and released (v0.2.0). The current round (v0.2 plan, M10 onward) is in `PLAN-v0.2.md`. Decisions confirmed in section 14
 Audience: Claude Code (implementation) and Omar (review)
 
 ---
@@ -33,7 +33,7 @@ It is free to use: the core is open source and users bring their own model key, 
 ## 3. User flow
 
 1. Open the configurator and click "Create your agent".
-2. Name the agent and choose a deployment target: Docker Compose or Kubernetes (Helm).
+2. Say who the agent is for: a profile (`starter`, `team`, or `strict`) that sets approval defaults (`docs/approvals.md`). Then name the agent and choose a deployment target: Docker Compose or Kubernetes (Helm).
 3. Choose a model provider and enter a model id.
 4. Toggle connectors on or off. For each enabled connector, choose an access level: `read-only` or `read-write-approved`.
 5. Review a plain-language permissions summary and the list of secrets the wizard will ask for (names only, never values).
@@ -79,6 +79,7 @@ kind: Agent
 metadata:
   name: payments-team-agent
 spec:
+  profile: team                    # starter | team | strict (approval defaults)
   target: compose                  # compose | kubernetes
   model:
     provider: anthropic            # anthropic | openai | azure-openai | bedrock | ollama
@@ -112,10 +113,14 @@ spec:
       secrets:
         botToken: ${env:SLACK_BOT_TOKEN}
         appToken: ${env:SLACK_APP_TOKEN}
+  environments:                    # optional: namespaces and repos with their own rules
+    - name: production
+      production: true
+      namespaces: ["payments"]
   policy:
     approvals:
       required: true
-      approvers: ["@omar"]
+      approvers: ["U0123ABCD", "U0456EFGH", "console:omar"]
       expiresAfterMinutes: 15
     destructiveActions: deny
   audit:
@@ -138,7 +143,8 @@ Rules:
   | `azure-openai` | `apiKey`, `endpoint`, `deployment` |
   | `bedrock` | `region`. Credentials come from the standard AWS sources (env, IRSA, profile) |
   | `ollama` | `baseUrl` |
-- `policy.approvals.required` can only be `true` in `v1alpha1`. `destructiveActions` is `deny` (default) or `require-approval`. Approvers are Slack handles (`@omar`) or Slack user ids (`U0123ABCD`).
+- `policy.approvals.required` can only be `true` in `v1alpha1`. `destructiveActions` is `deny` (default) or `require-approval`. Approvers are Slack user ids (`U0123ABCD`) or console approvers (`console:omar`). A Slack name (`@omar`) is accepted in the file, but `init` replaces it with the user id and the agent approves only through ids.
+- `profile` sets approval defaults, and `environments` group namespaces and repositories with their own approvers and rules (`minApprovers`, `allowSelfApproval`). Rules nobody can satisfy fail validation. See `docs/approvals.md`.
 - `policy`, `audit`, `telemetry`, and `monitoring` (`maxConcurrent` 2, `maxPerHour` 10, `cooldownMinutes` 60) have defaults. Each connector's `config` and `secrets` are validated against its manifest.
 - The JSON Schema for editors is committed at `schema/kodra-agent.schema.json` (regenerate with `pnpm schema:export`). Examples live in `examples/`.
 
@@ -261,7 +267,7 @@ kodra-agent-<name>/
 - **redactor:** masks every known secret value, plus common token patterns, in logs, the audit log, and anything sent to the model.
 - **llm:** one interface over Anthropic, OpenAI, Azure OpenAI, Bedrock, and Ollama. The Vercel AI SDK is the suggested abstraction. Verify current package names and APIs in its docs before implementing.
 - **connector host:** starts MCP servers for enabled connectors (stdio subprocess in the MVP), lists their tools, applies each manifest's risk classification, and exposes only allowed tools to the agent loop. A tool missing from the manifest is treated as destructive and blocked.
-- **policy engine:** for every tool call:
+- **policy engine:** for every tool call (approval rules per environment: `docs/approvals.md`):
   - `read`: runs.
   - `write`: needs approval when access is `read-write-approved`, otherwise blocked.
   - `destructive`: blocked unless policy allows it and it is approved.
@@ -318,6 +324,9 @@ Build environment: the compose target may mount the Docker socket only when the 
 ---
 
 ## 12. Milestones
+
+M0 to M8 and M9a are built (v0.2.0 shipped M8c and M9a). The current round, from M10 on, is
+planned in `PLAN-v0.2.md`, which also holds its status table.
 
 Every milestone ends with: all tests green, a short summary of what was built, how to try it, and open questions. Stop after each milestone for review.
 

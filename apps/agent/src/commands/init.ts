@@ -1,10 +1,12 @@
 import { existsSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import {
+  allApprovers,
   consoleApproverTokenEnv,
   isConsoleApprover,
   isSecretRequired,
+  resolvePolicy,
   type AgentConfig,
 } from '@kodra-agent/schema';
 import { stringify } from 'yaml';
@@ -13,6 +15,7 @@ import { CONSOLE_TOKEN_ENV, newConsoleToken } from '../console/token.ts';
 import { AGENT_NAMESPACE, type Context } from '../context.ts';
 import { parseEnvFile, renderEnvFile, writePrivateFile } from '../env-file.ts';
 import { runProbe, type ProbeResult } from '../probes.ts';
+import { approverNames, listSlackUsers, matchNames, replaceApproverNames } from '../slack/names.ts';
 
 export interface InitOptions {
   configPath: string;
@@ -89,15 +92,107 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
     throw error;
   }
 
+  let names: NamesResult;
+  try {
+    names = await approverIds(config, comps, collected, existing, opts, ctx);
+  } catch (error) {
+    if (error instanceof Abort) {
+      ctx.term.err('Stopped. Nothing was written.');
+      return 1;
+    }
+    throw error;
+  }
+  if (names.failure) failures.push(names.failure);
+
   if (opts.nonInteractive && failures.length > 0) {
     for (const f of failures) ctx.term.err(f);
     ctx.term.err('Nothing was written.');
     return 1;
   }
+  if (names.config !== null) {
+    await writeFile(opts.configPath, names.config, 'utf8');
+    ctx.term.out(
+      `Wrote ${String(names.count)} Slack user id${names.count === 1 ? '' : 's'} into ${opts.configPath}.`,
+    );
+  }
 
   return target === 'compose'
     ? writeCompose(collected, envPath, existingText, dir, config, ctx)
     : writeKubernetes(config, collected, opts.namespace ?? AGENT_NAMESPACE, ctx);
+}
+
+interface NamesResult {
+  /** The config with ids in place of names, to write once everything else succeeded. */
+  config: string | null;
+  count: number;
+  failure: string | null;
+}
+
+/**
+ * `@name` approvers become Slack user ids (PLAN-v0.2 M10): names can be changed by their
+ * owners, so the agent accepts only ids. They are looked up once with the bot token, shown,
+ * and written into kodra-agent.yaml after a yes (with --non-interactive, only when every name
+ * matches exactly one person).
+ */
+async function approverIds(
+  config: AgentConfig,
+  comps: readonly Component[],
+  collected: Collected,
+  existing: ReadonlyMap<string, string>,
+  opts: InitOptions,
+  ctx: Context,
+): Promise<NamesResult> {
+  const none: NamesResult = { config: null, count: 0, failure: null };
+  const names = approverNames(allApprovers(resolvePolicy(config.spec)));
+  if (names.length === 0) return none;
+  const fail = (message: string): NamesResult => {
+    ctx.term.err(message);
+    return { ...none, failure: message };
+  };
+  const bot = comps.find((c) => c.id === 'slack')?.secrets.find((s) => s.spec.key === 'botToken');
+  if (!bot) {
+    return fail(
+      `Approvers ${names.join(', ')} are Slack names, but Slack is off. Use console:<name> approvers, or turn Slack on.`,
+    );
+  }
+  const token =
+    collected.get(bot) ??
+    (bot.ref.scheme === 'env' ? (existing.get(bot.ref.name) ?? ctx.env[bot.ref.name]) : undefined);
+  if (!token) {
+    return fail(`Cannot look up ${names.join(', ')}: the Slack bot token is not set.`);
+  }
+  let matched;
+  try {
+    matched = matchNames(names, await listSlackUsers(ctx.fetch, token, ctx.endpoints?.slack));
+  } catch (error) {
+    return fail(
+      `Cannot look up Slack names: ${error instanceof Error ? error.message : String(error)}. The bot token needs the users:read scope.`,
+    );
+  }
+  ctx.term.out('Approvers are checked by Slack user id. Looked up:');
+  for (const [name, user] of matched.found) {
+    const label = user.realName || user.displayName || user.name;
+    ctx.term.out(`  ${name} -> ${user.id}${label ? ` (${label})` : ''}`);
+  }
+  for (const problem of matched.problems) ctx.term.err(`  ${problem}`);
+  if (opts.nonInteractive && matched.problems.length > 0) {
+    return { ...none, failure: 'Some approver names did not match exactly one Slack user.' };
+  }
+  if (matched.found.size === 0) return none;
+  if (!opts.nonInteractive) {
+    if (!ctx.prompter) throw new Abort();
+    const write = await ctx.prompter.confirm(
+      `Write ${matched.found.size === 1 ? 'this id' : 'these ids'} into ${opts.configPath}?`,
+      true,
+    );
+    if (!write) {
+      ctx.term.err('Left as names. They cannot approve until they are Slack user ids.');
+      return none;
+    }
+  }
+  const ids = new Map([...matched.found].map(([name, user]) => [name, user.id]));
+  const text = await readFile(opts.configPath, 'utf8');
+  return { config: replaceApproverNames(text, ids), count: ids.size, failure: null };
 }
 
 async function readOptional(path: string): Promise<string | null> {
@@ -420,7 +515,7 @@ function consoleTokens(config: AgentConfig): { env: string; who: string }[] {
   if (!config.spec.console.enabled) return [];
   return [
     { env: CONSOLE_TOKEN_ENV, who: 'the team (view and chat)' },
-    ...config.spec.policy.approvals.approvers
+    ...allApprovers(resolvePolicy(config.spec))
       .filter(isConsoleApprover)
       .map((entry) => ({ env: consoleApproverTokenEnv(entry), who: entry })),
   ];

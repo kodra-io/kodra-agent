@@ -47,7 +47,7 @@ Console approvers are listed with the Slack approvers:
 spec:
   policy:
     approvals:
-      approvers: ['@omar', 'console:omar', 'console:on-call']
+      approvers: ['U0123ABCD', 'console:omar', 'console:on-call']
 ```
 
 `console:on-call` signs in with `KODRA_CONSOLE_TOKEN_ON_CALL`. The audit log records the

@@ -23,4 +23,4 @@ spec:
         url: http://prometheus:9090
   policy:
     approvals:
-      approvers: ['@ops']
+      approvers: ['U0123ABCD']

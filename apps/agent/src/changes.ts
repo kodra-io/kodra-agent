@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { dynamicTool, jsonSchema, type Tool } from 'ai';
 import type { ChangeStep } from '@kodra-agent/schema';
-import { newApprovalRequest } from './approvals.ts';
+import { newApprovalRequest, rulesFor } from './approvals.ts';
 import { unifiedDiff } from './diff.ts';
 import type { FileReader } from './forge-files.ts';
 import type { HostedTool } from './mcp/host.ts';
-import { decide, type Risk } from './policy.ts';
+import { decide, touchedBy, type Risk } from './policy.ts';
 import { wrapUntrusted, type AgentDeps } from './agent.ts';
 
 /**
@@ -267,6 +267,14 @@ export function proposeChangeTool(
         }
       }
 
+      // One change covers one environment, so one set of approval rules applies.
+      const touched = steps.map((s) => touchedBy(s.tool.guards, s.args));
+      const rules = rulesFor(deps.policy.effective, {
+        namespaces: touched.flatMap((t) => t.namespaces),
+        repos: touched.flatMap((t) => t.repos),
+      });
+      if (!rules.ok) return refuse(rules.reason);
+
       let preview: Preview;
       try {
         preview = await buildPreview(steps);
@@ -290,7 +298,7 @@ export function proposeChangeTool(
           title,
           preview: r(preview.text),
         },
-        deps.policy.expiresAfterMinutes,
+        rules.rules,
       );
       await deps.audit.append({
         actor,
@@ -311,6 +319,8 @@ export function proposeChangeTool(
         args: req.args,
         reason: req.reason,
         expiresAt: req.expiresAt.toISOString(),
+        environment: req.environment,
+        needed: req.ballot.rules.minApprovers,
         title,
         ...(req.preview ? { preview: req.preview } : {}),
       });
