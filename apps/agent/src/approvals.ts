@@ -55,11 +55,17 @@ export type VoteResult =
   /** The vote decided the request. */
   | { kind: 'decided'; outcome: ApprovalOutcome }
   /** Not counted, with the reason in words the voter reads. */
-  | { kind: 'refused'; reason: string }
+  | { kind: 'refused'; code: Refusal; reason: string }
   /** Already decided. */
   | { kind: 'closed' };
 
-const NOT_AN_APPROVER = 'You are not an approver for this change.';
+/** Why a vote cannot count, as a code the console translates and in English for the rest. */
+export type Refusal = 'not-listed' | 'self' | 'already-approved';
+export const REFUSALS: Record<Refusal, string> = {
+  'not-listed': 'You are not an approver for this change.',
+  self: 'You asked for this change, so someone else must approve it.',
+  'already-approved': 'You already approved this. It needs another approver.',
+};
 
 /**
  * The votes on one request (PLAN-v0.2 M10). A vote counts only from an approver listed for the
@@ -86,19 +92,26 @@ export class Ballot {
     return voter === CLI_VOTER || this.rules.approvers.includes(voter);
   }
 
-  /** Why this voter can never approve, or null when they can. */
-  cannotApprove(voter: string): string | null {
-    if (!this.listed(voter)) return NOT_AN_APPROVER;
+  /** Why this voter cannot approve now, or null when they can. */
+  refusal(voter: string): Refusal | null {
+    if (!this.listed(voter)) return 'not-listed';
     const self = voter === CLI_VOTER || voter === this.requester;
-    if (self && !this.rules.allowSelfApproval) {
-      return 'You asked for this change, so someone else must approve it.';
-    }
+    if (self && !this.rules.allowSelfApproval) return 'self';
+    if (this.approved.includes(voter)) return 'already-approved';
     return null;
+  }
+
+  /** The refusal in English, for Slack and the terminal. */
+  cannotApprove(voter: string): string | null {
+    const code = this.refusal(voter);
+    return code ? REFUSALS[code] : null;
   }
 
   vote(voter: string, approve: boolean, note?: string): VoteResult {
     if (this.closed) return { kind: 'closed' };
-    if (!this.listed(voter)) return { kind: 'refused', reason: NOT_AN_APPROVER };
+    if (!this.listed(voter)) {
+      return { kind: 'refused', code: 'not-listed', reason: REFUSALS['not-listed'] };
+    }
     if (!approve) {
       this.close();
       return {
@@ -106,11 +119,8 @@ export class Ballot {
         outcome: { decision: 'denied', by: voter, ...(note ? { note } : {}) },
       };
     }
-    const why = this.cannotApprove(voter);
-    if (why) return { kind: 'refused', reason: why };
-    if (this.approved.includes(voter)) {
-      return { kind: 'refused', reason: 'You already approved this. It needs another approver.' };
-    }
+    const code = this.refusal(voter);
+    if (code) return { kind: 'refused', code, reason: REFUSALS[code] };
     this.approved.push(voter);
     if (this.approved.length >= this.rules.minApprovers) {
       this.close();

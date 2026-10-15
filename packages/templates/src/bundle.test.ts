@@ -104,7 +104,10 @@ describe('compose bundle', () => {
     expect(readme).toContain('echo "KODRA_AGENT_USER=$(id -u):$(id -g)" >> .env');
     expect(readme).toContain('**GitHub (read-write-approved)**');
     expect(readme).toContain('Never pushes to the default branch and never merges.');
-    expect(readme).toContain('approval from: @omar');
+    expect(readme).toContain('Profile: starter.');
+    expect(readme).toContain(
+      '- Every change needs one approval from @omar; the person who asked may approve it;',
+    );
     expect(readme).toContain('Destructive actions are blocked.');
     expect(readme).toContain('## Uninstall');
   });
@@ -207,5 +210,35 @@ describe('kubernetes bundle', () => {
     expect(quickstartCommands(kubernetesDraft()).at(-1)).toBe(
       'helm install platform-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.2.0 --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml',
     );
+  });
+});
+
+describe('approval rules in the README', () => {
+  it('states the effective rules for each environment', () => {
+    const readme = file(
+      generateBundle({
+        ...kubernetesDraft(),
+        profile: 'strict',
+        policy: {
+          approvers: 'U01, U02, U03',
+          expiresAfterMinutes: '30',
+          destructiveActions: 'deny',
+        },
+        environments: [
+          { name: 'production', production: true, namespaces: 'api', repos: '', approvers: '' },
+        ],
+      }),
+      'README.md',
+    );
+    expect(readme).toContain(
+      'Profile: strict. For regulated, audited, or change-managed organizations.',
+    );
+    expect(readme).toContain(
+      '- **production** (production; namespaces api): needs 2 different approvers from U01, U02, U03; the person who asked cannot approve it; expires after 30 minutes.',
+    );
+    expect(readme).toContain(
+      '- **Everything else**: needs one approval from U01, U02, U03; the person who asked cannot approve it;',
+    );
+    expect(readme).toContain('A change that spans two environments is refused');
   });
 });

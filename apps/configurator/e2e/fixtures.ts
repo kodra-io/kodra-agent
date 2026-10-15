@@ -36,8 +36,9 @@ export async function goToStep(page: Page, name: RegExp | string) {
   await page.getByRole('navigation').getByRole('button', { name }).click();
 }
 
-/** Fills the first three steps with a valid compose setup. */
+/** Keeps the starter profile and fills the next steps with a valid compose setup. */
 export async function fillBasics(page: Page) {
+  await page.getByRole('button', { name: 'Next' }).click();
   await page.getByLabel('Agent name').fill('payments-team-agent');
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByLabel('Model id').fill('some-model');

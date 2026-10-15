@@ -1,10 +1,12 @@
 import { getConnector } from '@kodra-agent/connectors';
-import type { AccessLevel, ModelProvider } from '@kodra-agent/schema';
+import type { AccessLevel, ModelProvider, Profile } from '@kodra-agent/schema';
 import {
   connectorDefaults,
   decodeDraft,
   defaultOptionalSecrets,
   emptyDraft,
+  emptyEnvironment,
+  MAX_ENVIRONMENTS,
   encodeDraft,
   modelFieldDefaults,
   type AgentDraft,
@@ -14,6 +16,16 @@ import {
 import { useEffect, useReducer, useState } from 'react';
 
 export type Action =
+  | { type: 'profile'; value: Profile }
+  | { type: 'environmentAdd'; production: boolean }
+  | { type: 'environmentRemove'; index: number }
+  | {
+      type: 'environmentField';
+      index: number;
+      key: 'name' | 'namespaces' | 'repos' | 'approvers';
+      value: string;
+    }
+  | { type: 'environmentProduction'; index: number; value: boolean }
   | { type: 'name'; value: string }
   | { type: 'target'; value: Target }
   | { type: 'provider'; value: ModelProvider }
@@ -31,6 +43,33 @@ export type Action =
 
 export function reducer(draft: AgentDraft, action: Action): AgentDraft {
   switch (action.type) {
+    case 'profile':
+      return { ...draft, profile: action.value };
+    case 'environmentAdd':
+      if (draft.environments.length >= MAX_ENVIRONMENTS) return draft;
+      return {
+        ...draft,
+        environments: [...draft.environments, emptyEnvironment(action.production)],
+      };
+    case 'environmentRemove':
+      return {
+        ...draft,
+        environments: draft.environments.filter((_, i) => i !== action.index),
+      };
+    case 'environmentField':
+      return {
+        ...draft,
+        environments: draft.environments.map((env, i) =>
+          i === action.index ? { ...env, [action.key]: action.value } : env,
+        ),
+      };
+    case 'environmentProduction':
+      return {
+        ...draft,
+        environments: draft.environments.map((env, i) =>
+          i === action.index ? { ...env, production: action.value } : env,
+        ),
+      };
     case 'name':
       return { ...draft, name: action.value };
     case 'target': {

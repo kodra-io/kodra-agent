@@ -1,6 +1,7 @@
 import { generateBundle, validateDraft, type StepId } from '@kodra-agent/templates';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n, type MessageKey } from './i18n.tsx';
+import { EnvironmentsStep, ProfileStep } from './policy-steps.tsx';
 import { useDraft } from './state.ts';
 import {
   ConnectorsStep,
@@ -21,11 +22,13 @@ interface StepInfo {
   heading: MessageKey;
 }
 
-const FIRST_STEP: StepInfo = { id: 'start', label: 'steps.start', heading: 'start.heading' };
-const STEPS: readonly StepInfo[] = [
+const FIRST_STEP: StepInfo = { id: 'profile', label: 'steps.profile', heading: 'profile.heading' };
+const ALL_STEPS: readonly StepInfo[] = [
   FIRST_STEP,
+  { id: 'start', label: 'steps.start', heading: 'start.heading' },
   { id: 'model', label: 'steps.model', heading: 'model.heading' },
   { id: 'connectors', label: 'steps.connectors', heading: 'connectors.heading' },
+  { id: 'environments', label: 'steps.environments', heading: 'environments.heading' },
   { id: 'review', label: 'steps.review', heading: 'review.heading' },
   { id: 'download', label: 'steps.download', heading: 'download.heading' },
 ];
@@ -34,7 +37,7 @@ export function App() {
   const { t, lang, setLang } = useI18n();
   const issueText = useIssueText();
   const { draft, dispatch, invalidLink } = useDraft();
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepId, setStepId] = useState<Step>('profile');
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<Step>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -43,12 +46,31 @@ export function App() {
 
   const issues = useMemo(() => validateDraft(draft), [draft]);
   const bundle = useMemo(() => generateBundle(draft), [draft]);
+  // Environments are a step for team and strict, and for starter once one is added.
+  const STEPS = useMemo(
+    () =>
+      ALL_STEPS.filter(
+        (s) =>
+          s.id !== 'environments' ||
+          draft.profile !== 'starter' ||
+          draft.environments.length > 0 ||
+          stepId === 'environments',
+      ),
+    [draft.profile, draft.environments.length, stepId],
+  );
+  const stepIndex = Math.max(
+    0,
+    STEPS.findIndex((s) => s.id === stepId),
+  );
   const step = STEPS[stepIndex] ?? FIRST_STEP;
   const zipName = `${bundle.root}.zip`;
 
-  const goTo = useCallback((index: number) => {
-    setStepIndex(Math.max(0, Math.min(STEPS.length - 1, index)));
-  }, []);
+  const goTo = useCallback(
+    (index: number) => {
+      setStepId((STEPS[Math.max(0, Math.min(STEPS.length - 1, index))] ?? FIRST_STEP).id);
+    },
+    [STEPS],
+  );
 
   useEffect(() => {
     if (firstRender.current) {
@@ -83,7 +105,7 @@ export function App() {
 
   const next = () => {
     reveal([step.id]);
-    if (STEPS[stepIndex + 1]?.id === 'download') reveal(['start', 'model', 'connectors', 'review']);
+    if (STEPS[stepIndex + 1]?.id === 'download') reveal(STEPS.map((s) => s.id));
     goTo(stepIndex + 1);
   };
 
@@ -191,15 +213,21 @@ export function App() {
             <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold outline-none">
               {t(step.heading)}
             </h2>
+            {step.id === 'profile' ? <ProfileStep {...stepProps} /> : null}
             {step.id === 'start' ? <StartStep {...stepProps} /> : null}
             {step.id === 'model' ? <ModelStep {...stepProps} /> : null}
             {step.id === 'connectors' ? <ConnectorsStep {...stepProps} /> : null}
+            {step.id === 'environments' ? <EnvironmentsStep {...stepProps} /> : null}
             {step.id === 'review' ? (
               <ReviewStep
                 {...stepProps}
                 issues={issues}
                 goTo={(id) => {
-                  goTo(STEPS.findIndex((s) => s.id === id));
+                  setStepId(id);
+                }}
+                onAddEnvironments={() => {
+                  dispatch({ type: 'environmentAdd', production: true });
+                  setStepId('environments');
                 }}
               />
             ) : null}

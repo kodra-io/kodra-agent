@@ -1,13 +1,22 @@
 import { getConnector, getModelProvider } from '@kodra-agent/connectors';
 import {
+  allApprovers,
   consoleApproverTokenEnv,
   isConsoleApprover,
   type AccessLevel,
+  type ApprovalRules,
+  type Profile,
   type LocalizedText,
   type Manifest,
   type SecretSpec,
 } from '@kodra-agent/schema';
-import { CONSOLE_PORT, configYaml, includedSecrets, secretRefFor } from './config.ts';
+import {
+  CONSOLE_PORT,
+  configYaml,
+  effectivePolicy,
+  includedSecrets,
+  secretRefFor,
+} from './config.ts';
 import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
 /** The published image and chart. A test checks these against the chart and the agent version. */
@@ -317,6 +326,44 @@ settings:
 `;
 }
 
+const PROFILE_TEXT: Record<Profile, string> = {
+  starter: 'Profile: starter. For one person or a small team getting started.',
+  team: 'Profile: team. For several people and more than one environment.',
+  strict: 'Profile: strict. For regulated, audited, or change-managed organizations.',
+};
+
+/** One approval rule in words: how many approvers, and whether the requester may approve. */
+export function rulesText(rules: ApprovalRules): string {
+  const approvers = rules.approvers.join(', ') || '(none set)';
+  const count =
+    rules.minApprovers === 1 ? 'one approval' : `${String(rules.minApprovers)} different approvers`;
+  const self = rules.allowSelfApproval
+    ? 'the person who asked may approve it'
+    : 'the person who asked cannot approve it';
+  return `needs ${count} from ${approvers}; ${self}; expires after ${String(rules.expiresAfterMinutes)} minutes.`;
+}
+
+/** The effective approval rules, per environment, as the agent will apply them. */
+function approvalLines(draft: AgentDraft): string[] {
+  const policy = effectivePolicy(draft);
+  const lines = [PROFILE_TEXT[policy.profile], ''];
+  if (policy.environments.length === 0) {
+    lines.push(`- Every change ${rulesText(policy.default)}`);
+    return lines;
+  }
+  for (const env of policy.environments) {
+    const where = [
+      env.production ? 'production' : null,
+      env.namespaces.length > 0 ? `namespaces ${env.namespaces.join(', ')}` : null,
+      env.repos.length > 0 ? `repositories ${env.repos.join(', ')}` : null,
+    ].filter((s): s is string => s !== null);
+    lines.push(`- **${env.name}** (${where.join('; ')}): ${rulesText(env)}`);
+  }
+  lines.push(`- **Everything else**: ${rulesText(policy.default)}`);
+  lines.push('- A change that spans two environments is refused: make one change per environment.');
+  return lines;
+}
+
 function readme(draft: AgentDraft): string {
   const name = agentName(draft);
   const provider = getModelProvider(draft.model.provider);
@@ -396,7 +443,7 @@ function readme(draft: AgentDraft): string {
   }
   if (draft.console.enabled) {
     const name = agentName(draft);
-    const consoleApprovers = splitList(draft.policy.approvers).filter(isConsoleApprover);
+    const consoleApprovers = allApprovers(effectivePolicy(draft)).filter(isConsoleApprover);
     const tokens = [
       { env: 'KODRA_CONSOLE_TOKEN', who: 'the team: view and chat, cannot approve' },
       ...consoleApprovers.map((a) => ({
@@ -451,15 +498,15 @@ function readme(draft: AgentDraft): string {
     }
     lines.push('');
   }
-  const approvers = splitList(draft.policy.approvers).join(', ') || '(none set)';
   lines.push(
     '## Approvals',
     '',
-    `- Every write action needs approval from: ${approvers}.`,
-    `- Approval requests expire after ${draft.policy.expiresAfterMinutes.trim()} minutes.`,
+    ...approvalLines(draft),
+    '',
     draft.policy.destructiveActions === 'deny'
       ? '- Destructive actions are blocked.'
       : '- Destructive actions are blocked unless approved.',
+    '- Slack approvers are checked by user id. `init` looks up any `@name` and writes the id.',
     '- Everything the agent does is written to an audit log in your environment.',
     '',
     '## Secrets the setup asks for',

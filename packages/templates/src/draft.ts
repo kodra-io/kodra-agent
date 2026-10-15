@@ -4,7 +4,13 @@ import {
   getModelProvider,
   modelProviders,
 } from '@kodra-agent/connectors';
-import type { AccessLevel, Manifest, ModelProvider } from '@kodra-agent/schema';
+import {
+  PROFILES,
+  type AccessLevel,
+  type Manifest,
+  type ModelProvider,
+  type Profile,
+} from '@kodra-agent/schema';
 import { z } from 'zod';
 
 export type Target = 'compose' | 'kubernetes';
@@ -16,6 +22,8 @@ export type DestructivePolicy = 'deny' | 'require-approval';
  * only ever named, never entered.
  */
 export interface AgentDraft {
+  /** Defaults for a kind of organization (PLAN-v0.2 M10). */
+  profile: Profile;
   name: string;
   target: Target;
   model: { provider: ModelProvider; name: string; fields: Record<string, string> };
@@ -28,6 +36,29 @@ export interface AgentDraft {
   };
   /** The web console the agent serves on 127.0.0.1:8081 (or via port-forward), and chat in it. */
   console: { enabled: boolean; chat: boolean };
+  /** Named groups of namespaces and repos with their own approval rules. */
+  environments: EnvironmentDraft[];
+}
+
+/** An environment as typed: lists are comma- or space-separated; empty approvers use the default. */
+export interface EnvironmentDraft {
+  name: string;
+  production: boolean;
+  namespaces: string;
+  repos: string;
+  approvers: string;
+}
+
+export const MAX_ENVIRONMENTS = 10;
+
+export function emptyEnvironment(production = false): EnvironmentDraft {
+  return {
+    name: production ? 'production' : '',
+    production,
+    namespaces: '',
+    repos: '',
+    approvers: '',
+  };
 }
 
 export interface ConnectorDraft {
@@ -40,12 +71,14 @@ export interface ConnectorDraft {
 
 export function emptyDraft(): AgentDraft {
   return {
+    profile: 'starter',
     name: '',
     target: 'compose',
     model: { provider: 'anthropic', name: '', fields: modelFieldDefaults('anthropic') },
     connectors: {},
     policy: { approvers: '', expiresAfterMinutes: '15', destructiveActions: 'deny' },
     console: { enabled: true, chat: true },
+    environments: [],
   };
 }
 
@@ -102,6 +135,8 @@ const MAX_HASH_LENGTH = 16_000;
 
 const str = z.string().max(2000);
 const draftSchema = z.strictObject({
+  // Links made before profiles and environments (M10) leave them out.
+  profile: z.enum(PROFILES).optional(),
   name: str,
   target: z.enum(['compose', 'kubernetes']),
   model: z.strictObject({
@@ -125,6 +160,18 @@ const draftSchema = z.strictObject({
   }),
   // Links made before the console (or its chat) existed leave them out: both default to on.
   console: z.strictObject({ enabled: z.boolean(), chat: z.boolean().optional() }).optional(),
+  environments: z
+    .array(
+      z.strictObject({
+        name: str,
+        production: z.boolean(),
+        namespaces: str,
+        repos: str,
+        approvers: str,
+      }),
+    )
+    .max(MAX_ENVIRONMENTS)
+    .optional(),
 });
 
 function toBase64Url(text: string): string {
@@ -171,6 +218,7 @@ export function decodeDraft(hash: string): DecodeResult {
   const provider = raw.model.provider as ModelProvider;
   const modelKeys = Object.keys(modelFieldDefaults(provider));
   const result: AgentDraft = {
+    profile: raw.profile ?? 'starter',
     name: raw.name,
     target: raw.target,
     model: {
@@ -181,6 +229,7 @@ export function decodeDraft(hash: string): DecodeResult {
     connectors: {},
     policy: raw.policy,
     console: { enabled: raw.console?.enabled ?? true, chat: raw.console?.chat ?? true },
+    environments: raw.environments ?? [],
   };
   for (const [id, entry] of Object.entries(raw.connectors)) {
     const manifest = getConnector(id);

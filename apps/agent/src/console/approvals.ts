@@ -1,6 +1,7 @@
 import {
   progressLabel,
   type ApprovalOutcome,
+  type Refusal,
   type ApprovalRequest,
   type SettleableChannel,
 } from '../approvals.ts';
@@ -28,7 +29,7 @@ export interface PendingApproval {
   needed: number;
   approvedBy: string[];
   /** Why the signed-in person cannot approve this one, or null when they can. */
-  cannotApprove: string | null;
+  cannotApprove: Refusal | 'not-console-approver' | null;
   /** A proposed change: its title and preview (a diff for file edits). */
   title?: string;
   preview?: string;
@@ -45,8 +46,9 @@ export type ConsoleDecision =
 
 export interface ConsoleDecisionResult {
   result: ConsoleDecision;
-  /** Why a vote was refused, in words for the person who tried. */
+  /** Why a vote was refused, in words for the person who tried, and as a code to translate. */
   reason?: string;
+  refusal?: Refusal | 'not-console-approver';
 }
 
 const NOT_A_CONSOLE_APPROVER = 'Only a console approver can decide.';
@@ -85,11 +87,9 @@ export class ConsoleApprovals {
   list(user?: ConsoleUser): PendingApproval[] {
     return [...this.pending.values()].map(({ req }) => {
       const progress = req.ballot.progress;
-      const cannotApprove = !user?.canApprove
-        ? NOT_A_CONSOLE_APPROVER
-        : progress.approvedBy.includes(user.name)
-          ? 'You already approved this. It needs another approver.'
-          : req.ballot.cannotApprove(user.name);
+      const cannotApprove = user?.canApprove
+        ? req.ballot.refusal(user.name)
+        : 'not-console-approver';
       return {
         id: req.id,
         connector: req.connector,
@@ -123,16 +123,19 @@ export class ConsoleApprovals {
       tool: entry.req.tool,
       risk: entry.req.risk,
     };
-    const refuse = async (reason: string): Promise<ConsoleDecisionResult> => {
+    const refuse = async (
+      reason: string,
+      refusal: Refusal | 'not-console-approver',
+    ): Promise<ConsoleDecisionResult> => {
       await this.audit.append({
         ...base,
         event: 'approval.decision',
         decision: 'blocked',
         detail: `${id}; click refused: ${reason}`,
       });
-      return { result: 'refused', reason };
+      return { result: 'refused', reason, refusal };
     };
-    if (!user.canApprove) return refuse(NOT_A_CONSOLE_APPROVER);
+    if (!user.canApprove) return refuse(NOT_A_CONSOLE_APPROVER, 'not-console-approver');
     if (this.now() > entry.req.expiresAt) {
       this.finish(id, { decision: 'expired' });
       return { result: 'expired' };
@@ -141,7 +144,7 @@ export class ConsoleApprovals {
     const vote = entry.req.ballot.vote(user.name, approve, trimmed || undefined);
     switch (vote.kind) {
       case 'refused':
-        return refuse(vote.reason);
+        return refuse(vote.reason, vote.code);
       case 'closed':
         return { result: 'unknown' };
       case 'counted':

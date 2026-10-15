@@ -4,16 +4,21 @@ import {
   formatSecretRef,
   isConsoleApprover,
   isSecretRequired,
+  policyProblems,
+  resolvePolicy,
   SCHEMA_API_VERSION,
   type ConfigField,
+  type EffectivePolicy,
   type LocalizedText,
   type Manifest,
+  type PolicyProblem,
+  type PolicySource,
   type SecretSpec,
 } from '@kodra-agent/schema';
 import { stringify } from 'yaml';
 import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
-export type StepId = 'start' | 'model' | 'connectors' | 'review';
+export type StepId = 'profile' | 'start' | 'model' | 'connectors' | 'environments' | 'review';
 
 /** A problem with the draft, keyed to the UI field it belongs to. The UI localizes `code`. */
 export type DraftIssue = { field: string; step: StepId } & (
@@ -26,10 +31,17 @@ export type DraftIssue = { field: string; step: StepId } & (
   | { code: 'approver-console-off'; value: string }
   | { code: 'dependency'; message: LocalizedText }
   | { code: 'coming-soon' }
+  | { code: 'environment-name' }
+  | { code: 'namespace-format'; value: string }
+  | { code: 'repo-format'; value: string }
+  | { code: 'policy'; problem: PolicyProblem }
   | { code: 'schema'; message: string }
 );
 
 const NAME = /^[a-z0-9]([-a-z0-9]{0,51}[a-z0-9])?$/;
+const ENVIRONMENT_NAME = /^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/;
+const NAMESPACE = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+const REPO = /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)+$/;
 const APPROVER =
   /^(@[A-Za-z0-9][A-Za-z0-9._-]{0,79}|[UW][A-Z0-9]{2,}|console:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?)$/;
 
@@ -77,6 +89,35 @@ function fieldsObject(fields: readonly ConfigField[], raw: Record<string, string
 /** The console's port, in the container and on the host (compose maps 127.0.0.1 only). */
 export const CONSOLE_PORT = 8081;
 
+/** The draft's profile, approvers, and environments, as resolvePolicy takes them. */
+export function policySource(draft: AgentDraft): PolicySource {
+  const expires = Number(draft.policy.expiresAfterMinutes.trim());
+  return {
+    profile: draft.profile,
+    policy: {
+      approvals: {
+        approvers: splitList(draft.policy.approvers),
+        expiresAfterMinutes: Number.isInteger(expires) && expires > 0 ? expires : 15,
+      },
+    },
+    environments: draft.environments.map((env) => {
+      const approvers = splitList(env.approvers);
+      return {
+        name: env.name.trim(),
+        production: env.production,
+        namespaces: splitList(env.namespaces),
+        repos: splitList(env.repos),
+        ...(approvers.length > 0 ? { approvers } : {}),
+      };
+    }),
+  };
+}
+
+/** The approval rules the agent will apply, for the review step and the bundle README. */
+export function effectivePolicy(draft: AgentDraft): EffectivePolicy {
+  return resolvePolicy(policySource(draft));
+}
+
 /** The kodra-agent.yaml content for a draft, as a plain object. */
 export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
   const provider = getModelProvider(draft.model.provider);
@@ -103,11 +144,19 @@ export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
   }
 
   const expires = draft.policy.expiresAfterMinutes.trim();
+  const environments = policySource(draft).environments.map((env) => ({
+    name: env.name,
+    ...(env.production ? { production: true } : {}),
+    ...(env.namespaces.length > 0 ? { namespaces: env.namespaces } : {}),
+    ...(env.repos.length > 0 ? { repos: env.repos } : {}),
+    ...(env.approvers ? { approvers: env.approvers } : {}),
+  }));
   return {
     apiVersion: SCHEMA_API_VERSION,
     kind: 'Agent',
     metadata: { name: draft.name.trim() },
     spec: {
+      profile: draft.profile,
       target: draft.target,
       model,
       connectors: connectorsOut,
@@ -119,6 +168,7 @@ export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
         },
         destructiveActions: draft.policy.destructiveActions,
       },
+      ...(environments.length > 0 ? { environments } : {}),
       audit: { path: DEFAULT_AUDIT_PATH },
       telemetry: { enabled: false },
       console: { enabled: draft.console.enabled, port: CONSOLE_PORT, chat: draft.console.chat },
@@ -234,6 +284,43 @@ export function validateDraft(draft: AgentDraft): DraftIssue[] {
       });
     }
   }
+  draft.environments.forEach((env, i) => {
+    const at = (key: string) => `environment.${String(i)}.${key}`;
+    const name = env.name.trim();
+    if (name === '') issues.push({ field: at('name'), step: 'environments', code: 'required' });
+    else if (!ENVIRONMENT_NAME.test(name)) {
+      issues.push({ field: at('name'), step: 'environments', code: 'environment-name' });
+    }
+    for (const value of splitList(env.namespaces).filter((v) => !NAMESPACE.test(v))) {
+      issues.push({
+        field: at('namespaces'),
+        step: 'environments',
+        code: 'namespace-format',
+        value,
+      });
+    }
+    for (const value of splitList(env.repos).filter((v) => !REPO.test(v))) {
+      issues.push({ field: at('repos'), step: 'environments', code: 'repo-format', value });
+    }
+    for (const value of splitList(env.approvers).filter((a) => !APPROVER.test(a))) {
+      issues.push({ field: at('approvers'), step: 'environments', code: 'approver-format', value });
+    }
+  });
+  // Rules nobody can satisfy, shared names, empty environments: the same checks the agent runs.
+  // With no approvers yet, "required" says it; counting them would only repeat it.
+  const counted = approvers.length > 0;
+  for (const problem of policyProblems(policySource(draft))) {
+    if (!counted && problem.code.startsWith('needs-')) continue;
+    const [, section, index, key] = problem.path;
+    const inEnvironment = section === 'environments' && typeof index === 'number';
+    issues.push({
+      field: inEnvironment ? `environment.${String(index)}.${String(key)}` : 'policy.approvers',
+      step: inEnvironment ? 'environments' : 'review',
+      code: 'policy',
+      problem,
+    });
+  }
+
   const expires = draft.policy.expiresAfterMinutes.trim();
   if (!/^\d+$/.test(expires) || Number(expires) < 1 || Number(expires) > 1440) {
     issues.push({

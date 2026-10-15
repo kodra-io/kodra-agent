@@ -1,7 +1,7 @@
 import type { DraftIssue } from '@kodra-agent/templates';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useI18n } from './i18n.tsx';
+import { useI18n, type MessageKey } from './i18n.tsx';
 
 /** Turns a draft issue into a message in the current language. */
 export function useIssueText() {
@@ -26,6 +26,36 @@ export function useIssueText() {
         return lt(issue.message);
       case 'coming-soon':
         return t('error.comingSoon');
+      case 'environment-name':
+        return t('error.environmentName');
+      case 'namespace-format':
+        return t('error.namespaceFormat', { value: issue.value });
+      case 'repo-format':
+        return t('error.repoFormat', { value: issue.value });
+      case 'policy': {
+        const v = issue.problem.vars;
+        const who = t(`policy.who.${String(v['scope'])}` as MessageKey, { name: v['name'] ?? '' });
+        switch (issue.problem.code) {
+          case 'needs-other-approver':
+            return t('policy.needsOther', { who });
+          case 'needs-more-approvers':
+            return v['self'] === 1
+              ? t('policy.needsDifferent', { who, min: v['min'] ?? 0 })
+              : t('policy.needsOthers', { who, min: v['min'] ?? 0, list: v['list'] ?? 0 });
+          case 'duplicate-name':
+            return t('policy.duplicateName', { name: v['name'] ?? '' });
+          case 'empty-environment':
+            return t('policy.emptyEnvironment', { name: v['name'] ?? '' });
+          case 'namespace-taken':
+            return t('policy.namespaceTaken', {
+              namespace: v['namespace'] ?? '',
+              owner: v['owner'] ?? '',
+            });
+          case 'repo-taken':
+            return t('policy.repoTaken', { repo: v['repo'] ?? '', owner: v['owner'] ?? '' });
+        }
+        return issue.problem.message;
+      }
       case 'schema':
         return t('error.schema', { message: issue.message });
     }

@@ -67,6 +67,7 @@ describe('Ballot', () => {
     const req = ask();
     expect(req.ballot.vote('U99', true)).toEqual({
       kind: 'refused',
+      code: 'not-listed',
       reason: 'You are not an approver for this change.',
     });
     expect(req.ballot.vote('U02', true)).toEqual({
@@ -100,6 +101,7 @@ describe('Ballot', () => {
     });
     expect(req.ballot.vote('U02', true)).toEqual({
       kind: 'refused',
+      code: 'already-approved',
       reason: 'You already approved this. It needs another approver.',
     });
     expect(req.ballot.vote('U01ASKER', true)).toMatchObject({ kind: 'refused' });

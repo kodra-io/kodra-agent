@@ -102,8 +102,24 @@ export function allApprovers(policy: EffectivePolicy): string[] {
   ];
 }
 
+/** What is wrong, as a code the configurator translates, with the values it names. */
+export type PolicyProblemCode =
+  | 'duplicate-name'
+  | 'empty-environment'
+  | 'namespace-taken'
+  | 'repo-taken'
+  | 'needs-other-approver'
+  | 'needs-more-approvers';
+
 export interface PolicyProblem {
   path: (string | number)[];
+  code: PolicyProblemCode;
+  /**
+   * `scope` is production, environment (with `name`), or default; the rest depends on the code:
+   * name, namespace, repo, owner, min (approvers needed), list (approvers to list).
+   */
+  vars: Record<string, string | number>;
+  /** In English, for `doctor` and the agent. */
   message: string;
 }
 
@@ -121,19 +137,25 @@ function unsatisfiable(
   const distinct = new Set(rules.approvers).size;
   const min = rules.minApprovers;
   // The requester may be an approver, so without self-approval one more is needed.
-  const needed = rules.allowSelfApproval ? min : min + 1;
-  if (distinct >= needed) return null;
+  const list = rules.allowSelfApproval ? min : min + 1;
+  if (distinct >= list) return null;
+  const scope = env ? (env.production ? 'production' : 'environment') : 'default';
+  const vars = { scope, name: env?.name ?? '', min, list, self: rules.allowSelfApproval ? 1 : 0 };
   if (!rules.allowSelfApproval && min === 1) {
     return {
       path,
+      code: 'needs-other-approver',
+      vars,
       message: `${whose(env)} need someone other than the requester. Add a second approver.`,
     };
   }
   return {
     path,
+    code: 'needs-more-approvers',
+    vars,
     message: rules.allowSelfApproval
       ? `${whose(env)} need ${String(min)} different approvers. List at least ${String(min)}.`
-      : `${whose(env)} need ${String(min)} approvers other than the requester. List at least ${String(needed)}.`,
+      : `${whose(env)} need ${String(min)} approvers other than the requester. List at least ${String(list)}.`,
   };
 }
 
@@ -152,6 +174,8 @@ export function policyProblems(source: PolicySource): PolicyProblem[] {
     if (first !== undefined) {
       problems.push({
         path: at('name'),
+        code: 'duplicate-name',
+        vars: { name: env.name },
         message: `${env.name} is already the name of another environment.`,
       });
     } else {
@@ -160,6 +184,8 @@ export function policyProblems(source: PolicySource): PolicyProblem[] {
     if (env.namespaces.length === 0 && env.repos.length === 0) {
       problems.push({
         path: at('namespaces'),
+        code: 'empty-environment',
+        vars: { name: env.name },
         message: `${env.name} needs at least one namespace or repository.`,
       });
     }
@@ -168,6 +194,8 @@ export function policyProblems(source: PolicySource): PolicyProblem[] {
       if (owner !== undefined && owner !== env.name) {
         problems.push({
           path: at('namespaces'),
+          code: 'namespace-taken',
+          vars: { namespace: ns, owner },
           message: `namespace ${ns} is already in ${owner}. A namespace belongs to one environment.`,
         });
       } else {
@@ -180,6 +208,8 @@ export function policyProblems(source: PolicySource): PolicyProblem[] {
       if (owner !== undefined && owner !== env.name) {
         problems.push({
           path: at('repos'),
+          code: 'repo-taken',
+          vars: { repo, owner },
           message: `repository ${repo} is already in ${owner}. A repository belongs to one environment.`,
         });
       } else {

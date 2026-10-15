@@ -99,7 +99,7 @@ describe('policyProblems', () => {
   });
 
   it('refuses production rules nobody can satisfy, with a readable message', () => {
-    expect(policyProblems(source('team', [{ ...prod, approvers: ['U01'] }]))).toEqual([
+    expect(policyProblems(source('team', [{ ...prod, approvers: ['U01'] }]))).toMatchObject([
       {
         path: ['spec', 'environments', 0, 'approvers'],
         message: 'Production changes need someone other than the requester. Add a second approver.',
@@ -108,7 +108,7 @@ describe('policyProblems', () => {
   });
 
   it('counts the approvers strict production needs besides the requester', () => {
-    expect(policyProblems(source('strict', [prod], ['U01', 'U02']))).toEqual([
+    expect(policyProblems(source('strict', [prod], ['U01', 'U02']))).toMatchObject([
       {
         path: ['spec', 'environments', 0, 'approvers'],
         message: 'Production changes need 2 approvers other than the requester. List at least 3.',
@@ -118,7 +118,7 @@ describe('policyProblems', () => {
   });
 
   it('refuses the default policy too, and more approvers than are listed', () => {
-    expect(policyProblems(source('strict', [], ['U01']))).toEqual([
+    expect(policyProblems(source('strict', [], ['U01']))).toMatchObject([
       {
         path: ['spec', 'policy', 'approvals', 'approvers'],
         message: 'Changes need someone other than the requester. Add a second approver.',

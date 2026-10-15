@@ -1,6 +1,6 @@
 import { parseAgentConfig } from '@kodra-agent/connectors';
 import { describe, expect, it } from 'vitest';
-import { configYaml, validateDraft } from './config.ts';
+import { configYaml, effectivePolicy, validateDraft } from './config.ts';
 import { emptyDraft } from './draft.ts';
 import { composeDraft, kubernetesDraft, withConnector } from './test-drafts.ts';
 
@@ -139,5 +139,71 @@ describe('configYaml', () => {
   it('includes the kubeconfig by default for compose but not for kubernetes', () => {
     expect(configYaml(composeDraft())).toContain('kubeconfig:');
     expect(configYaml(kubernetesDraft())).not.toContain('kubeconfig:');
+  });
+});
+
+describe('profiles and environments in the draft', () => {
+  const teamDraft = () => ({
+    ...kubernetesDraft('read-write-approved'),
+    profile: 'team' as const,
+    environments: [
+      { name: 'production', production: true, namespaces: 'api', repos: '', approvers: '' },
+      { name: 'staging', production: false, namespaces: 'web', repos: '', approvers: '' },
+    ],
+  });
+
+  it('writes the profile and environments, and the YAML passes the real schema', () => {
+    const draft = teamDraft();
+    expect(validateDraft(draft)).toEqual([]);
+    const yaml = configYaml(draft);
+    const result = parseAgentConfig(yaml);
+    expect(result.ok && result.config.spec.profile).toBe('team');
+    expect(result.ok && result.config.spec.environments.map((e) => e.name)).toEqual([
+      'production',
+      'staging',
+    ]);
+    expect(yaml).not.toContain('production: false');
+    expect(effectivePolicy(draft).environments[0]).toMatchObject({
+      name: 'production',
+      allowSelfApproval: false,
+    });
+  });
+
+  it('leaves environments out of the YAML when there are none', () => {
+    expect(configYaml(composeDraft())).not.toContain('environments');
+    expect(configYaml(composeDraft())).toContain('profile: starter');
+  });
+
+  it('points rules nobody can satisfy at the environment that has them', () => {
+    const draft = {
+      ...teamDraft(),
+      environments: [
+        { name: 'production', production: true, namespaces: 'api', repos: '', approvers: 'U0ONE' },
+      ],
+    };
+    const issues = validateDraft(draft);
+    expect(codes(issues)).toEqual(['environment.0.approvers:policy']);
+    expect(issues[0]).toMatchObject({
+      step: 'environments',
+      problem: { code: 'needs-other-approver', vars: { scope: 'production' } },
+    });
+  });
+
+  it('checks each environment field', () => {
+    const draft = {
+      ...teamDraft(),
+      environments: [
+        { name: 'Prod', production: false, namespaces: 'API', repos: 'nope', approvers: 'omar' },
+        { name: '', production: false, namespaces: '', repos: '', approvers: '' },
+      ],
+    };
+    expect(codes(validateDraft(draft))).toEqual([
+      'environment.0.name:environment-name',
+      'environment.0.namespaces:namespace-format',
+      'environment.0.repos:repo-format',
+      'environment.0.approvers:approver-format',
+      'environment.1.name:required',
+      'environment.1.namespaces:policy',
+    ]);
   });
 });

@@ -195,7 +195,7 @@ spec:
         kubeconfig: '\${file:${posix(kubeconfig)}}'
   policy:
     approvals:
-      approvers: ['@you']
+      approvers: ['U0DEMO']
   audit:
     path: ${posix(join(dir, 'audit.jsonl'))}
 `,

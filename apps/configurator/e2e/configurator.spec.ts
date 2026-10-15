@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('./');
 });
 
-test('builds a config through all five steps and downloads a valid bundle', async ({ page }) => {
+test('builds a starter config step by step and downloads a valid bundle', async ({ page }) => {
   await fillBasics(page);
 
   await enableConnector(page, 'github', 'GitHub');
@@ -126,8 +126,9 @@ test('switching to Arabic sets right-to-left and translates the page', async ({ 
   await expect(page.getByTestId('privacy-line')).toHaveText(
     'هذه الصفحة لا تطلب مفاتيحك أبدا. اختياراتك تبقى في متصفحك.',
   );
+  await expect(page.getByRole('heading', { name: 'لمن هذا الوكيل؟' })).toBeVisible();
   await page.getByRole('button', { name: 'التالي' }).click();
-  await expect(page.getByRole('heading', { name: 'اختر مزوّد النموذج' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'سمّ وكيلك واختر مكان تشغيله' })).toBeVisible();
 
   // The choice survives a reload.
   await page.reload();
@@ -204,8 +205,8 @@ for (const lang of ['en', 'ar'] as const) {
     await page.reload();
     const steps =
       lang === 'en'
-        ? ['Start', 'Model', 'Connectors', 'Review', 'Download']
-        : ['البداية', 'النموذج', 'الموصلات', 'المراجعة', 'التنزيل'];
+        ? ['Who is it for', 'Start', 'Model', 'Connectors', 'Review', 'Download']
+        : ['لمن الوكيل', 'البداية', 'النموذج', 'الموصلات', 'المراجعة', 'التنزيل'];
     for (const step of steps) {
       await goToStep(page, new RegExp(step));
       if (step === 'Connectors' || step === 'الموصلات') {
@@ -223,6 +224,85 @@ for (const lang of ['en', 'ar'] as const) {
     }
   });
 }
+
+test('the team profile adds environments, and rules nobody can meet block the download', async ({
+  page,
+}) => {
+  await expect(page.getByRole('heading', { name: 'Who is this agent for?' })).toBeVisible();
+  // Starter has no Environments step until one is added.
+  await expect(
+    page.getByRole('navigation').getByRole('button', { name: /Environments/ }),
+  ).toHaveCount(0);
+  await page.getByRole('radio', { name: /^Team/ }).check();
+  await expect(
+    page.getByRole('navigation').getByRole('button', { name: /Environments/ }),
+  ).toBeVisible();
+  await fillBasics(page);
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  await expect(
+    page.getByRole('heading', { name: 'Group namespaces and repositories into environments' }),
+  ).toBeFocused();
+  await page.getByRole('button', { name: 'Add a production environment' }).click();
+  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('production');
+  await expect(page.getByRole('switch', { name: 'Production' })).toBeChecked();
+  await page.getByLabel('Kubernetes namespaces').fill('payments');
+  await expect(
+    page.getByText('Needs one approval. The person who asked cannot approve it.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  await page.getByRole('textbox', { name: 'Approvers', exact: true }).fill('U0123ABCD');
+  await expect(
+    page
+      .getByTestId('problems')
+      .getByText(
+        'Production changes need someone other than the requester. Add a second approver.',
+      ),
+  ).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'Approvers', exact: true })
+    .fill('U0123ABCD, console:lead');
+  await expect(page.getByText('Everything checks out. You can download your agent.')).toBeVisible();
+  await expect(page.getByTestId('approval-rules')).toContainText(
+    'production (Production): Needs one approval. The person who asked cannot approve it.',
+  );
+  await expect(page.getByTestId('approval-rules')).toContainText(
+    'Everything else: Needs one approval. The person who asked may approve it.',
+  );
+  await expect(page.getByTestId('preview')).toContainText('profile: team');
+  await expect(page.getByTestId('preview')).toContainText('environments:');
+});
+
+test('the profile and environments steps work in Arabic, right to left @mobile', async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    localStorage.setItem('kodra-agent.lang', 'ar');
+  });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'لمن هذا الوكيل؟' })).toBeVisible();
+  await page.getByRole('radio', { name: /^صارم/ }).check();
+  await goToStep(page, /البيئات/);
+  await expect(
+    page.getByRole('heading', { name: 'جمّع مساحات الأسماء والمستودعات في بيئات' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'أضف بيئة إنتاج' }).click();
+  await expect(
+    page.getByText('تحتاج إلى 2 موافقين مختلفين. لا يمكن لمن طلب التغيير أن يوافق عليه.'),
+  ).toBeVisible();
+  for (const step of [/لمن الوكيل/, /البيئات/]) {
+    await goToStep(page, step);
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations.map((v) => v.id)).toEqual([]);
+  }
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
 
 test('works at phone width without horizontal scrolling @mobile', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });

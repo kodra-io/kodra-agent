@@ -75,17 +75,18 @@ describe('ConsoleApprovals', () => {
       environment: 'production',
       needed: 2,
       approvedBy: [],
-      cannotApprove: 'You asked for this change, so someone else must approve it.',
+      cannotApprove: 'self',
     });
-    expect(approvals.list(viewer)[0]?.cannotApprove).toBe('Only a console approver can decide.');
+    expect(approvals.list(viewer)[0]?.cannotApprove).toBe('not-console-approver');
     expect(await approvals.decide(approver, req.id, true)).toEqual({
       result: 'refused',
       reason: 'You asked for this change, so someone else must approve it.',
+      refusal: 'self',
     });
     expect(await approvals.decide(sara, req.id, true)).toEqual({ result: 'counted' });
     expect(approvals.list(sara)[0]).toMatchObject({
       approvedBy: ['console:sara'],
-      cannotApprove: 'You already approved this. It needs another approver.',
+      cannotApprove: 'already-approved',
     });
     req.ballot.vote('U0APPROVER', true);
     // A vote from Slack decides it; the agent settles every channel with the outcome.

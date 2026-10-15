@@ -68,7 +68,7 @@ function show(cmd: string, args: string[], cwd?: string): void {
 function draft(
   target: AgentDraft['target'],
   connectors: AgentDraft['connectors'] = {},
-  approvers = '@ops',
+  approvers = 'U0OPS',
 ): AgentDraft {
   return {
     ...emptyDraft(),
@@ -174,7 +174,7 @@ function servers(): void {
 
 async function compose(): Promise<void> {
   console.log('\n== Compose bundle: init, up, health');
-  const dir = writeBundle('compose', 'compose', {}, '@ops, console:ops');
+  const dir = writeBundle('compose', 'compose', {}, 'U0OPS, console:ops');
   writeFileSync(join(dir, '.env'), linuxEnv(false));
   const dc = (...args: string[]) => {
     show('docker', ['compose', ...args], dir);
@@ -401,7 +401,7 @@ function shipInContainer(): void {
 
 async function kind(): Promise<void> {
   console.log('\n== Helm chart on kind, with the bundle values');
-  const dir = writeBundle('kubernetes', 'kubernetes', {}, '@ops, console:ops');
+  const dir = writeBundle('kubernetes', 'kubernetes', {}, 'U0OPS, console:ops');
   const fullname = `${NAME}-kodra-agent`;
   // `init --target kubernetes` makes these; random here, and never printed.
   const shared = randomBytes(32).toString('base64url');
