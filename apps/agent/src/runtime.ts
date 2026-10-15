@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { isSecretRequired, type AgentConfig } from '@kodra-agent/schema';
+import { isSecretRequired, resolvePolicy, type AgentConfig } from '@kodra-agent/schema';
 import { alwaysBlocked, type AgentDeps } from './agent.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
@@ -188,7 +188,7 @@ export async function startRuntime(
       term: ctx.term,
       policy: {
         destructiveActions: config.spec.policy.destructiveActions,
-        expiresAfterMinutes: config.spec.policy.approvals.expiresAfterMinutes,
+        effective: resolvePolicy(config.spec),
       },
       limits: ctx.limits ?? {
         maxSteps: config.spec.limits.maxSteps,
@@ -231,7 +231,7 @@ export function describeConnectors(runtime: Runtime): string[] {
   // Count what the model is offered: tools the policy always blocks are left out.
   const policy = {
     destructiveActions: runtime.config.spec.policy.destructiveActions,
-    expiresAfterMinutes: runtime.config.spec.policy.approvals.expiresAfterMinutes,
+    effective: resolvePolicy(runtime.config.spec),
   };
   const counts = new Map<string, number>();
   for (const tool of runtime.host.tools()) {

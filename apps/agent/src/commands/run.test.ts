@@ -308,7 +308,7 @@ describe('kodra-agent run', () => {
         auditPath: posixPath(join(dir, 'audit.jsonl')),
         model:
           '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
-        approvers: ['@omar', 'console:omar'],
+        approvers: ['U01OMAR', 'console:omar'],
       }),
       dir,
     );
@@ -399,7 +399,7 @@ describe('kodra-agent run', () => {
         auditPath: posixPath(join(dir, 'audit.jsonl')),
         model:
           '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
-        approvers: ['@omar', 'console:omar'],
+        approvers: ['U01OMAR', 'console:omar'],
       }),
       dir,
     );
@@ -466,7 +466,7 @@ describe('kodra-agent run', () => {
       auditPath: posixPath(join(dir, 'audit.jsonl')),
       model:
         '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
-      approvers: ['@omar', 'console:omar'],
+      approvers: ['U01OMAR', 'console:omar'],
     });
     const path = await writeConfig(text, dir);
     const self = fakeSelfKubernetes();
@@ -543,7 +543,7 @@ describe('kodra-agent run', () => {
         auditPath: posixPath(auditPath),
         model:
           '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
-        approvers: ['@omar', 'console:omar'],
+        approvers: ['U01OMAR', 'console:omar'],
       }),
       dir,
     );
@@ -680,7 +680,7 @@ describe('kodra-agent run', () => {
       configYaml({
         auditPath: posixPath(join(dir, 'audit.jsonl')),
         model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
-        approvers: ['@omar', 'console:omar'],
+        approvers: ['U01OMAR', 'console:omar'],
         connectors: [
           '    kubernetes:',
           '      enabled: true',
@@ -778,7 +778,7 @@ describe('kodra-agent run', () => {
     expect(await running).toBe(0);
     const audit = await readFile(join(dir, 'audit.jsonl'), 'utf8');
     expect(audit).toContain('"actor":"console:omar"');
-    expect(audit).toContain('click refused: not an approver');
+    expect(audit).toContain('click refused: Only a console approver can decide.');
     for (const secret of [SHARED, OMAR]) {
       expect(t.output()).not.toContain(secret);
       expect(audit).not.toContain(secret);
@@ -793,6 +793,7 @@ describe('kodra-agent run', () => {
         model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
         connectors:
           "    slack:\n      enabled: true\n      config: {channel: '#ops'}\n      secrets: {botToken: '${env:B}', appToken: '${env:A}'}",
+        approvers: ['@omar'],
       }),
       dir,
     );
@@ -812,8 +813,10 @@ describe('kodra-agent run', () => {
     });
     const running = main(['run', '--config', path], t.ctx);
     await until(() => (ready ? true : undefined));
-    // '@omar' in the config matches no Slack user here, so nobody is an approver.
-    expect(t.term.stderr.join('\n')).toContain('Approver @omar matches no single Slack user');
+    // Only Slack user ids count at runtime: a name left in the config approves nothing.
+    expect(t.term.stderr.join('\n')).toContain(
+      'Approver @omar is a name, not a Slack user id, so it cannot approve.',
+    );
     await slack.handlers.onDirectMessage({
       user: 'U0STRANGER',
       channel: 'D0DM',

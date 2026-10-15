@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { checkDependencies } from './dependencies.ts';
 import { modelPrice, type ConfigField, type Manifest, type ModelPrice } from './manifest.ts';
+import { policyProblems, PROFILES, type Profile } from './policy.ts';
 import { secretRefSchema } from './secret-ref.ts';
 
 export const API_GROUP = 'kodra.io';
@@ -117,6 +118,49 @@ export const modelSchema = z.discriminatedUnion(
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type ModelProvider = ModelConfig['provider'];
 
+/** Approval rules; left out, the profile decides (see resolvePolicy). */
+const approvalRules = {
+  /** How many different approvers a change needs. */
+  minApprovers: z.int().min(1).max(5).optional(),
+  /** Whether the person who asked for a change may approve it. */
+  allowSelfApproval: z.boolean().optional(),
+};
+
+const namespaceName = z
+  .string()
+  .regex(
+    /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/,
+    'must be a Kubernetes namespace: lowercase letters, digits, and hyphens',
+  );
+const repoName = z
+  .string()
+  .regex(
+    /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)+$/,
+    'must be a repository like owner/repo, or a GitLab project like group/project',
+  );
+
+/** A named group of namespaces and repos with its own approval rules. */
+const environmentSchema = z
+  .strictObject({
+    name: z
+      .string()
+      .regex(
+        /^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/,
+        'must be lowercase letters, digits, and hyphens, at most 32 characters',
+      ),
+    /** Production environments get the profile's stricter defaults. */
+    production: z.boolean().default(false),
+    namespaces: z.array(namespaceName).default([]),
+    repos: z.array(repoName).default([]),
+    /** Who approves changes here; left out, the default approvers. */
+    approvers: z.array(approver).min(1, 'needs at least one approver').optional(),
+    approvals: z
+      .strictObject({ ...approvalRules, expiresAfterMinutes: z.int().min(1).max(1440).optional() })
+      .prefault({}),
+  })
+  .meta({ description: 'Namespaces and repositories with their own approval rules.' });
+export type EnvironmentConfig = z.infer<typeof environmentSchema>;
+
 export const policySchema = z
   .strictObject({
     approvals: z
@@ -129,6 +173,7 @@ export const policySchema = z
           .default(true),
         approvers: z.array(approver).min(1, 'needs at least one approver'),
         expiresAfterMinutes: z.int().min(1).max(1440).default(15),
+        ...approvalRules,
       })
       .meta({ description: 'Who approves write actions, and how long a request stays valid.' }),
     destructiveActions: z
@@ -299,10 +344,13 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
       kind: z.literal('Agent', { error: 'kind must be Agent' }),
       metadata: z.strictObject({ name: agentName }),
       spec: z.strictObject({
+        /** Defaults for a kind of organization: starter, team, or strict. */
+        profile: z.enum(PROFILES, { error: 'must be starter, team, or strict' }).default('starter'),
         target: z.enum(['compose', 'kubernetes'], { error: 'must be compose or kubernetes' }),
         model: modelSchema,
         connectors: connectorsSchema.prefault({}),
         policy: policySchema,
+        environments: z.array(environmentSchema).default([]),
         audit: auditSchema,
         telemetry: telemetrySchema,
         monitoring: monitoringSchema,
@@ -333,15 +381,19 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
           message: issue.message.en,
         });
       }
-      if (
-        !config.spec.console.enabled &&
-        config.spec.policy.approvals.approvers.some(isConsoleApprover)
-      ) {
+      const approvers = [
+        ...config.spec.policy.approvals.approvers,
+        ...config.spec.environments.flatMap((env) => env.approvers ?? []),
+      ];
+      if (!config.spec.console.enabled && approvers.some(isConsoleApprover)) {
         ctx.addIssue({
           code: 'custom',
           path: ['spec', 'console', 'enabled'],
           message: 'console approvers need the console: set spec.console.enabled to true.',
         });
+      }
+      for (const problem of policyProblems(config.spec)) {
+        ctx.addIssue({ code: 'custom', path: problem.path, message: problem.message });
       }
     });
 }
@@ -373,10 +425,12 @@ export interface AgentConfig {
   kind: 'Agent';
   metadata: { name: string };
   spec: {
+    profile: Profile;
     target: 'compose' | 'kubernetes';
     model: ModelConfig;
     connectors: Record<string, ConnectorEntry | undefined>;
     policy: z.infer<typeof policySchema>;
+    environments: EnvironmentConfig[];
     audit: { path: string };
     telemetry: { enabled: boolean };
     monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };

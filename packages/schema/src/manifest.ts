@@ -199,6 +199,8 @@ const toolGuard = z.discriminatedUnion('kind', [
     setting: z.string().regex(KEY),
     /** When true, a call without the argument is blocked too. */
     required: z.boolean(),
+    /** The argument is a Kubernetes namespace, so it places the call in an environment. */
+    scope: z.literal('namespace').optional(),
   }),
   z.strictObject({
     kind: z.literal('repo-in-setting'),

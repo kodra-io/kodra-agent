@@ -1,16 +1,16 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { newApprovalRequest } from '../approvals.ts';
+import { newApprovalRequest, type RequestRules } from '../approvals.ts';
 import { AuditLog } from '../audit.ts';
 import { Redactor } from '../redactor.ts';
-import { tempDir } from '../test-helpers.ts';
+import { tempDir, testRules } from '../test-helpers.ts';
 import { ConsoleApprovals } from './approvals.ts';
 
 const approver = { name: 'console:omar', canApprove: true };
 const viewer = { name: 'console', canApprove: false };
 
-async function setup() {
+async function setup(rules: Partial<RequestRules> = {}, requestedBy = 'console') {
   const path = join(await tempDir(), 'audit.jsonl');
   let now = new Date('2026-10-09T10:00:00Z');
   const approvals = new ConsoleApprovals({
@@ -24,9 +24,9 @@ async function setup() {
       risk: 'write',
       args: '{"replicas":3}',
       reason: 'spike',
-      requestedBy: 'console',
+      requestedBy,
     },
-    15,
+    testRules({ approvers: ['console:omar', 'console:sara', 'U0APPROVER'], ...rules }),
     now,
   );
   const outcome = approvals.channel.request(req);
@@ -58,10 +58,42 @@ describe('ConsoleApprovals', () => {
         requestedBy: 'console',
       }),
     ]);
-    expect(await approvals.decide(approver, req.id, true)).toBe('approved');
+    expect((await approvals.decide(approver, req.id, true)).result).toBe('approved');
     expect(await outcome).toEqual({ decision: 'approved', by: 'console:omar' });
-    expect(await approvals.decide(approver, req.id, false)).toBe('unknown');
+    expect((await approvals.decide(approver, req.id, false)).result).toBe('unknown');
     expect(approvals.list()).toEqual([]);
+  });
+
+  it('counts approvals until enough different approvers agree', async () => {
+    const sara = { name: 'console:sara', canApprove: true };
+    const { approvals, req, outcome } = await setup(
+      { environment: 'production', minApprovers: 2, allowSelfApproval: false },
+      'console:omar',
+    );
+    // The requester sees why they cannot approve; another approver can.
+    expect(approvals.list(approver)[0]).toMatchObject({
+      environment: 'production',
+      needed: 2,
+      approvedBy: [],
+      cannotApprove: 'You asked for this change, so someone else must approve it.',
+    });
+    expect(approvals.list(viewer)[0]?.cannotApprove).toBe('Only a console approver can decide.');
+    expect(await approvals.decide(approver, req.id, true)).toEqual({
+      result: 'refused',
+      reason: 'You asked for this change, so someone else must approve it.',
+    });
+    expect(await approvals.decide(sara, req.id, true)).toEqual({ result: 'counted' });
+    expect(approvals.list(sara)[0]).toMatchObject({
+      approvedBy: ['console:sara'],
+      cannotApprove: 'You already approved this. It needs another approver.',
+    });
+    req.ballot.vote('U0APPROVER', true);
+    // A vote from Slack decides it; the agent settles every channel with the outcome.
+    await approvals.channel.settle(req.id, {
+      decision: 'approved',
+      by: 'console:sara, U0APPROVER',
+    });
+    expect(await outcome).toEqual({ decision: 'approved', by: 'console:sara, U0APPROVER' });
   });
 
   it('passes a denial reason on, trimmed and capped', async () => {
@@ -74,14 +106,14 @@ describe('ConsoleApprovals', () => {
 
   it('refuses a viewer and audits who tried', async () => {
     const { approvals, req, audit } = await setup();
-    expect(await approvals.decide(viewer, req.id, true)).toBe('refused');
+    expect((await approvals.decide(viewer, req.id, true)).result).toBe('refused');
     expect(approvals.list()).toHaveLength(1);
     expect(await audit()).toEqual([
       expect.objectContaining({
         event: 'approval.decision',
         actor: 'console',
         decision: 'blocked',
-        detail: `${req.id}; click refused: not an approver`,
+        detail: `${req.id}; click refused: Only a console approver can decide.`,
       }),
     ]);
   });
@@ -89,7 +121,7 @@ describe('ConsoleApprovals', () => {
   it('does not count a decision after the request expired', async () => {
     const { approvals, req, outcome, later } = await setup();
     later(16 * 60_000);
-    expect(await approvals.decide(approver, req.id, true)).toBe('expired');
+    expect((await approvals.decide(approver, req.id, true)).result).toBe('expired');
     expect(await outcome).toEqual({ decision: 'expired' });
   });
 

@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=../schema/kodra-agent.schema.json
+# Strict profile: regulated, audited, or change-managed organizations. Nobody approves their
+# own request, and production changes need two different approvers.
+apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: core-services-agent
+spec:
+  profile: strict
+  target: kubernetes
+  model:
+    provider: bedrock
+    name: '<model-id>'
+    region: eu-central-1
+  connectors:
+    github:
+      enabled: true
+      access: read-write-approved
+      config:
+        repos: ['example-org/services', 'example-org/deploy']
+      secrets:
+        token: ${env:GITHUB_TOKEN}
+    github-actions:
+      enabled: true
+    kubernetes:
+      enabled: true
+      access: read-write-approved
+      config:
+        namespaces: ['services', 'workers', 'services-test']
+    grafana:
+      enabled: true
+      config:
+        url: http://grafana.monitoring:3000
+      secrets:
+        serviceAccountToken: ${env:GRAFANA_TOKEN}
+    slack:
+      enabled: true
+      config:
+        channel: '#change-requests'
+      secrets:
+        botToken: ${env:SLACK_BOT_TOKEN}
+        appToken: ${env:SLACK_APP_TOKEN}
+  environments:
+    - name: production
+      production: true
+      namespaces: ['services', 'workers']
+      repos: ['example-org/deploy']
+      # Two of these three, never the person who asked.
+      approvers: ['U0123ABCD', 'U0456EFGH', 'U0789IJKL']
+    - name: test
+      namespaces: ['services-test']
+  policy:
+    approvals:
+      approvers: ['U0123ABCD', 'U0456EFGH', 'console:release-manager']
+      expiresAfterMinutes: 60
+    destructiveActions: deny

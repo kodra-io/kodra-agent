@@ -49,7 +49,13 @@ kind = "ClusterRoleBinding"
 `;
 
 const inNamespace: ToolGuard[] = [
-  { kind: 'arg-in-setting', arg: 'namespace', setting: 'namespaces', required: true },
+  {
+    kind: 'arg-in-setting',
+    arg: 'namespace',
+    setting: 'namespaces',
+    required: true,
+    scope: 'namespace',
+  },
 ];
 
 export default defineManifest({

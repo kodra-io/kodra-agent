@@ -1,37 +1,29 @@
 import { isConsoleApprover } from '@kodra-agent/schema';
-import type { SlackUser } from './api.ts';
 
 export interface ResolvedApprovers {
   /** Slack user ids allowed to approve. */
   ids: Set<string>;
-  /** Config entries that matched nobody (no one can approve through them). */
+  /** `@name` entries, which nobody can approve through until `init` turns them into ids. */
   unresolved: string[];
 }
 
+/** A Slack user id: U… or W… (Enterprise Grid). */
+export function isSlackUserId(entry: string): boolean {
+  return /^[UW][A-Z0-9]{2,}$/.test(entry);
+}
+
 /**
- * Slack handles are no longer unique or reliable, so approvals are checked by user id.
- * `U…`/`W…` entries are ids already; `@name` entries are matched once, at startup, against
- * a user's username or display name. An ambiguous name (two people) matches nobody.
+ * Slack names can be changed by their owner, so at runtime only user ids count. `@name` entries
+ * are looked up once by `init`, which writes the ids into the config; any left over match
+ * nobody here.
  */
-export function resolveApprovers(
-  entries: readonly string[],
-  users: readonly SlackUser[],
-): ResolvedApprovers {
+export function resolveApprovers(entries: readonly string[]): ResolvedApprovers {
   const ids = new Set<string>();
   const unresolved: string[] = [];
   for (const entry of entries) {
     // Console approvers sign in to the console; they are not Slack users.
     if (isConsoleApprover(entry)) continue;
-    if (/^[UW][A-Z0-9]{2,}$/.test(entry)) {
-      ids.add(entry);
-      continue;
-    }
-    const name = entry.replace(/^@/, '').toLowerCase();
-    const matches = users.filter(
-      (u) => u.name.toLowerCase() === name || u.displayName.toLowerCase() === name,
-    );
-    const only = matches.length === 1 ? matches[0] : undefined;
-    if (only) ids.add(only.id);
+    if (isSlackUserId(entry)) ids.add(entry);
     else unresolved.push(entry);
   }
   return { ids, unresolved };

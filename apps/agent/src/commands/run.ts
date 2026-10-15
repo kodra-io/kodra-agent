@@ -4,7 +4,12 @@ import { createServer, type Server } from 'node:http';
 import { dirname, join } from 'node:path';
 import pkg from '../../package.json' with { type: 'json' };
 import { formatUsage, runTurn } from '../agent.ts';
-import { consoleApproverTokenEnv, isConsoleApprover } from '@kodra-agent/schema';
+import {
+  allApprovers,
+  consoleApproverTokenEnv,
+  isConsoleApprover,
+  resolvePolicy,
+} from '@kodra-agent/schema';
 import { fanOut, type ApprovalChannel, type SettleableChannel } from '../approvals.ts';
 import { ConsoleApprovals } from '../console/approvals.ts';
 import { ConsoleChat } from '../console/chat.ts';
@@ -85,8 +90,9 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   let consoleChat: ConsoleChat | null = null;
   // Console approvers who can sign in: each needs their own token.
   const consoleAccounts: ConsoleAccount[] = [];
+  const everyApprover = allApprovers(resolvePolicy(runtime.config.spec));
   if (consoleOn) {
-    for (const entry of runtime.config.spec.policy.approvals.approvers.filter(isConsoleApprover)) {
+    for (const entry of everyApprover.filter(isConsoleApprover)) {
       const token = runtime.env[consoleApproverTokenEnv(entry)];
       if (token) consoleAccounts.push({ token, user: { name: entry, canApprove: true } });
       else {
@@ -127,14 +133,11 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       }
       slack = (ctx.slackConnection ?? boltSlack)(botToken, appToken);
       api = slack.api;
-      const configured = runtime.config.spec.policy.approvals.approvers;
-      const users = await api.listUsers().catch(() => {
-        ctx.term.err('Could not list Slack users (needs users:read); only user ids can approve.');
-        return [];
-      });
-      const approvers = resolveApprovers(configured, users);
+      const approvers = resolveApprovers(everyApprover);
       for (const entry of approvers.unresolved) {
-        ctx.term.err(`Approver ${entry} matches no single Slack user; use their user id (U…).`);
+        ctx.term.err(
+          `Approver ${entry} is a name, not a Slack user id, so it cannot approve. Run \`kodra-agent init\` to look it up.`,
+        );
       }
       const hello = await api.postMessage({
         channel: String(slackInput.component.settings['channel']),
@@ -145,7 +148,6 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         api,
         audit: runtime.audit,
         redactor: ctx.redactor,
-        approverIds: approvers.ids,
       });
       conversations = new SlackConversations({
         api,
