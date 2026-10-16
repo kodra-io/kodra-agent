@@ -44,6 +44,13 @@ spec:
               value: /etc/kodra-agent/kodra-agent.yaml
             - name: KODRA_AGENT_HEALTH_PORT
               value: "8080"
+            # The agent's own objects, which no connector tool may change (policy guard not-self).
+            - name: KODRA_AGENT_SELF_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KODRA_AGENT_SELF_NAMES
+              value: {{ (compact (list (include "kodra-agent.fullname" .) (include "kodra-agent.serviceAccountName" .) .Values.existingSecret)) | uniq | join "," | quote }}
             {{- if and .Values.console.enabled .Values.console.editSettings .Values.serviceAccount.automountToken }}
             # The agent's own objects, which self-rbac.yaml lets it patch (console settings).
             - name: KODRA_AGENT_NAMESPACE

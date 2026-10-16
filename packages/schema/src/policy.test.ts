@@ -37,11 +37,31 @@ const staging: EnvironmentInput = {
 
 describe('profileDefaults', () => {
   it('matches the profile table', () => {
-    expect(profileDefaults('starter', true)).toEqual({ minApprovers: 1, allowSelfApproval: true });
-    expect(profileDefaults('team', false)).toEqual({ minApprovers: 1, allowSelfApproval: true });
-    expect(profileDefaults('team', true)).toEqual({ minApprovers: 1, allowSelfApproval: false });
-    expect(profileDefaults('strict', false)).toEqual({ minApprovers: 1, allowSelfApproval: false });
-    expect(profileDefaults('strict', true)).toEqual({ minApprovers: 2, allowSelfApproval: false });
+    expect(profileDefaults('starter', true)).toEqual({
+      minApprovers: 1,
+      allowSelfApproval: true,
+      requireChangeRef: false,
+    });
+    expect(profileDefaults('team', false)).toEqual({
+      minApprovers: 1,
+      allowSelfApproval: true,
+      requireChangeRef: false,
+    });
+    expect(profileDefaults('team', true)).toEqual({
+      minApprovers: 1,
+      allowSelfApproval: false,
+      requireChangeRef: false,
+    });
+    expect(profileDefaults('strict', false)).toEqual({
+      minApprovers: 1,
+      allowSelfApproval: false,
+      requireChangeRef: false,
+    });
+    expect(profileDefaults('strict', true)).toEqual({
+      minApprovers: 2,
+      allowSelfApproval: false,
+      requireChangeRef: true,
+    });
   });
 });
 
@@ -53,6 +73,8 @@ describe('resolvePolicy', () => {
       minApprovers: 1,
       allowSelfApproval: false,
       expiresAfterMinutes: 15,
+      requireChangeRef: false,
+      changeRefPattern: null,
     });
     expect(
       effective.environments.map((e) => [e.name, e.minApprovers, e.allowSelfApproval]),

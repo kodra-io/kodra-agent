@@ -83,8 +83,11 @@ export class People {
       : { ok: false, status: 409, error: 'sign-in tokens cannot be changed here' };
   }
 
-  /** Adds `console:<name>` as an approver with a new token. */
-  async add(name: string, by: string): Promise<PeopleResult> {
+  /**
+   * Adds `console:<name>` as an approver with a new token. Without a token (a change held for a
+   * second approver, M11), someone creates it afterwards with Rotate.
+   */
+  async add(name: string, by: string, withToken = true): Promise<PeopleResult> {
     const refused = await this.editable();
     if (refused) return refused;
     const who = name.startsWith('console:') ? name : `console:${name}`;
@@ -105,6 +108,7 @@ export class People {
       `added ${who} as an approver`,
     );
     if (!saved.ok) return { ok: false, status: 400, error: saved.errors.join('; ') };
+    if (!withToken) return { ok: true };
     // Both are read when the agent restarts, which the caller does after this.
     const token = newConsoleToken();
     await this.store.writeEnv(new Map([[consoleApproverTokenEnv(who), token]]));
@@ -125,6 +129,37 @@ export class People {
     await this.store.writeEnv(new Map([[envVar, token]]));
     await this.store.audit(by, `rotated the console token for ${who}`);
     return { ok: true, token };
+  }
+
+  /** Why an add or a remove cannot happen, checked before it is held for approval (M11). */
+  async check(action: 'add' | 'remove', name: string): Promise<PeopleResult> {
+    const refused = await this.editable();
+    if (refused) return refused;
+    const who = name.startsWith('console:') ? name : `console:${name}`;
+    const approvers = (await this.config()).spec.policy.approvals.approvers;
+    if (!isConsoleApprover(who)) {
+      return action === 'add'
+        ? {
+            ok: false,
+            status: 400,
+            error: 'use lowercase letters, digits, and dashes (up to 32), like on-call',
+          }
+        : { ok: false, status: 404, error: 'no such console approver' };
+    }
+    if (action === 'add' && approvers.includes(who)) {
+      return { ok: false, status: 409, error: `${who} is already an approver` };
+    }
+    if (action === 'remove' && !approvers.includes(who)) {
+      return { ok: false, status: 404, error: 'no such console approver' };
+    }
+    if (action === 'remove' && approvers.filter(isConsoleApprover).length === 1) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'keep at least one console approver, or nobody could change settings here',
+      };
+    }
+    return { ok: true };
   }
 
   /** Removes a console approver and their token. The last console approver stays. */

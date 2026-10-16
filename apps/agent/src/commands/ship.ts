@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { detectStack, planShip, shipPrBody, type SourceProvider } from '@kodra-agent/templates';
 import { resolvePolicy } from '@kodra-agent/schema';
-import { policyInputFor } from '../agent.ts';
+import { policyInputFor, recordOverride } from '../agent.ts';
 import {
   cliApprovalChannel,
+  decisionAudit,
   newApprovalRequest,
   rulesFor,
   type ApprovalChannel,
@@ -444,9 +445,13 @@ async function openPullRequest(i: PrInput): Promise<number> {
     ...base,
     event: 'approval.decision',
     tool: req.tool,
-    actor: outcome.decision === 'expired' ? 'ship' : outcome.by,
-    decision: outcome.decision,
-    detail: req.id,
+    ...decisionAudit(req, outcome, 'ship', undefined),
+  });
+  await recordOverride({ audit: runtime.audit, redactor: ctx.redactor }, req, outcome, {
+    actor: 'ship',
+    task,
+    connector: source.provider,
+    tool: req.tool,
   });
   if (outcome.decision !== 'approved') {
     ctx.term.err(

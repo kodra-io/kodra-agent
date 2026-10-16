@@ -11,6 +11,8 @@ export interface SlackApi {
   }>;
   updateMessage(args: SlackMessage & { channel: string; ts: string }): Promise<void>;
   listUsers(): Promise<SlackUser[]>;
+  /** Opens a modal for the person who clicked; Slack accepts the trigger for 3 seconds only. */
+  openModal(triggerId: string, view: unknown): Promise<void>;
 }
 
 export interface SlackMessage {
@@ -40,12 +42,24 @@ export interface IncomingAction {
   user: string;
   actionId: string;
   value: string;
+  /** For opening a modal in reply to the click. */
+  triggerId?: string | undefined;
+}
+
+/** A submitted modal: its callback id, the request id it carries, and each input's value. */
+export interface IncomingSubmission {
+  user: string;
+  callbackId: string;
+  privateMetadata: string;
+  values: Record<string, string>;
 }
 
 export interface SlackHandlers {
   onMention(message: IncomingMessage): Promise<void>;
   onDirectMessage(message: IncomingMessage): Promise<void>;
   onAction(action: IncomingAction): Promise<void>;
+  /** Returns errors to show next to the inputs (by block id), or null to close the modal. */
+  onSubmission(submission: IncomingSubmission): Promise<Record<string, string> | null>;
 }
 
 export interface SlackConnection {
@@ -88,6 +102,9 @@ export function boltSlack(botToken: string, appToken: string): SlackConnection {
       } while (cursor);
       return users;
     },
+    async openModal(triggerId, view) {
+      await app.client.views.open({ trigger_id: triggerId, view: view as never });
+    },
   };
   return {
     api,
@@ -123,7 +140,22 @@ export function boltSlack(botToken: string, appToken: string): SlackConnection {
           user: body.user.id,
           actionId: action.action_id,
           value: action.value ?? '',
+          triggerId: 'trigger_id' in body ? body.trigger_id : undefined,
         });
+      });
+      app.view(/^kodra_/, async ({ ack, body, view }) => {
+        const values: Record<string, string> = {};
+        for (const [block, inputs] of Object.entries(view.state.values)) {
+          const input = Object.values(inputs)[0];
+          if (input?.value) values[block] = input.value;
+        }
+        const errors = await handlers.onSubmission({
+          user: body.user.id,
+          callbackId: view.callback_id,
+          privateMetadata: view.private_metadata,
+          values,
+        });
+        await ack(errors ? { response_action: 'errors', errors } : undefined);
       });
       await app.start();
     },

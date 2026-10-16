@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { checkDependencies } from './dependencies.ts';
 import { modelPrice, type ConfigField, type Manifest, type ModelPrice } from './manifest.ts';
+import { isCalendarDate, isTimeZone, weeklyMinute } from './freeze.ts';
 import { policyProblems, PROFILES, type Profile } from './policy.ts';
 import { secretRefSchema } from './secret-ref.ts';
 
@@ -124,7 +125,45 @@ const approvalRules = {
   minApprovers: z.int().min(1).max(5).optional(),
   /** Whether the person who asked for a change may approve it. */
   allowSelfApproval: z.boolean().optional(),
+  /** Approving needs a change reference, like a ticket number. Nothing calls a ticketing system. */
+  requireChangeRef: z.boolean().optional(),
+  /** A regular expression the change reference must match, like ^CHG[0-9]{7}$. */
+  changeRefPattern: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((p) => {
+      try {
+        new RegExp(p);
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'is not a valid regular expression')
+    .optional(),
 };
+
+const weeklyTime = z
+  .string()
+  .refine((t) => weeklyMinute(t) !== null, 'must be a weekday and a time, like Thu 18:00');
+const calendarDate = z.string().refine(isCalendarDate, 'must be a date like 2026-12-28');
+
+/** A time when writes in an environment are refused unless an approver overrides it. */
+const freezeSchema = z
+  .strictObject({
+    name: z.string().min(1).max(60),
+    timezone: z.string().refine(isTimeZone, 'must be a time zone like Asia/Amman or UTC'),
+    weekly: z.strictObject({ from: weeklyTime, to: weeklyTime }).optional(),
+    dates: z.strictObject({ from: calendarDate, to: calendarDate }).optional(),
+  })
+  .superRefine((f, ctx) => {
+    if ((f.weekly === undefined) === (f.dates === undefined)) {
+      ctx.addIssue({ code: 'custom', message: 'needs either weekly or dates, not both' });
+    }
+    if (f.dates && f.dates.from > f.dates.to) {
+      ctx.addIssue({ code: 'custom', path: ['dates'], message: 'from must not be after to' });
+    }
+  });
 
 const namespaceName = z
   .string()
@@ -157,6 +196,8 @@ const environmentSchema = z
     approvals: z
       .strictObject({ ...approvalRules, expiresAfterMinutes: z.int().min(1).max(1440).optional() })
       .prefault({}),
+    /** Freeze windows: writes here need an approver's override, with a reason. */
+    freezes: z.array(freezeSchema).max(20).default([]),
   })
   .meta({ description: 'Namespaces and repositories with their own approval rules.' });
 export type EnvironmentConfig = z.infer<typeof environmentSchema>;

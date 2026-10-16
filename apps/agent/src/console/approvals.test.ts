@@ -99,7 +99,7 @@ describe('ConsoleApprovals', () => {
 
   it('passes a denial reason on, trimmed and capped', async () => {
     const { approvals, req, outcome } = await setup();
-    await approvals.decide(approver, req.id, false, `  ${'x'.repeat(600)}  `);
+    await approvals.decide(approver, req.id, false, { note: `  ${'x'.repeat(600)}  ` });
     const result = await outcome;
     expect(result).toMatchObject({ decision: 'denied', by: 'console:omar' });
     expect(result.decision === 'denied' && result.note?.length).toBe(500);

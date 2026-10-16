@@ -329,5 +329,21 @@
   "people.since": "Signed in",
   "people.lastSeen": "Last seen",
   "people.signOut": "Sign out",
-  "settings.kubernetesSaved": "Settings saved here live in the agent's ConfigMap. Before a helm upgrade with a changed config, start from that copy (see the chart notes)."
+  "settings.kubernetesSaved": "Settings saved here live in the agent's ConfigMap. Before a helm upgrade with a changed config, start from that copy (see the chart notes).",
+  "event.override": "Freeze overridden",
+  "approval.frozen": "{environment} is frozen ({name}, until {until} {timezone}). Approving overrides the freeze, and every approver is told.",
+  "approval.reasonLabel": "Reason for overriding the freeze",
+  "approval.changeRefLabel": "Change reference",
+  "approval.changeRefFormat": "Format",
+  "approval.changeRefGiven": "Change reference",
+  "approval.overrideGiven": "Override reason",
+  "approval.refused.change-ref-missing": "Approving this needs a change reference.",
+  "approval.refused.change-ref-format": "The change reference does not have the required format.",
+  "approval.refused.reason-missing": "This environment is frozen. Approving needs a reason for the override.",
+  "settings.held": "Saved for review: this policy change waits for a second approver, and applies once they approve it.",
+  "settings.waitingTitle": "Waiting for a second approver",
+  "settings.waitingBy": "asked by {who}, expires {time}",
+  "settings.policyHeld": "This changes who may change what. It waits for a second approver before it applies.",
+  "settings.policyAnnounced": "This changes who may change what. Every approver is told, with this diff.",
+  "people.held": "This change waits for a second approver. Once it is approved, create the new approver's token with Rotate."
 }

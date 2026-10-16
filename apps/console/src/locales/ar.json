@@ -329,5 +329,21 @@
   "people.since": "وقت الدخول",
   "people.lastSeen": "آخر ظهور",
   "people.signOut": "تسجيل خروج",
-  "settings.kubernetesSaved": "الإعدادات المحفوظة هنا موجودة في ConfigMap الخاص بالوكيل. قبل helm upgrade بإعدادات مختلفة، ابدأ من تلك النسخة (انظر ملاحظات الـ chart)."
+  "settings.kubernetesSaved": "الإعدادات المحفوظة هنا موجودة في ConfigMap الخاص بالوكيل. قبل helm upgrade بإعدادات مختلفة، ابدأ من تلك النسخة (انظر ملاحظات الـ chart).",
+  "event.override": "تجاوز التجميد",
+  "approval.frozen": "{environment} مجمّدة ({name}، حتى {until} {timezone}). الموافقة تتجاوز التجميد، ويُبلَّغ كل أصحاب الموافقة.",
+  "approval.reasonLabel": "سبب تجاوز التجميد",
+  "approval.changeRefLabel": "مرجع التغيير",
+  "approval.changeRefFormat": "الصيغة",
+  "approval.changeRefGiven": "مرجع التغيير",
+  "approval.overrideGiven": "سبب التجاوز",
+  "approval.refused.change-ref-missing": "الموافقة على هذا تحتاج إلى مرجع تغيير.",
+  "approval.refused.change-ref-format": "مرجع التغيير ليس بالصيغة المطلوبة.",
+  "approval.refused.reason-missing": "هذه البيئة مجمّدة. الموافقة تحتاج إلى سبب للتجاوز.",
+  "settings.held": "حُفظ للمراجعة: تغيير السياسة هذا ينتظر صاحب موافقة ثانيًا، ويُطبَّق عند موافقته.",
+  "settings.waitingTitle": "بانتظار صاحب موافقة ثانٍ",
+  "settings.waitingBy": "طلبه {who}، وينتهي {time}",
+  "settings.policyHeld": "هذا يغيّر من يحق له تغيير ماذا. ينتظر صاحب موافقة ثانيًا قبل أن يُطبَّق.",
+  "settings.policyAnnounced": "هذا يغيّر من يحق له تغيير ماذا. يُبلَّغ كل أصحاب الموافقة مع هذا الفرق.",
+  "people.held": "هذا التغيير ينتظر صاحب موافقة ثانيًا. بعد الموافقة، أنشئ رمز صاحب الموافقة الجديد بزر التدوير."
 }

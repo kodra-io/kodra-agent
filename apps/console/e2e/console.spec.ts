@@ -564,3 +564,95 @@ test('a production change needs two approvers, and the requester cannot approve 
   await expect(mine).toContainText('You asked for this change, so someone else must approve it.');
   await expect(mine.getByRole('button', { name: 'Approve' })).toHaveCount(0);
 });
+
+test('approving during a freeze needs a reason, and a change reference where required', async ({
+  page,
+}) => {
+  const frozen = {
+    id: 'req-frozen',
+    connector: 'kubernetes',
+    tool: 'resources_scale',
+    risk: 'write',
+    args: '{"namespace":"shop","replicas":4}',
+    reason: 'Hotfix during the weekend.',
+    requestedBy: 'slack:U1',
+    expiresAt: '2026-10-09T09:30:00.000Z',
+    environment: 'production',
+    needed: 1,
+    approvedBy: [] as string[],
+    cannotApprove: null,
+    needs: { changeRef: true, reason: true },
+    changeRefPattern: '^CHG[0-9]{7}$',
+    changeRef: null,
+    override: null,
+    freeze: { name: 'weekend', until: 'Sat 23:59', timezone: 'Asia/Amman' },
+  };
+  const sent: Record<string, unknown>[] = [];
+  let waitingList: (typeof frozen)[] = [frozen];
+  await page.route('**/api/approvals/pending', (route) => route.fulfill({ json: waitingList }));
+  await page.route('**/api/approvals/decide', (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    sent.push(body);
+    if (body['changeRef'] !== 'CHG1234567') {
+      return route.fulfill({
+        status: 403,
+        json: {
+          error: 'bad ref',
+          result: 'refused',
+          refusal: 'change-ref-format',
+        },
+      });
+    }
+    waitingList = [];
+    return route.fulfill({ json: { result: 'approved' } });
+  });
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Approvals' }).click();
+  const card = page.getByRole('group', { name: 'Needs approval' });
+  await expect(card).toContainText(
+    'production is frozen (weekend, until Sat 23:59 Asia/Amman). Approving overrides the freeze, and every approver is told.',
+  );
+  await card.getByRole('button', { name: 'Approve' }).click();
+  const run = card.getByRole('button', { name: 'Yes, run it' });
+  // Both are required before it can be sent.
+  await expect(run).toBeDisabled();
+  await card.getByLabel('Reason for overriding the freeze').fill('Customers cannot pay.');
+  await card.getByLabel('Change reference').fill('chg-1');
+  await expect(card.getByText('Format: ^CHG[0-9]{7}$')).toBeVisible();
+  await run.click();
+  await expect(card.getByRole('alert')).toHaveText(
+    'The change reference does not have the required format.',
+  );
+  // Fixed in place, without starting over.
+  await card.getByLabel('Change reference').fill('CHG1234567');
+  await card.getByRole('button', { name: 'Yes, run it' }).click();
+  await expect(card).toHaveCount(0);
+  expect(sent.at(-1)).toEqual({
+    id: 'req-frozen',
+    approve: true,
+    changeRef: 'CHG1234567',
+    reason: 'Customers cannot pay.',
+  });
+});
+
+test.describe('strict', () => {
+  test.use({ agentOptions: { chat: true, policyChanges: 'second-approver' } });
+
+  test('a policy change from the console waits for a second approver', async ({ page }) => {
+    await signIn(page, APPROVER_TOKEN);
+    await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+    await page.getByRole('button', { name: 'Configure GitLab' }).click();
+    await page.getByRole('radio', { name: /Read and write, with approval/ }).check();
+    const review = page.getByRole('complementary', { name: 'Review changes' });
+    await expect(review).toContainText(
+      'This changes who may change what. It waits for a second approver before it applies.',
+    );
+    await review.getByRole('button', { name: 'Save and restart' }).click();
+    await review.getByRole('button', { name: 'Yes, save and restart' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Saved for review' })).toBeVisible();
+    // Nothing restarted; the change is listed until someone else approves it.
+    await expect(page.getByRole('region', { name: 'Waiting for a second approver' })).toContainText(
+      'changed gitlab.access',
+    );
+  });
+});

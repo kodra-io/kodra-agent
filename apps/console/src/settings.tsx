@@ -77,6 +77,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
   const [latestPreview, setPreview] = useState<SettingsPreview | null>(null);
   const [phase, setPhase] = useState<'edit' | 'confirm' | 'saving' | 'restarting'>('edit');
   const [problem, setProblem] = useState<string | null>(null);
+  const [held, setHeld] = useState(false);
   const [confirmUndo, setConfirmUndo] = useState(false);
   const canEdit = me.canApprove && view?.editable === true;
   // A preview only means something while there are edits.
@@ -105,13 +106,25 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
   const restartThen = async (action: Promise<unknown>) => {
     if (!view) return;
     setProblem(null);
+    setHeld(false);
     setPhase('saving');
+    let answer: unknown;
     try {
-      await action;
+      answer = await action;
     } catch (e) {
       setPhase('edit');
       if (e instanceof ApiError && e.status === 409) setProblem(t('settings.stale'));
       else failed(e);
+      return;
+    }
+    // A policy change in strict waits for a second approver: nothing restarts yet.
+    if (answer && typeof answer === 'object' && 'pending' in answer) {
+      setPatch({});
+      setPreview(null);
+      setPhase('edit');
+      setConfirmUndo(false);
+      setHeld(true);
+      reload();
       return;
     }
     setPhase('restarting');
@@ -191,6 +204,32 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
       )}
       {view?.editable && !me.canApprove && (
         <p className="rounded-xl border border-line bg-raised p-4">{t('settings.viewOnly')}</p>
+      )}
+
+      {held && (
+        <p role="status" className="rounded-xl border border-primary bg-primary-tint p-4">
+          {t('settings.held')}
+        </p>
+      )}
+      {view && view.waiting.length > 0 && (
+        <section
+          aria-labelledby="waiting-title"
+          className="flex flex-col gap-2 rounded-xl border border-line bg-raised p-4"
+        >
+          <h2 id="waiting-title" className="font-semibold">
+            {t('settings.waitingTitle')}
+          </h2>
+          <ul className="flex flex-col gap-1 text-sm">
+            {view.waiting.map((w) => (
+              <li key={w.id}>
+                <bdi dir="ltr">{w.title}</bdi>{' '}
+                <span className="text-ink-secondary">
+                  {t('settings.waitingBy', { who: w.requestedBy, time: time(w.expiresAt) })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {view?.lastChange && (
@@ -366,6 +405,15 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
               </p>
             ))}
             {preview?.diff && <DiffView text={preview.diff} label={t('settings.diff')} />}
+            {preview?.policy && view.policyChanges !== 'audited' && (
+              <p className="rounded-lg border border-line bg-raised p-2.5 text-sm">
+                {t(
+                  view.policyChanges === 'second-approver'
+                    ? 'settings.policyHeld'
+                    : 'settings.policyAnnounced',
+                )}
+              </p>
+            )}
             {preview && preview.ok && preview.diff === '' && (
               <p className="text-sm text-ink-secondary">{t('settings.noChange')}</p>
             )}

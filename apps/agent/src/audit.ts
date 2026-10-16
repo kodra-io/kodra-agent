@@ -14,6 +14,8 @@ export const auditRecordSchema = z.strictObject({
     'approval.decision',
     /** One approver's approval, when a change needs more than one (detail: "1 of 2"). */
     'approval.vote',
+    /** An approved change that overrode a freeze window (detail: the freeze and the reason). */
+    'override',
     'result',
     'error',
     /** The agent paused or resumed by a person (detail says which). */
@@ -28,6 +30,8 @@ export const auditRecordSchema = z.strictObject({
   risk: z.enum(['read', 'write', 'destructive', 'unclassified']).optional(),
   decision: z.enum(['allowed', 'approved', 'denied', 'blocked', 'expired']).optional(),
   detail: z.string().max(4000).optional(),
+  /** approval.decision records: the change reference the approver gave, where one was required. */
+  changeRef: z.string().max(100).optional(),
   /** model.call records: tokens used, for the console's usage view. */
   usage: z
     .strictObject({

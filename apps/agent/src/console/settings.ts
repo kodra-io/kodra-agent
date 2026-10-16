@@ -1,3 +1,4 @@
+import { policyDiffers } from './policy-gate.ts';
 import { createHash } from 'node:crypto';
 import {
   connectors as allConnectors,
@@ -73,6 +74,8 @@ export interface Preview {
   base: string;
   moreAccess: AccessChange[];
   changed: string[];
+  /** Whether it changes who may change what (M11): announced, or held for a second approver. */
+  policy: boolean;
 }
 
 const hash = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -342,6 +345,7 @@ export class SettingsStore {
         base,
         moreAccess: [],
         changed: [],
+        policy: false,
       };
     }
     const parsed = parseAgentConfig(next);
@@ -363,6 +367,7 @@ export class SettingsStore {
       base,
       moreAccess: parsed.ok ? moreAccess(before, parsed.config) : [],
       changed: changedPaths(patch),
+      policy: parsed.ok && policyDiffers(before, parsed.config),
     };
   }
 
@@ -414,6 +419,18 @@ export class SettingsStore {
       base: hash(text),
       moreAccess: [],
       changed: [],
+      policy: false,
+    };
+  }
+
+  /** What Undo would put back: its diff, and whether that is a policy change. Null: nothing. */
+  async undoPreview(): Promise<{ diff: string; policy: boolean } | null> {
+    const current = await this.text();
+    const previous = await this.backend.readPrevious();
+    if (previous === null) return null;
+    return {
+      diff: unifiedDiff(current, previous),
+      policy: policyDiffers(this.parse(current), this.parse(previous)),
     };
   }
 

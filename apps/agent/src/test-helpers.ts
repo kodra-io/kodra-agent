@@ -164,6 +164,7 @@ export function fakeSlack(users: { id: string; name: string; displayName: string
   const updated: { channel: string; ts: string; text: string; blocks?: unknown[] | undefined }[] =
     [];
   let handlers: import('./slack/api.ts').SlackHandlers | null = null;
+  const modals: { triggerId: string; view: unknown }[] = [];
   let stopped = false;
   let n = 0;
   const api: import('./slack/api.ts').SlackApi = {
@@ -179,11 +180,16 @@ export function fakeSlack(users: { id: string; name: string; displayName: string
       return Promise.resolve();
     },
     listUsers: () => Promise.resolve(users),
+    openModal: (triggerId, view) => {
+      modals.push({ triggerId, view });
+      return Promise.resolve();
+    },
   };
   return {
     api,
     posted,
     updated,
+    modals,
     get handlers() {
       if (!handlers) throw new Error('slack not started');
       return handlers;
@@ -298,6 +304,9 @@ export function testRules(over: Partial<RequestRules> = {}): RequestRules {
     minApprovers: 1,
     allowSelfApproval: true,
     expiresAfterMinutes: 15,
+    requireChangeRef: false,
+    changeRefPattern: null,
+    freeze: null,
     ...over,
   };
 }
@@ -307,7 +316,15 @@ export function testPolicy(): EffectivePolicy {
   const { approvers, minApprovers, allowSelfApproval, expiresAfterMinutes } = testRules();
   return {
     profile: 'starter',
-    default: { approvers, minApprovers, allowSelfApproval, expiresAfterMinutes },
+    default: {
+      approvers,
+      minApprovers,
+      allowSelfApproval,
+      expiresAfterMinutes,
+      requireChangeRef: false,
+      changeRefPattern: null,
+    },
     environments: [],
+    policyChanges: 'audited',
   };
 }

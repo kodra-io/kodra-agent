@@ -4,6 +4,7 @@ import {
   type Refusal,
   type ApprovalRequest,
   type SettleableChannel,
+  type VoteDetails,
 } from '../approvals.ts';
 import type { AuditLog } from '../audit.ts';
 
@@ -30,6 +31,14 @@ export interface PendingApproval {
   approvedBy: string[];
   /** Why the signed-in person cannot approve this one, or null when they can. */
   cannotApprove: Refusal | 'not-console-approver' | null;
+  /** What approving still needs: a change reference (with its pattern), a break-glass reason. */
+  needs: { changeRef: boolean; reason: boolean };
+  changeRefPattern: string | null;
+  /** The change reference and the override reason given so far, for later approvers. */
+  changeRef: string | null;
+  override: string | null;
+  /** The freeze this request overrides, if the environment is frozen. */
+  freeze: { name: string; until: string; timezone: string } | null;
   /** A proposed change: its title and preview (a diff for file edits). */
   title?: string;
   preview?: string;
@@ -103,6 +112,11 @@ export class ConsoleApprovals {
         needed: progress.needed,
         approvedBy: progress.approvedBy,
         cannotApprove,
+        needs: req.ballot.needs,
+        changeRefPattern: req.ballot.rules.changeRefPattern,
+        changeRef: req.ballot.changeRef,
+        override: req.ballot.override,
+        freeze: req.ballot.rules.freeze,
         ...(req.title ? { title: req.title } : {}),
         ...(req.preview ? { preview: req.preview } : {}),
       };
@@ -113,7 +127,7 @@ export class ConsoleApprovals {
     user: ConsoleUser,
     id: string,
     approve: boolean,
-    note?: string,
+    details: VoteDetails = {},
   ): Promise<ConsoleDecisionResult> {
     const entry = this.pending.get(id);
     if (!entry) return { result: 'unknown' };
@@ -140,8 +154,10 @@ export class ConsoleApprovals {
       this.finish(id, { decision: 'expired' });
       return { result: 'expired' };
     }
-    const trimmed = note?.trim().slice(0, 500);
-    const vote = entry.req.ballot.vote(user.name, approve, trimmed || undefined);
+    const vote = entry.req.ballot.vote(user.name, approve, {
+      ...details,
+      note: details.note?.trim().slice(0, 500),
+    });
     switch (vote.kind) {
       case 'refused':
         return refuse(vote.reason, vote.code);

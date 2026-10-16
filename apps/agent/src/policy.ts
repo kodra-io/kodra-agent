@@ -1,4 +1,21 @@
 import type { AccessLevel, ToolGuard, ToolRisk } from '@kodra-agent/schema';
+import { parseAllDocuments } from 'yaml';
+
+/** The agent's own Kubernetes objects, from the chart's KODRA_AGENT_SELF_* variables. */
+export interface SelfTarget {
+  namespace: string;
+  /** Exact names; pods are matched by the `<name>-` prefix too. */
+  names: readonly string[];
+}
+
+export function selfTarget(env: Readonly<Record<string, string | undefined>>): SelfTarget | null {
+  const namespace = env['KODRA_AGENT_SELF_NAMESPACE'];
+  const names = (env['KODRA_AGENT_SELF_NAMES'] ?? '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  return namespace && names.length > 0 ? { namespace, names } : null;
+}
 
 export type Risk = ToolRisk | 'unclassified';
 
@@ -19,6 +36,8 @@ export interface PolicyInput {
    * startup. null means the lookup failed, which blocks writes to that repo.
    */
   defaultBranches?: ReadonlyMap<string, string | null>;
+  /** The agent's own objects, when it runs in a cluster; null or missing elsewhere. */
+  self?: SelfTarget | null | undefined;
 }
 
 /**
@@ -72,9 +91,65 @@ function repoFrom(
   return typeof owner === 'string' && owner !== '' ? `${owner}/${repo}` : null;
 }
 
+/** The objects a call names: one from its arguments, or every object in a manifest argument. */
+function objectsOf(
+  guard: Extract<ToolGuard, { kind: 'not-self' }>,
+  args: Readonly<Record<string, unknown>>,
+): { namespace: string | null; name: string | null }[] | null {
+  const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : null);
+  if (!guard.resourceArg) {
+    return [
+      {
+        namespace: str(args[guard.namespaceArg]),
+        name: guard.nameArg ? str(args[guard.nameArg]) : null,
+      },
+    ];
+  }
+  const text = args[guard.resourceArg];
+  if (typeof text !== 'string') return null;
+  try {
+    return parseAllDocuments(text).flatMap((doc) => {
+      if (doc.errors.length > 0) throw new Error('bad manifest');
+      const value: unknown = doc.toJS();
+      const items = Array.isArray(value) ? value : [value];
+      return items
+        .filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null)
+        .map((v) => {
+          const meta = (v['metadata'] ?? {}) as Record<string, unknown>;
+          return {
+            namespace: str(meta['namespace']) ?? str(args[guard.namespaceArg]),
+            name: str(meta['name']),
+          };
+        });
+    });
+  } catch {
+    return null;
+  }
+}
+
+function selfProblem(
+  guard: Extract<ToolGuard, { kind: 'not-self' }>,
+  input: PolicyInput,
+): string | null {
+  const self = input.self;
+  if (!self) return null;
+  const objects = objectsOf(guard, input.args);
+  if (objects === null) return 'cannot tell which objects this changes, so it is blocked';
+  for (const object of objects) {
+    if ((object.namespace ?? self.namespace) !== self.namespace) continue;
+    const name = object.name;
+    if (name === null || self.names.some((own) => name === own || name.startsWith(`${own}-`))) {
+      return `this would change the agent itself (${name ?? `namespace ${self.namespace}`}); the agent never changes its own deployment, config, or secrets`;
+    }
+  }
+  return null;
+}
+
 function checkGuard(guard: ToolGuard, input: PolicyInput): string | null {
   const { args, settings } = input;
   switch (guard.kind) {
+    case 'not-self':
+      return selfProblem(guard, input);
     case 'arg-in-setting': {
       const value = args[guard.arg];
       if (isBlank(value)) return guard.required ? `${guard.arg} is required` : null;
@@ -130,6 +205,11 @@ export function touchedBy(
       if (guard.scope === 'namespace' && typeof value === 'string' && value !== '') {
         namespaces.add(value);
       }
+    } else if (guard.kind === 'not-self') {
+      // Tools without a namespace allowlist still name a namespace, which places them.
+      for (const object of objectsOf(guard, args) ?? []) {
+        if (object.namespace) namespaces.add(object.namespace);
+      }
     } else {
       const repo = repoFrom(args, guard.repoArg, guard.ownerArg);
       if (repo) repos.add(repo);
@@ -166,6 +246,9 @@ export function describeGuards(
       }
       case 'not-default-branch':
         out.push(`${guard.branchArg} must be a new branch, never the default branch`);
+        break;
+      case 'not-self':
+        out.push("never the agent's own deployment, pods, config, or secrets");
         break;
     }
   }

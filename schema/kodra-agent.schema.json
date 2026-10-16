@@ -784,6 +784,14 @@
                 },
                 "allowSelfApproval": {
                   "type": "boolean"
+                },
+                "requireChangeRef": {
+                  "type": "boolean"
+                },
+                "changeRefPattern": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
                 }
               },
               "required": [
@@ -857,6 +865,14 @@
                   "allowSelfApproval": {
                     "type": "boolean"
                   },
+                  "requireChangeRef": {
+                    "type": "boolean"
+                  },
+                  "changeRefPattern": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
                   "expiresAfterMinutes": {
                     "type": "integer",
                     "minimum": 1,
@@ -864,6 +880,61 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "freezes": {
+                "default": [],
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "weekly": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "dates": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "timezone"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [

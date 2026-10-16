@@ -170,13 +170,26 @@ export interface PendingApproval {
   approvedBy: string[];
   /** Why the signed-in person cannot approve this one (a code), or null when they can. */
   cannotApprove: string | null;
+  /** What approving still needs: a change reference (with its pattern), a break-glass reason. */
+  needs: { changeRef: boolean; reason: boolean };
+  changeRefPattern: string | null;
+  /** The change reference and override reason an earlier approver gave. */
+  changeRef: string | null;
+  override: string | null;
+  /** The freeze this request overrides. */
+  freeze: { name: string; until: string; timezone: string } | null;
   /** A proposed change: its title and preview (a diff for file edits). */
   title?: string;
   preview?: string;
 }
 
-export function decide(id: string, approve: boolean, note?: string): Promise<{ result: string }> {
-  return post('approvals/decide', { id, approve, ...(note ? { note } : {}) });
+export function decide(
+  id: string,
+  approve: boolean,
+  details: { note?: string; changeRef?: string; reason?: string } = {},
+): Promise<{ result: string }> {
+  const given = Object.fromEntries(Object.entries(details).filter(([, v]) => v));
+  return post('approvals/decide', { id, approve, ...given });
 }
 
 export interface ConversationSummary {
@@ -222,6 +235,9 @@ export type ChatEvent = { seq: number; ts: string } & (
       expiresAt: string;
       environment?: string | null;
       needed?: number;
+      needs?: { changeRef: boolean; reason: boolean };
+      changeRefPattern?: string | null;
+      freeze?: { name: string; until: string; timezone: string } | null;
       title?: string;
       preview?: string;
     }
@@ -323,6 +339,17 @@ export interface SettingsView {
   connectors: ConnectorSettings[];
   lastChange: { by: string; at: string; detail: string } | null;
   undoable: boolean;
+  /** What a policy change does here: audited, announced, or held for a second approver. */
+  policyChanges: 'audited' | 'announced' | 'second-approver';
+  waiting: PendingPolicyChange[];
+}
+
+/** A policy change from the console, waiting for a second approver (strict). */
+export interface PendingPolicyChange {
+  id: string;
+  title: string;
+  requestedBy: string;
+  expiresAt: string;
 }
 
 export interface SettingsPatch {
@@ -356,6 +383,8 @@ export interface SettingsPreview {
   base: string;
   moreAccess: AccessChange[];
   changed: string[];
+  /** Whether it changes who may change what. */
+  policy: boolean;
 }
 
 export interface CheckRow {
@@ -383,4 +412,5 @@ export interface PeopleView {
   people: PersonView[];
   otherApprovers: string[];
   sessions: SessionInfo[];
+  waiting: PendingPolicyChange[];
 }

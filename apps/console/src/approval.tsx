@@ -24,7 +24,16 @@ export function ApprovalCard({
 }: {
   approval: Omit<
     PendingApproval,
-    'requestedBy' | 'environment' | 'needed' | 'approvedBy' | 'cannotApprove'
+    | 'requestedBy'
+    | 'environment'
+    | 'needed'
+    | 'approvedBy'
+    | 'cannotApprove'
+    | 'needs'
+    | 'changeRefPattern'
+    | 'changeRef'
+    | 'override'
+    | 'freeze'
   > &
     Partial<PendingApproval>;
   canApprove: boolean;
@@ -36,6 +45,11 @@ export function ApprovalCard({
   const [note, setNote] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [counted, setCounted] = useState(false);
+  const [changeRef, setChangeRef] = useState('');
+  const [reason, setReason] = useState('');
+  const needs = a.needs ?? { changeRef: false, reason: false };
+  const refId = useId();
+  const reasonId = useId();
   const needed = a.needed ?? 1;
   const approvedBy = a.approvedBy ?? [];
   // A console approver may still be unable to approve this one: they asked for it, or
@@ -57,7 +71,16 @@ export function ApprovalCard({
     setStep('sending');
     setProblem(null);
     try {
-      const { result } = await decide(a.id, approve, approve ? undefined : note.trim());
+      const { result } = await decide(
+        a.id,
+        approve,
+        approve
+          ? {
+              ...(needs.changeRef ? { changeRef: changeRef.trim() } : {}),
+              ...(needs.reason ? { reason: reason.trim() } : {}),
+            }
+          : { note: note.trim() },
+      );
       if (result === 'counted') {
         setCounted(true);
         setStep('closed');
@@ -70,7 +93,9 @@ export function ApprovalCard({
       }
       if (e instanceof ApiError && e.status === 403 && e.refusal) {
         setProblem(refusalText(e.refusal));
-        setStep('closed');
+        // A missing or malformed reference or reason is fixed in place.
+        const fixable = ['change-ref-missing', 'change-ref-format', 'reason-missing'];
+        setStep(fixable.includes(e.refusal) ? 'confirm' : 'closed');
         return;
       }
       const key: MessageKey | null =
@@ -128,6 +153,31 @@ export function ApprovalCard({
         {a.requestedBy && (
           <p className="text-xs text-ink-secondary">
             {t('approvals.by')}: <Ltr>{a.requestedBy}</Ltr>
+          </p>
+        )}
+        {a.freeze && (
+          <p className="rounded-lg border border-line-strong bg-bad-tint p-2.5 text-sm font-medium text-bad-text">
+            {t('approval.frozen', {
+              environment: a.environment ?? '',
+              name: a.freeze.name,
+              until: a.freeze.until,
+              timezone: a.freeze.timezone,
+            })}
+          </p>
+        )}
+        {(a.changeRef || a.override) && (
+          <p className="text-xs text-ink-secondary">
+            {a.changeRef && (
+              <>
+                {t('approval.changeRefGiven')}: <Ltr>{a.changeRef}</Ltr>
+              </>
+            )}
+            {a.changeRef && a.override && ' · '}
+            {a.override && (
+              <>
+                {t('approval.overrideGiven')}: <bdi dir="auto">{a.override}</bdi>
+              </>
+            )}
           </p>
         )}
         {needed > 1 && (
@@ -208,8 +258,58 @@ export function ApprovalCard({
         {allowed && step === 'confirm' && (
           <div className="rounded-lg bg-primary-tint p-3">
             <p className="font-semibold">{t('approval.confirm', { action })}</p>
+            {needs.reason && (
+              <div className="mt-2">
+                <label htmlFor={reasonId} className="block font-medium">
+                  {t('approval.reasonLabel')}
+                </label>
+                <textarea
+                  id={reasonId}
+                  dir="auto"
+                  required
+                  maxLength={500}
+                  rows={2}
+                  className="mt-1 w-full rounded-lg border border-line-strong bg-surface px-3 py-2"
+                  value={reason}
+                  onChange={(e) => {
+                    setReason(e.target.value);
+                  }}
+                />
+              </div>
+            )}
+            {needs.changeRef && (
+              <div className="mt-2">
+                <label htmlFor={refId} className="block font-medium">
+                  {t('approval.changeRefLabel')}
+                </label>
+                <input
+                  id={refId}
+                  dir="ltr"
+                  required
+                  maxLength={100}
+                  aria-describedby={a.changeRefPattern ? `${refId}-hint` : undefined}
+                  className="mt-1 w-full rounded-lg border border-line-strong bg-surface px-3 py-2 font-mono"
+                  value={changeRef}
+                  onChange={(e) => {
+                    setChangeRef(e.target.value);
+                  }}
+                />
+                {a.changeRefPattern && (
+                  <p id={`${refId}-hint`} className="mt-1 text-xs text-ink-secondary">
+                    {t('approval.changeRefFormat')}: <Ltr>{a.changeRefPattern}</Ltr>
+                  </p>
+                )}
+              </div>
+            )}
             <div className="mt-2 flex flex-wrap gap-2">
-              <button type="button" className={primary} onClick={() => void send(true)}>
+              <button
+                type="button"
+                className={primary}
+                disabled={
+                  (needs.reason && !reason.trim()) || (needs.changeRef && !changeRef.trim())
+                }
+                onClick={() => void send(true)}
+              >
                 {t('approval.confirmRun')}
               </button>
               <button

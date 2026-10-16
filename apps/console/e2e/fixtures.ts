@@ -182,6 +182,8 @@ const fixtures: Record<string, unknown> = {
 /** Options for the mocked agent. */
 export interface AgentOptions {
   chat: boolean;
+  /** What a policy change does: strict holds it for a second approver. */
+  policyChanges?: 'audited' | 'announced' | 'second-approver';
 }
 
 interface MockConversation {
@@ -198,7 +200,12 @@ interface MockConversation {
 const loc = (en: string) => ({ en, ar: en });
 
 /** The settings the mocked agent starts with. */
-function settingsView(base: string, undoable: boolean) {
+function settingsView(
+  base: string,
+  undoable: boolean,
+  policyChanges: NonNullable<AgentOptions['policyChanges']> = 'audited',
+  waiting: { id: string; title: string; requestedBy: string; expiresAt: string }[] = [],
+) {
   return {
     target: 'compose',
     editable: true,
@@ -216,6 +223,8 @@ function settingsView(base: string, undoable: boolean) {
       ? { by: 'console:omar', at: '2026-10-09T09:10:00.000Z', detail: 'changed gitlab.access' }
       : null,
     undoable,
+    policyChanges,
+    waiting,
     connectors: [
       {
         id: 'gitlab',
@@ -339,6 +348,8 @@ export const CHAT_REQUEST = {
 
 /** A stand-in for the agent's console API, with the same sign-in and approval rules. */
 async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
+  const policyChanges = options.policyChanges ?? 'audited';
+  const held: { id: string; title: string; requestedBy: string; expiresAt: string }[] = [];
   let user: { name: string; canApprove: boolean } | null = null;
   let paused: { by: string; at: string } | null = null;
   // A restart (after saving settings) shows as a new start time and a new settings version.
@@ -529,11 +540,29 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           diff.push(`+    monthlyBudgetUsd: ${String(patch.limits.monthlyBudgetUsd)}`);
         }
         return route.fulfill({
-          json: { ok: true, errors: [], diff: diff.join('\n'), base, moreAccess, changed: [] },
+          json: {
+            ok: true,
+            errors: [],
+            diff: diff.join('\n'),
+            base,
+            moreAccess,
+            changed: gitlab ? ['gitlab.access'] : [],
+            policy: gitlab !== undefined,
+          },
         });
       }
       if (name === 'settings/apply') {
         if (body['base'] !== base) return route.fulfill({ status: 409, json: { error: 'stale' } });
+        const patch = body['patch'] as { connectors?: Record<string, unknown> };
+        if (policyChanges === 'second-approver' && patch.connectors) {
+          held.push({
+            id: 'p1',
+            title: 'changed gitlab.access',
+            requestedBy: user.name,
+            expiresAt: '2026-10-09T09:30:00.000Z',
+          });
+          return route.fulfill({ status: 202, json: { pending: 'p1' } });
+        }
         undoable = true;
         restart();
         return route.fulfill({ json: { ok: true, restarting: true } });
@@ -728,11 +757,13 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
       });
     }
     if (name === 'approvals/pending') return route.fulfill({ json: pending });
-    if (name === 'settings') return route.fulfill({ json: settingsView(base, undoable) });
+    if (name === 'settings') {
+      return route.fulfill({ json: settingsView(base, undoable, policyChanges, held) });
+    }
     if (name === 'people') {
       return user.canApprove
         ? route.fulfill({
-            json: { editable: true, people, otherApprovers: ['@omar'], sessions },
+            json: { editable: true, people, otherApprovers: ['@omar'], sessions, waiting: [] },
           })
         : route.fulfill({
             status: 403,
@@ -783,8 +814,10 @@ export const test = base.extend<{
         if (!url.startsWith(origin) && !url.startsWith('data:')) offsite.push(url);
       });
       page.on('console', (msg) => {
-        // By design: signed out (401), an expired request (409), a token that fails its check (400).
-        if (msg.type() === 'error' && !/(400|401|409)/.test(msg.text())) errors.push(msg.text());
+        // By design: signed out (401), an approval refused (403), an expired request (409), a
+        // token that fails its check (400).
+        if (msg.type() === 'error' && !/(400|401|403|409)/.test(msg.text()))
+          errors.push(msg.text());
       });
       page.on('pageerror', (err) => errors.push(err.message));
       await use({ requests });

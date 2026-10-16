@@ -68,6 +68,7 @@ export function PeoplePanel({
   const [shown, setShown] = useState<{ who: string; token: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [restart, setRestart] = useState<Restart | null>(null);
+  const [heldNote, setHeldNote] = useState(false);
 
   const run = async (
     action: string,
@@ -78,9 +79,9 @@ export function PeoplePanel({
     // The start time before the change: the agent may restart before we look again.
     const startedAt = status?.startedAt;
     setProblem(null);
-    let result: { token?: string; restarting?: boolean };
+    let result: { token?: string; restarting?: boolean; pending?: string };
     try {
-      result = await post<{ token?: string; restarting?: boolean }>(action, body);
+      result = await post<{ token?: string; restarting?: boolean; pending?: string }>(action, body);
     } catch (e) {
       setBusy(false);
       if (e instanceof SignedOut) onSignedOut();
@@ -89,6 +90,14 @@ export function PeoplePanel({
     }
     setConfirm(null);
     setName('');
+    if (result.pending) {
+      // Held for a second approver (strict); it applies, and restarts, once approved.
+      setProblem(null);
+      setHeldNote(true);
+      reload();
+      setBusy(false);
+      return;
+    }
     if (result.token && who) {
       setShown({ who, token: result.token });
       setCopied(false);
@@ -191,6 +200,20 @@ export function PeoplePanel({
         <p role="alert" className="rounded-lg bg-bad-tint p-3 text-bad-text">
           <bdi dir="ltr">{problem}</bdi>
         </p>
+      )}
+      {heldNote && (
+        <p role="status" className="rounded-xl border border-primary bg-primary-tint p-4">
+          {t('people.held')}
+        </p>
+      )}
+      {view && view.waiting.length > 0 && (
+        <ul aria-label={t('settings.waitingTitle')} className="flex flex-col gap-1 text-sm">
+          {view.waiting.map((w) => (
+            <li key={w.id} className="rounded-lg border border-line bg-raised px-3 py-2">
+              {t('settings.waitingTitle')}: <bdi dir="ltr">{w.title}</bdi>
+            </li>
+          ))}
+        </ul>
       )}
 
       <section

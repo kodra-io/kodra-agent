@@ -3,13 +3,23 @@
  * organization; every value can still be set explicitly. `resolvePolicy` is the only place
  * those defaults live: the configurator, `doctor`, and the agent all call it.
  */
+import type { FreezeInput } from './freeze.ts';
+
 export const PROFILES = ['starter', 'team', 'strict'] as const;
 export type Profile = (typeof PROFILES)[number];
+
+/**
+ * What happens when a console save changes policy (M11): it is audited, also announced to all
+ * approvers with the diff, or it waits for a second approver before it applies.
+ */
+export type PolicyChanges = 'audited' | 'announced' | 'second-approver';
 
 export interface ApprovalRuleInput {
   minApprovers?: number | undefined;
   allowSelfApproval?: boolean | undefined;
   expiresAfterMinutes?: number | undefined;
+  requireChangeRef?: boolean | undefined;
+  changeRefPattern?: string | undefined;
 }
 
 export interface EnvironmentInput {
@@ -19,6 +29,7 @@ export interface EnvironmentInput {
   repos: readonly string[];
   approvers?: readonly string[] | undefined;
   approvals?: ApprovalRuleInput | undefined;
+  freezes?: readonly FreezeInput[] | undefined;
 }
 
 /** The parts of `spec` the policy comes from. */
@@ -36,6 +47,9 @@ export interface ApprovalRules {
   minApprovers: number;
   allowSelfApproval: boolean;
   expiresAfterMinutes: number;
+  /** Approving needs a change reference (a ticket number), checked against the pattern if set. */
+  requireChangeRef: boolean;
+  changeRefPattern: string | null;
 }
 
 export interface EffectiveEnvironment extends ApprovalRules {
@@ -43,6 +57,7 @@ export interface EffectiveEnvironment extends ApprovalRules {
   production: boolean;
   namespaces: string[];
   repos: string[];
+  freezes: FreezeInput[];
 }
 
 export interface EffectivePolicy {
@@ -50,20 +65,31 @@ export interface EffectivePolicy {
   /** For anything outside every environment. */
   default: ApprovalRules;
   environments: EffectiveEnvironment[];
+  policyChanges: PolicyChanges;
 }
+
+const POLICY_CHANGES: Record<Profile, PolicyChanges> = {
+  starter: 'audited',
+  team: 'announced',
+  strict: 'second-approver',
+};
 
 /** The profile's defaults for one set of rules. Production only matters for team and strict. */
 export function profileDefaults(
   profile: Profile,
   production: boolean,
-): { minApprovers: number; allowSelfApproval: boolean } {
+): { minApprovers: number; allowSelfApproval: boolean; requireChangeRef: boolean } {
   switch (profile) {
     case 'starter':
-      return { minApprovers: 1, allowSelfApproval: true };
+      return { minApprovers: 1, allowSelfApproval: true, requireChangeRef: false };
     case 'team':
-      return { minApprovers: 1, allowSelfApproval: !production };
+      return { minApprovers: 1, allowSelfApproval: !production, requireChangeRef: false };
     case 'strict':
-      return { minApprovers: production ? 2 : 1, allowSelfApproval: false };
+      return {
+        minApprovers: production ? 2 : 1,
+        allowSelfApproval: false,
+        requireChangeRef: production,
+      };
   }
 }
 
@@ -78,7 +104,10 @@ export function resolvePolicy(source: PolicySource): EffectivePolicy {
       minApprovers: base.minApprovers ?? defaults.minApprovers,
       allowSelfApproval: base.allowSelfApproval ?? defaults.allowSelfApproval,
       expiresAfterMinutes: base.expiresAfterMinutes,
+      requireChangeRef: base.requireChangeRef ?? defaults.requireChangeRef,
+      changeRefPattern: base.changeRefPattern ?? null,
     },
+    policyChanges: POLICY_CHANGES[source.profile],
     environments: source.environments.map((env) => {
       const d = profileDefaults(source.profile, env.production);
       return {
@@ -90,6 +119,9 @@ export function resolvePolicy(source: PolicySource): EffectivePolicy {
         minApprovers: env.approvals?.minApprovers ?? d.minApprovers,
         allowSelfApproval: env.approvals?.allowSelfApproval ?? d.allowSelfApproval,
         expiresAfterMinutes: env.approvals?.expiresAfterMinutes ?? base.expiresAfterMinutes,
+        requireChangeRef: env.approvals?.requireChangeRef ?? d.requireChangeRef,
+        changeRefPattern: env.approvals?.changeRefPattern ?? null,
+        freezes: [...(env.freezes ?? [])],
       };
     }),
   };
