@@ -68,7 +68,7 @@ COPY --from=build /app /app
 COPY --from=console /app/apps/console/dist /app/apps/console/dist
 # Caches go to /tmp, so the root filesystem can be read-only.
 ENV NODE_ENV=production \
-    HOME=/home/kodra \
+    HOME=/tmp \
     KODRA_MCP_DIR=/opt/kodra-mcp \
     KODRA_AGENT_CONFIG=/etc/kodra-agent/kodra-agent.yaml \
     XDG_CACHE_HOME=/tmp/.cache \

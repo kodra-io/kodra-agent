@@ -297,7 +297,7 @@ async function networkRows(
       ),
     );
   }
-  const applied = await applyNetwork(settings, ctx.redactor);
+  const applied = await applyNetwork(settings, ctx.redactor, ctx.networkRuntime);
   rows.push(
     row(
       'this Node.js',

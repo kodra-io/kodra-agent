@@ -1,3 +1,4 @@
+import type { NetworkRuntime } from './network.ts';
 import type { ModelConfig } from '@kodra-agent/schema';
 import type { LanguageModel } from 'ai';
 import type { Limits } from './agent.ts';
@@ -29,7 +30,13 @@ export interface Context {
   launcher?: HostOptions['launcher'];
   limits?: Limits;
   /** Connects to Slack; tests pass a fake. */
-  slackConnection?: (botToken: string, appToken: string) => SlackConnection;
+  slackConnection?: (
+    botToken: string,
+    appToken: string,
+    proxy?: { httpsProxy?: string; httpProxy?: string; noProxy: string } | null,
+  ) => SlackConnection;
+  /** How proxy and CA settings reach this process; tests change nothing (M12). */
+  networkRuntime?: NetworkRuntime;
   /** Stops `run`; without it, SIGTERM and SIGINT do. */
   stopSignal?: AbortSignal;
   /** Port for /healthz and /readyz (0 picks a free port). */

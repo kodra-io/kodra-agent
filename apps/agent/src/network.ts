@@ -138,11 +138,17 @@ export async function applyNetwork(
     if (extra.length > 0) {
       const roots =
         runtime.getDefaultCACertificates?.() ?? tls.rootCertificates.map((c) => `${c}\n`);
-      if (runtime.setDefaultCACertificates) runtime.setDefaultCACertificates([...roots, ...extra]);
-      else
+      if (!runtime.setDefaultCACertificates) {
         problems.push(
           'this Node.js cannot add CA certificates (needs 24.5 or newer; the image has it)',
         );
+      } else {
+        try {
+          runtime.setDefaultCACertificates([...roots, ...extra]);
+        } catch {
+          problems.push(`${settings.caFile} holds a certificate that cannot be read`);
+        }
+      }
       const dir = await mkdtemp(join(tmpdir(), 'kodra-ca-'));
       const combined = join(dir, 'ca-bundle.pem');
       await writeFile(combined, [...roots, ...extra].join(''), { mode: 0o644 });
@@ -160,3 +166,22 @@ export async function applyNetwork(
   }
   return { childEnv, problems };
 }
+
+/** The proxy for clients that bring their own HTTP stack (Slack's Socket Mode WebSocket). */
+export function proxyOptions(
+  settings: NetworkSettings,
+): { httpsProxy?: string; httpProxy?: string; noProxy: string } | null {
+  if (!settings.httpsProxy && !settings.httpProxy) return null;
+  return {
+    ...(settings.httpsProxy ? { httpsProxy: settings.httpsProxy } : {}),
+    ...(settings.httpProxy ? { httpProxy: settings.httpProxy } : {}),
+    noProxy: settings.noProxy,
+  };
+}
+
+/** A runtime that changes nothing in this process, for tests. */
+export const NO_NETWORK_RUNTIME: NetworkRuntime = {
+  setGlobalProxyFromEnv: () => undefined,
+  setDefaultCACertificates: () => undefined,
+  getDefaultCACertificates: () => [],
+};

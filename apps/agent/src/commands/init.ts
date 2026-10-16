@@ -70,6 +70,7 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
   const network = await applyNetwork(
     networkSettings(config, { ...Object.fromEntries(existing), ...ctx.env }),
     ctx.redactor,
+    ctx.networkRuntime,
   );
   for (const problem of network.problems) ctx.term.err(`Network: ${problem}.`);
 

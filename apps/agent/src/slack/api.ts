@@ -1,4 +1,5 @@
-import { App, LogLevel } from '@slack/bolt';
+import { App, LogLevel, SocketModeReceiver } from '@slack/bolt';
+import { EnvHttpProxyAgent } from 'undici';
 
 /**
  * The few Slack calls the agent makes, behind an interface so everything except this file
@@ -69,8 +70,19 @@ export interface SlackConnection {
 }
 
 /** Slack over Socket Mode with Bolt: no public endpoint, only an outbound WebSocket. */
-export function boltSlack(botToken: string, appToken: string): SlackConnection {
-  const app = new App({ token: botToken, appToken, socketMode: true, logLevel: LogLevel.ERROR });
+export function boltSlack(
+  botToken: string,
+  appToken: string,
+  proxy?: { httpsProxy?: string; httpProxy?: string; noProxy: string } | null,
+): SlackConnection {
+  // Web API calls use fetch, which the agent's global proxy covers. The Socket Mode WebSocket
+  // has its own HTTP stack (undici), so it gets the proxy as a dispatcher (M12).
+  const receiver = new SocketModeReceiver({
+    appToken,
+    logLevel: LogLevel.ERROR,
+    ...(proxy ? { dispatcher: new EnvHttpProxyAgent(proxy) } : {}),
+  });
+  const app = new App({ token: botToken, receiver, logLevel: LogLevel.ERROR });
   const api: SlackApi = {
     async postMessage({ channel, text, blocks, threadTs }) {
       const res = await app.client.chat.postMessage({

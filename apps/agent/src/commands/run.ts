@@ -1,3 +1,4 @@
+import { proxyOptions } from '../network.ts';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -137,7 +138,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         ctx.term.err('Slack needs both the bot token and the app token. Run `kodra-agent init`.');
         return 1;
       }
-      slack = (ctx.slackConnection ?? boltSlack)(botToken, appToken);
+      slack = (ctx.slackConnection ?? boltSlack)(botToken, appToken, proxyOptions(runtime.network));
       api = slack.api;
       const approvers = resolveApprovers(everyApprover);
       for (const entry of approvers.unresolved) {
