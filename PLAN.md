@@ -518,7 +518,7 @@ Update this table at the end of every milestone.
 | M12 Works on any network                             | v0.3.0       | Done        | #38 |
 | M13 Data protection and model routing                | v0.3.0       | Done        | #39 |
 | M14 Trust and observability                          | v0.3.0       | Done        | #40 |
-| Release v0.3.0                                       | v0.3.0       | Done        | #41 |
+| Release v0.3.0                                       | v0.3.0       | Done        | #42 |
 | Publish the configurator at build.kodra.io/agent     | v0.3.0       | Not started |     |
 | M15 Value on day one (the demo)                      | After launch | Deferred    |     |
 | Design partners: five to ten, notes in docs/partners | After launch | Not started |     |
