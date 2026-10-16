@@ -463,8 +463,8 @@ Update this table at the end of every milestone.
 | M10 Profiles, environments, and approvals   | Done        | #36 |
 | M11 Change control                          | Done        | #37 |
 | M12 Works on any network                    | Done        | #38 |
-| M13 Data protection and model routing       | In review   | #39 |
-| M14 Trust and observability                 | Not started |     |
+| M13 Data protection and model routing       | Done        | #39 |
+| M14 Trust and observability                 | In review   | #40 |
 | M15 Value on day one                        | Not started |     |
 | Launch: v0.3.0, configurator published      | Not started |     |
 | M16 Evaluation suite                        | Not started |     |

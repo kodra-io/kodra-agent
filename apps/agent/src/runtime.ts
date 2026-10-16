@@ -7,6 +7,10 @@ import {
   type AgentConfig,
 } from '@kodra-agent/schema';
 import type { LanguageModel } from 'ai';
+import { AGENT_VERSION } from '@kodra-agent/templates';
+import { costOf, priceFor } from './console/data.ts';
+import { startTracer, type AgentTracer } from './tracing.ts';
+import { AgentMetrics } from './metrics.ts';
 import { DataMasker } from './data-protection.ts';
 import { alwaysBlocked, type AgentDeps } from './agent.ts';
 import { applyNetwork, networkSettings, type NetworkSettings } from './network.ts';
@@ -35,6 +39,10 @@ export interface Runtime {
   host: ConnectorHost;
   audit: AuditLog;
   env: Readonly<Record<string, string | undefined>>;
+  /** The agent's own metrics (M14), fed by the audit log. */
+  metrics: AgentMetrics;
+  /** OpenTelemetry traces (M14); a no-op unless spec.tracing is on. */
+  tracer: AgentTracer;
   /** Proxy and CA variables for child processes (git, helm, docker, MCP servers). */
   networkEnv: Readonly<Record<string, string>>;
   /** The resolved proxy and CA settings, for clients with their own HTTP stack (Slack). */
@@ -59,6 +67,8 @@ export interface RuntimeOptions {
    * instead of the terminal, so it never interleaves with a `chat` conversation.
    */
   connectorLogFile?: boolean;
+  /** `run` only: spec.audit.stdout writes each record to stdout too (M14). */
+  auditToStdout?: boolean;
 }
 
 export async function startRuntime(
@@ -173,7 +183,34 @@ export async function startRuntime(
     }
   }
 
-  const audit = new AuditLog(config.spec.audit.path, ctx.redactor);
+  // Metrics come from the audit records as they are written (M14).
+  const labels = [
+    `${config.spec.model.provider}/${config.spec.model.name}`,
+    ...Object.values(config.spec.models).map((m) => `${m.provider}/${m.name}`),
+  ];
+  const metrics = new AgentMetrics({
+    version: AGENT_VERSION,
+    models: labels,
+    cost: (model, usage) =>
+      costOf(
+        {
+          calls: 1,
+          input: usage['input'] ?? 0,
+          cacheRead: usage['cacheRead'] ?? 0,
+          cacheWrite: usage['cacheWrite'] ?? 0,
+          output: usage['output'] ?? 0,
+        },
+        priceFor(model, config.spec.console.pricing)?.price,
+      ) ?? 0,
+  });
+  const tracer = await startTracer(config.spec.tracing, AGENT_VERSION, ctx.spanExporter);
+  const toStdout = options.auditToStdout === true && config.spec.audit.stdout;
+  const audit = new AuditLog(config.spec.audit.path, ctx.redactor, {
+    onRecord: (line: string) => {
+      metrics.observe(JSON.parse(line) as Record<string, unknown>);
+      if (toStdout) ctx.term.out(line);
+    },
+  });
   // A connector that cannot start is skipped, not fatal: the agent works with the rest.
   const connectorLogPath = join(dirname(config.spec.audit.path), 'connectors.log');
   const host = await ConnectorHost.start(inputs, {
@@ -189,6 +226,10 @@ export async function startRuntime(
     ctx.term.err(`${failure.displayName} is not available: ${failure.reason}`);
     ctx.term.err(`  ${failureHint(failure, config, inputs, env)}`);
   }
+  const down = new Set(host.failures().map((f) => f.connector));
+  for (const input of inputs)
+    metrics.setConnectorUp(input.component.id, !down.has(input.component.id));
+  for (const failure of skipped) metrics.setConnectorUp(failure.connector, false);
 
   const model = (ctx.modelFactory ?? createModel)(config.spec.model, modelSecrets);
   const control = new AgentControl(config.spec.audit.path, audit);
@@ -220,6 +261,7 @@ export async function startRuntime(
       }),
     networkEnv: network.childEnv,
     network: settings,
+    metrics,
     deps: (approvals) => ({
       model,
       modelLabel,
@@ -241,8 +283,13 @@ export async function startRuntime(
         timeoutMs: config.spec.limits.timeoutMinutes * 60_000,
       },
       actor: 'agent',
+      tracer,
     }),
-    close: () => host.close(),
+    tracer,
+    close: async () => {
+      await host.close();
+      await tracer.shutdown().catch(() => undefined);
+    },
   };
 }
 

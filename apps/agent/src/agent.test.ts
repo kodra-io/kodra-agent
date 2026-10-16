@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolvePolicy, type EffectivePolicy } from '@kodra-agent/schema';
 import { join } from 'node:path';
+import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
 import { convertArrayToReadableStream, MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -19,6 +20,7 @@ import { ConnectorHost } from './mcp/host.ts';
 import { REDACTED, Redactor } from './redactor.ts';
 import { fakeComponent, fakeLauncher } from './test-fixtures/fake-connector.ts';
 import { tempDir, testPolicy } from './test-helpers.ts';
+import { NO_TRACER, startTracer, taskKind } from './tracing.ts';
 
 const usage = (n = 10) => ({
   inputTokens: { total: n, noCache: n, cacheRead: undefined, cacheWrite: undefined },
@@ -785,5 +787,62 @@ describe('model routing (M13)', () => {
     });
     expect(result.stoppedBy).toBe('model-pin');
     expect((deps.model as MockLanguageModelV4).doGenerateCalls).toHaveLength(0);
+  });
+});
+
+describe('traces (M14)', () => {
+  it('records a turn, its model steps, and its tool calls, with no content', async () => {
+    const SECRET = 'trace-canary-token-5521';
+    const { deps } = await setup({
+      responses: [
+        call('fakek8s__pods_log', { namespace: 'api', name: 'payments-secret-pod' }),
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', replicas: 2 }),
+        answer('The database password is wrong.'),
+      ],
+      access: 'read-write-approved',
+      approval: { decision: 'denied', by: '@omar' },
+      secrets: { token: SECRET },
+    });
+    const exporter = new InMemorySpanExporter();
+    deps.tracer = await startTracer({ enabled: true }, '0.3.0', exporter);
+    await runTurn(deps, [], `why is web failing? ${SECRET}`, 'slack-1234');
+    // Read before shutdown, which empties the in-memory exporter.
+    const spans = exporter.getFinishedSpans();
+    await deps.tracer.shutdown();
+    const byName = (name: string) => spans.filter((s) => s.name === name);
+    const [turn] = byName('kodra.turn');
+    expect(turn?.attributes).toMatchObject({
+      'kodra.task_kind': 'slack',
+      'kodra.outcome': 'answered',
+      'kodra.tokens.input': 30,
+    });
+    expect(byName('kodra.model')).toHaveLength(3);
+    expect(byName('kodra.model')[0]?.attributes).toMatchObject({
+      'kodra.model': 'mock/model',
+      'kodra.tokens.output': 10,
+      'kodra.finish': 'tool-calls',
+    });
+    expect(byName('kodra.tool').map((s) => s.attributes)).toEqual([
+      expect.objectContaining({ 'kodra.tool': 'pods_log', 'kodra.decision': 'allowed' }),
+      expect.objectContaining({
+        'kodra.tool': 'resources_scale',
+        'kodra.risk': 'write',
+        'kodra.decision': 'denied',
+      }),
+    ]);
+    // Every span belongs to the turn's trace, with the turn as parent.
+    const traceId = turn?.spanContext().traceId;
+    for (const span of spans.filter((s) => s !== turn)) {
+      expect(span.spanContext().traceId).toBe(traceId);
+      expect(span.parentSpanContext?.spanId).toBe(turn?.spanContext().spanId);
+    }
+    const everything = JSON.stringify(spans.map((s) => [s.name, s.attributes, s.events]));
+    expect(everything).not.toMatch(/web failing|payments-secret-pod|password|trace-canary/);
+  });
+
+  it('costs nothing when off', async () => {
+    expect(await startTracer({ enabled: false }, '0.3.0')).toBe(NO_TRACER);
+    expect(taskKind('alert-ab12')).toBe('alert');
+    expect(taskKind('drop table users')).toBe('other');
   });
 });

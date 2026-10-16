@@ -92,6 +92,7 @@ export function testContext(overrides: Partial<Context> = {}) {
   const logLines: string[] = [];
   const ctx: Context = {
     networkRuntime: NO_NETWORK_RUNTIME,
+    metricsPort: 0,
     term,
     log: jsonLogger((l) => logLines.push(l), redactor),
     redactor,

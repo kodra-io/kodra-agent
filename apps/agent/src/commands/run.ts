@@ -76,7 +76,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     }
     configPath = chosen?.path ?? configPath;
   }
-  const runtime = await startRuntime(configPath, ctx);
+  const runtime = await startRuntime(configPath, ctx, { auditToStdout: true });
   if (!runtime) {
     await closeServer(health);
     return 1;
@@ -87,6 +87,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   const restart = new AbortController();
   const investigationLog = new InvestigationLog(runtime.config.spec.audit.path, ctx.redactor);
   let consoleServer: Server | null = null;
+  let metricsServer: Server | null = null;
   const consoleOn = runtime.config.spec.console.enabled;
   const consoleApprovals = new ConsoleApprovals({ audit: runtime.audit });
   let consoleChat: ConsoleChat | null = null;
@@ -358,9 +359,25 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         'no chat surface'
       }${monitor ? ', monitoring alerts' : ''}${runtime.control.paused ? ', changes paused' : ''}).`,
     );
+    // The agent's own metrics (M14), on their own port.
+    if (runtime.config.spec.metrics.enabled) {
+      metricsServer = await startMetricsServer(
+        ctx.metricsPort ?? runtime.config.spec.metrics.port,
+        async () => {
+          const budget = await runtime.budget().catch(() => null);
+          runtime.metrics.setBudget(
+            budget?.limit && budget.spent !== null
+              ? { remaining: Math.max(0, budget.limit - budget.spent), limit: budget.limit }
+              : null,
+          );
+          return runtime.metrics.render();
+        },
+      );
+    }
     ctx.onReady?.({
       healthPort: portOf(health),
       ...(consoleServer ? { consolePort: portOf(consoleServer) } : {}),
+      ...(metricsServer ? { metricsPort: portOf(metricsServer) } : {}),
     });
     await Promise.race([
       waitForStop(ctx),
@@ -393,6 +410,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     await consoleChat?.idle();
     await runtime.close();
     if (consoleServer) await closeServer(consoleServer);
+    if (metricsServer) await closeServer(metricsServer);
     await closeServer(health);
   }
 }
@@ -412,6 +430,29 @@ function helloText(runtime: Runtime): string {
     ...describeConnectors(runtime).map((l) => `• ${l}`),
     `I ask an approver before any change. ${destructive} Mention me to ask a question.`,
   ].join('\n');
+}
+
+/** GET /metrics in the Prometheus text format; nothing else. */
+async function startMetricsServer(port: number, render: () => Promise<string>): Promise<Server> {
+  const server = createServer((req, res) => {
+    if (req.method === 'GET' && (req.url ?? '').split('?')[0] === '/metrics') {
+      render().then(
+        (body) => {
+          res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' }).end(body);
+        },
+        () => {
+          res.writeHead(500).end();
+        },
+      );
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, resolve);
+  });
+  return server;
 }
 
 async function startHealthServer(

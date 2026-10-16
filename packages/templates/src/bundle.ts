@@ -150,19 +150,8 @@ function composeYaml(draft: AgentDraft): string {
     '      - kodra-agent-data:/var/lib/kodra-agent',
   ];
   if (hasFileSecrets(draft)) volumes.push('      - ./secrets:/secrets:ro');
-  if (socket) {
-    volumes.push(
-      '      # WARNING: the Docker socket gives near-root control of this machine.',
-      '      # It is mounted only because the Docker connector has build access.',
-      `      - ${q(`${socket}:/var/run/docker.sock`)}`,
-    );
-  }
-  return `# Docker Compose for ${agentName(draft)} (Kodra AI Agent ${AGENT_VERSION}).
-services:
-  kodra-agent:
-    # A private registry or mirror: set KODRA_AGENT_IMAGE in .env.
+  const common = `    # A private registry or mirror: set KODRA_AGENT_IMAGE in .env.
     image: \${KODRA_AGENT_IMAGE:-${AGENT_IMAGE}:${AGENT_VERSION}}
-    command: ["run"]
     # On Linux, the README has you set KODRA_AGENT_USER in .env to your own user, so the
     # agent can write .env and read secrets/ in this folder.
     user: "\${KODRA_AGENT_USER:-10001:10001}"
@@ -172,6 +161,33 @@ services:
     env_file:
       - path: .env
         required: false
+`;
+  const hardening = `    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+`;
+  // The always-on agent never gets the Docker socket (M14): only a one-shot builder does,
+  // started by hand for `ship` and gone when the build is done.
+  const builder = socket
+    ? `
+  # Builds for \`ship\`, with the Docker socket. It never runs on its own:
+  #   docker compose run --rm kodra-builder ship <owner/repo>
+  kodra-builder:
+${common}    profiles: ["build"]
+    volumes:
+${volumes.join('\n')}
+      # WARNING: the Docker socket gives near-root control of this machine.
+      # Only this one-shot builder mounts it, because the Docker connector has build access.
+      - ${q(`${socket}:/var/run/docker.sock`)}
+    # The Docker socket's group: 0 on Docker Desktop; on Linux the README sets KODRA_DOCKER_GID.
+    group_add: ["\${KODRA_DOCKER_GID:-0}"]
+${hardening}`
+    : '';
+  return `# Docker Compose for ${agentName(draft)} (Kodra AI Agent ${AGENT_VERSION}).
+services:
+  kodra-agent:
+${common}    command: ["run"]
 ${
   draft.console.enabled
     ? `    # The web console, on this machine only. Sign in with a token from .env.
@@ -180,18 +196,8 @@ ${
     : ''
 }    volumes:
 ${volumes.join('\n')}
-${
-  socket
-    ? `    # The Docker socket's group: 0 on Docker Desktop; on Linux the README sets KODRA_DOCKER_GID.
-    group_add: ["\${KODRA_DOCKER_GID:-0}"]
-`
-    : ''
-}    read_only: true
-    tmpfs: ["/tmp"]
-    cap_drop: ["ALL"]
-    security_opt: ["no-new-privileges:true"]
-    restart: unless-stopped
-
+${hardening}    restart: unless-stopped
+${builder}
 volumes:
   kodra-agent-data: {}
 `;
@@ -525,9 +531,11 @@ function readme(draft: AgentDraft): string {
       '',
       '## Docker socket warning',
       '',
-      'This bundle mounts the Docker socket because the Docker connector has build access.',
-      'Access to the Docker socket is close to full control of this machine. Run this agent',
-      'only on a machine meant for builds, and turn build access off if you do not need it.',
+      'The Docker connector has build access, so the `kodra-builder` service mounts the Docker',
+      'socket. Access to the Docker socket is close to full control of this machine. Run builds',
+      'only on a machine meant for them, and turn build access off if you do not need it. The',
+      'always-on `kodra-agent` service never mounts the socket: `kodra-builder` runs only when you',
+      'start it, and stops when the build is done.',
       '',
       '## Ship a service',
       '',
@@ -535,7 +543,7 @@ function readme(draft: AgentDraft): string {
       'test the image, and open a pull request after you approve:',
       '',
       '```sh',
-      'docker compose run --rm kodra-agent ship <owner/repo>',
+      'docker compose run --rm kodra-builder ship <owner/repo>',
       '```',
     );
   }

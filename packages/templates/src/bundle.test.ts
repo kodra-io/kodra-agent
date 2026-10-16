@@ -78,7 +78,7 @@ describe('compose bundle', () => {
     expect(JSON.stringify(service['volumes'])).not.toContain('docker.sock');
   });
 
-  it('mounts the Docker socket only for Docker build access, with a warning', () => {
+  it('mounts the Docker socket only on the one-shot builder, only for build access', () => {
     const readOnly = generateBundle(withConnector(composeDraft(), 'docker'));
     expect(file(readOnly, 'docker-compose.yml')).not.toContain('docker.sock');
 
@@ -88,14 +88,30 @@ describe('compose bundle', () => {
     const compose = file(build, 'docker-compose.yml');
     expect(compose).toContain('"/var/run/docker.sock:/var/run/docker.sock"');
     expect(compose).toContain('WARNING: the Docker socket');
-    const service = (parse(compose) as { services: Record<string, Record<string, unknown>> })
-      .services['kodra-agent'];
-    expect(service?.['group_add']).toEqual(['${KODRA_DOCKER_GID:-0}']);
+    const services = (parse(compose) as { services: Record<string, Record<string, unknown>> })
+      .services;
+    // The always-on agent never has the socket (M14).
+    const agent = services['kodra-agent'];
+    expect(JSON.stringify(agent?.['volumes'])).not.toContain('docker.sock');
+    expect(agent?.['group_add']).toBeUndefined();
+    expect(agent?.['restart']).toBe('unless-stopped');
+    // The builder has it, runs only when started (a profile), and is just as locked down.
+    const builder = services['kodra-builder'];
+    expect(JSON.stringify(builder?.['volumes'])).toContain('/var/run/docker.sock');
+    expect(builder?.['profiles']).toEqual(['build']);
+    expect(builder?.['restart']).toBeUndefined();
+    expect(builder?.['command']).toBeUndefined();
+    expect(builder?.['group_add']).toEqual(['${KODRA_DOCKER_GID:-0}']);
+    expect(builder?.['read_only']).toBe(true);
+    expect(builder?.['cap_drop']).toEqual(['ALL']);
+    expect(builder?.['image']).toBe(agent?.['image']);
+    expect(builder?.['volumes']).toEqual(expect.arrayContaining(agent?.['volumes'] as string[]));
     expect(file(readOnly, 'docker-compose.yml')).not.toContain('group_add');
+    expect(file(readOnly, 'docker-compose.yml')).not.toContain('kodra-builder');
     const readme = file(build, 'README.md');
     expect(readme).toContain('## Docker socket warning');
     expect(readme).toContain('KODRA_DOCKER_GID=$(getent group docker | cut -d: -f3)');
-    expect(readme).toContain('docker compose run --rm kodra-agent ship <owner/repo>');
+    expect(readme).toContain('docker compose run --rm kodra-builder ship <owner/repo>');
   });
 
   it('README has the quickstart, permissions, approvals, and uninstall', () => {

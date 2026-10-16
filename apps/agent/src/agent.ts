@@ -1,3 +1,4 @@
+import { NO_TRACER, taskKind, type AgentTracer, type TraceSpan } from './tracing.ts';
 import {
   dynamicTool,
   generateText,
@@ -91,6 +92,8 @@ export interface AgentDeps {
   signal?: AbortSignal;
   /** Why changes are refused right now (the pause switch), or null. Checked when a change runs. */
   paused?: () => string | null;
+  /** OpenTelemetry spans (M14): names, durations, and counts only. */
+  tracer?: AgentTracer;
 }
 
 /**
@@ -221,6 +224,7 @@ function buildTools(
   deps: AgentDeps,
   task: string,
   router: ModelRouter = NO_ROUTER,
+  turnSpan: TraceSpan = NO_TRACER.start(''),
 ): Record<string, Tool> {
   const actor = deps.actor ?? 'agent';
   const tools: Record<string, Tool> = {};
@@ -244,6 +248,27 @@ function buildTools(
       ].join(' '),
       inputSchema: jsonSchema(schemaFor(hosted)),
       execute: async (input, options) => {
+        const span = turnSpan.child('kodra.tool', {
+          'kodra.connector': hosted.connector,
+          'kodra.tool': hosted.tool,
+          'kodra.risk': hosted.risk,
+        });
+        let outcome = 'error';
+        try {
+          const result = await execute(input, options, (d) => (outcome = d));
+          span.set({ 'kodra.decision': outcome });
+          return result;
+        } finally {
+          span.end(outcome === 'error');
+        }
+      },
+    });
+    const execute = async (
+      input: unknown,
+      options: { toolCallId: string; abortSignal?: AbortSignal | undefined },
+      settle: (decision: string) => void,
+    ): Promise<string> => {
+      {
         const raw = (input ?? {}) as Record<string, unknown>;
         const { [REASON_ARG]: reason, ...args } = raw;
         const source = `${hosted.connector}/${hosted.tool}`;
@@ -280,6 +305,7 @@ function buildTools(
             decision: 'blocked',
             detail: clip(`${misplaced}; args ${redactedArgs}`, 3_500),
           });
+          settle('blocked');
           return wrapUntrusted(source, `BLOCKED: ${misplaced}. Nothing was run.`, deps.redactor);
         }
         const pausedReason = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
@@ -309,6 +335,7 @@ function buildTools(
             decision: 'blocked',
             detail: clip(`${decision.reason}; args ${redactedArgs}`, 3_500),
           });
+          settle('blocked');
           return wrapUntrusted(
             source,
             `BLOCKED by policy: ${decision.reason}. Nothing was run.`,
@@ -374,6 +401,7 @@ function buildTools(
           if (outcome.decision !== 'approved') {
             deps.term.out(`  [${outcome.decision}] ${source}`);
             toolEvent(outcome.decision, note);
+            settle(outcome.decision);
             return wrapUntrusted(
               source,
               outcome.decision === 'expired'
@@ -394,6 +422,7 @@ function buildTools(
             decision: 'blocked',
             detail: clip(`${pausedNow}; args ${redactedArgs}`, 3_500),
           });
+          settle('blocked');
           return wrapUntrusted(source, `BLOCKED: ${pausedNow}. Nothing was run.`, deps.redactor);
         }
         deps.term.out(`  [${hosted.risk}] ${source} ${redactedArgs}`);
@@ -407,6 +436,7 @@ function buildTools(
             detail: clip(`${result.isError ? 'error' : 'ok'}; args ${redactedArgs}`, 3_500),
           });
           toolEvent(result.isError ? 'error' : 'ok');
+          settle(result.isError ? 'error' : decision.kind === 'approve' ? 'approved' : 'allowed');
           return wrapUntrusted(
             source,
             result.isError ? `ERROR: ${result.text}` : result.text,
@@ -422,8 +452,8 @@ function buildTools(
           toolEvent('error', message);
           return wrapUntrusted(source, `ERROR: the tool call failed: ${message}`, deps.redactor);
         }
-      },
-    });
+      }
+    };
   }
   return tools;
 }
@@ -639,8 +669,40 @@ export async function runTurn(
       return pinStop;
     },
   };
-  const tools = buildTools(deps, task, router);
+  const turnSpan = (deps.tracer ?? NO_TRACER).start('kodra.turn', {
+    'kodra.task_kind': taskKind(task),
+  });
+  const tools = buildTools(deps, task, router, turnSpan);
   let stepLabel = current().label;
+  // One span per model step: opened before the step (prepareStep), closed when it finishes.
+  let stepSpan: TraceSpan | null = null;
+  const openStep = (summary: boolean) => {
+    stepSpan?.end();
+    stepSpan = turnSpan.child('kodra.model', {
+      'kodra.model': stepLabel,
+      ...(summary ? { 'kodra.summary': true } : {}),
+    });
+  };
+  const closeStep = (u: TurnUsage, finish: string) => {
+    stepSpan?.set({
+      'kodra.tokens.input': u.input,
+      'kodra.tokens.cache_read': u.cacheRead,
+      'kodra.tokens.output': u.output,
+      'kodra.finish': finish,
+    });
+    stepSpan?.end();
+    stepSpan = null;
+  };
+  const endTurn = (outcome: string, failed = false) => {
+    stepSpan?.end(failed);
+    stepSpan = null;
+    turnSpan.set({
+      'kodra.outcome': outcome,
+      'kodra.tokens.input': usage.input,
+      'kodra.tokens.output': usage.output,
+    });
+    turnSpan.end(failed);
+  };
 
   const logCall = async (u: TurnUsage, finish: string) => {
     await deps.audit.append({
@@ -673,6 +735,7 @@ export async function runTurn(
       prepareStep: () => {
         const now = current();
         stepLabel = now.label;
+        openStep(options.toolChoice === 'none');
         return { model: now.model };
       },
       instructions: SYSTEM_PROMPT,
@@ -749,6 +812,7 @@ export async function runTurn(
       onStep: async (step) => {
         const u = stepUsage(step.usage);
         usage = addUsage(usage, u);
+        closeStep(u, step.finishReason);
         await logCall(u, step.finishReason);
       },
     });
@@ -756,6 +820,7 @@ export async function runTurn(
     const refused = pinStop as string | null;
     if (refused !== null) {
       await deps.audit.append({ event: 'result', actor, task, detail: `stopped: ${refused}` });
+      endTurn('model-pin');
       const said = deps.redactor.redact(result.text).trim();
       return {
         text: `${said ? `${said}\n\n` : ''}Stopped: ${refused}.`,
@@ -784,6 +849,7 @@ export async function runTurn(
       });
       const u = stepUsage(summary.usage);
       usage = addUsage(usage, u);
+      closeStep(u, summary.finishReason);
       await logCall(u, `${summary.finishReason} (summary)`);
       turnMessages = [...turnMessages, note, ...summary.responseMessages];
       text = `${summary.text}\n\n(Stopped at the ${STOP_LABEL[stoppedBy]} for one question. Ask a narrower question to go further.)`;
@@ -795,6 +861,7 @@ export async function runTurn(
       task,
       detail: `${stoppedBy ? `stopped: ${stoppedBy}` : 'answered'}; ${formatUsage(usage)}`,
     });
+    endTurn(stoppedBy ?? 'answered');
     return {
       text: deps.redactor.redact(text),
       messages: turnMessages,
@@ -805,6 +872,7 @@ export async function runTurn(
   } catch (error) {
     if (deps.signal?.aborted) {
       await deps.audit.append({ event: 'result', actor, task, detail: 'stopped: by the user' });
+      endTurn('user');
       const partial = deps.redactor.redact(released).trim();
       return {
         text: `${partial ? `${partial}\n\n` : ''}(Stopped. Nothing more was run.)`,
@@ -819,11 +887,13 @@ export async function runTurn(
     if (!isTimeout) {
       const message = deps.redactor.redact(error instanceof Error ? error.message : String(error));
       await deps.audit.append({ event: 'error', actor, task, detail: message });
+      endTurn('error', true);
       // No `cause`: the original error may carry an unredacted secret.
       // eslint-disable-next-line preserve-caught-error
       throw new Error(message);
     }
     await deps.audit.append({ event: 'result', actor, task, detail: 'stopped: timeout' });
+    endTurn('timeout', true);
     return {
       text: `Stopped: the question hit its ${STOP_LABEL.timeout}.`,
       messages,

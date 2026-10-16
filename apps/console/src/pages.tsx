@@ -172,6 +172,15 @@ export function OverviewPage({ onSignedOut, me }: PageProps) {
             </Tile>
           </div>
 
+          {data?.auditHead && (
+            <p className="text-sm text-ink-secondary">
+              {t('overview.auditHead', { seq: data.auditHead.seq })}{' '}
+              <bdi dir="ltr" className="font-mono" title={data.auditHead.hash}>
+                {data.auditHead.hash.slice(0, 16)}
+              </bdi>
+            </p>
+          )}
+
           <div className="flex flex-wrap items-start gap-5">
             <section
               aria-labelledby="changes-title"

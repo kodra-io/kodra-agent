@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { AuditLog } from '../audit.ts';
+import { AuditLog, verifyAuditChain } from '../audit.ts';
 import {
   allApprovers,
   isSecretRequired,
@@ -99,6 +99,29 @@ export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number>
           hint: 'The agent needs this path writable. In compose it is a named volume; check spec.audit.path.',
         },
   );
+
+  if (auditOk) {
+    // The hash chain (M14): a broken one means a record was edited, deleted, or reordered.
+    const chain = await verifyAuditChain(audit.path);
+    add(
+      chain.ok
+        ? {
+            status: 'pass',
+            component: 'audit',
+            check: 'audit chain',
+            message: chain.head
+              ? `intact up to record ${String(chain.head.seq)}`
+              : 'no chained records yet',
+          }
+        : {
+            status: 'fail',
+            component: 'audit',
+            check: 'audit chain',
+            message: chain.problem ?? 'broken',
+            hint: 'Keep the log as evidence and run `kodra-agent audit verify` for details.',
+          },
+    );
+  }
 
   if (envText !== null) add(await envPermissions(envPath, ctx));
 

@@ -138,6 +138,7 @@ describe('kodra-agent run', () => {
       const model = scriptedModel();
       const stop = new AbortController();
       let healthPort = 0;
+      let metricsPort = 0;
       const t = testContext({
         env: { ANTHROPIC_API_KEY: 'k', SLACK_BOT_TOKEN: 'xoxb-test', SLACK_APP_TOKEN: 'xapp-test' },
         modelFactory: () => model,
@@ -147,6 +148,7 @@ describe('kodra-agent run', () => {
         healthPort: 0,
         onReady: (info) => {
           healthPort = info.healthPort;
+          metricsPort = info.metricsPort ?? 0;
         },
       });
       const running = main(['run', '--config', path], t.ctx);
@@ -191,6 +193,20 @@ describe('kodra-agent run', () => {
       // Each answer ends with what it used.
       expect(reply?.text).toMatch(/\n_\d[\d,]* tokens in.*, \d[\d,]* out_$/);
       expect(reply?.threadTs).toBe('1700000500.000001');
+
+      // The agent's own metrics (M14) count what the audit log recorded, and nothing else.
+      const scrape = await fetch(`http://127.0.0.1:${String(metricsPort)}/metrics`);
+      expect(scrape.status).toBe(200);
+      const metrics = await scrape.text();
+      expect(metrics).toContain('kodra_agent_connector_up{connector="kubernetes"} 1');
+      expect(metrics).toContain('kodra_agent_investigations_total 1');
+      expect(metrics).toMatch(
+        /kodra_agent_tool_calls_total\{connector="kubernetes",decision="approved",risk="write"\} 1/,
+      );
+      expect(metrics).toContain('kodra_agent_approval_wait_seconds_count{decision="approved"} 1');
+      expect(metrics).toContain('kodra_agent_approvals_pending 0');
+      expect(metrics).not.toContain('scale web');
+      expect((await fetch(`http://127.0.0.1:${String(metricsPort)}/`)).status).toBe(404);
 
       stop.abort();
       expect(await running).toBe(0);
