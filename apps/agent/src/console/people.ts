@@ -1,5 +1,5 @@
 import { parseAgentConfig } from '@kodra-agent/connectors';
-import { consoleApproverTokenEnv, isConsoleApprover } from '@kodra-agent/schema';
+import { consoleApproverTokenEnv, isTokenApprover } from '@kodra-agent/schema';
 import type { SessionInfo, SessionRegistry } from './server.ts';
 import type { SettingsStore } from './settings.ts';
 import { CONSOLE_TOKEN_ENV, newConsoleToken } from './token.ts';
@@ -65,14 +65,14 @@ export class People {
           tokenSet: Boolean(this.env[CONSOLE_TOKEN_ENV]),
           envVar: CONSOLE_TOKEN_ENV,
         },
-        ...approvers.filter(isConsoleApprover).map((who) => ({
+        ...approvers.filter(isTokenApprover).map((who) => ({
           who,
           canApprove: true,
           tokenSet: Boolean(this.env[consoleApproverTokenEnv(who)]),
           envVar: consoleApproverTokenEnv(who),
         })),
       ],
-      otherApprovers: approvers.filter((a) => !isConsoleApprover(a)),
+      otherApprovers: approvers.filter((a) => !isTokenApprover(a)),
       sessions: this.sessions.list(),
     };
   }
@@ -91,7 +91,7 @@ export class People {
     const refused = await this.editable();
     if (refused) return refused;
     const who = name.startsWith('console:') ? name : `console:${name}`;
-    if (!isConsoleApprover(who)) {
+    if (!isTokenApprover(who)) {
       return {
         ok: false,
         status: 400,
@@ -122,7 +122,7 @@ export class People {
     const approvers = (await this.config()).spec.policy.approvals.approvers;
     let envVar: string;
     if (who === SHARED_ACCOUNT) envVar = CONSOLE_TOKEN_ENV;
-    else if (isConsoleApprover(who) && approvers.includes(who)) {
+    else if (isTokenApprover(who) && approvers.includes(who)) {
       envVar = consoleApproverTokenEnv(who);
     } else return { ok: false, status: 404, error: 'no such console account' };
     const token = newConsoleToken();
@@ -137,7 +137,7 @@ export class People {
     if (refused) return refused;
     const who = name.startsWith('console:') ? name : `console:${name}`;
     const approvers = (await this.config()).spec.policy.approvals.approvers;
-    if (!isConsoleApprover(who)) {
+    if (!isTokenApprover(who)) {
       return action === 'add'
         ? {
             ok: false,
@@ -152,7 +152,7 @@ export class People {
     if (action === 'remove' && !approvers.includes(who)) {
       return { ok: false, status: 404, error: 'no such console approver' };
     }
-    if (action === 'remove' && approvers.filter(isConsoleApprover).length === 1) {
+    if (action === 'remove' && approvers.filter(isTokenApprover).length === 1) {
       return {
         ok: false,
         status: 409,
@@ -167,10 +167,10 @@ export class People {
     const refused = await this.editable();
     if (refused) return refused;
     const approvers = (await this.config()).spec.policy.approvals.approvers;
-    if (!isConsoleApprover(who) || !approvers.includes(who)) {
+    if (!isTokenApprover(who) || !approvers.includes(who)) {
       return { ok: false, status: 404, error: 'no such console approver' };
     }
-    if (approvers.filter(isConsoleApprover).length === 1) {
+    if (approvers.filter(isTokenApprover).length === 1) {
       return {
         ok: false,
         status: 409,

@@ -114,12 +114,14 @@ export async function get<T>(route: string, query: Record<string, string> = {}):
   return (await res.json()) as T;
 }
 
-/** Who is signed in. `user` is `console` (the shared token) or `console:<name>`. */
+/** Who is signed in: `console:admin`, `console` (the shared token), or `console:<name>`. */
 export interface Session {
   signedIn: boolean;
   user?: string;
   canApprove?: boolean;
   features?: { chat?: boolean };
+  /** Signed in as admin with the default password: it must be changed first. */
+  mustChangePassword?: boolean;
 }
 
 export async function session(): Promise<Session> {
@@ -248,15 +250,34 @@ export type ChatEvent = { seq: number; ts: string } & (
   | { type: 'text'; text: string }
 );
 
-export async function signIn(token: string): Promise<'ok' | 'wrong' | 'too-many'> {
+export async function signIn(
+  credentials: { username: string; password: string } | { token: string },
+): Promise<'ok' | 'wrong' | 'too-many'> {
   const res = await fetch('/api/login', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify(credentials),
   });
   if (res.status === 429) return 'too-many';
   return res.ok ? 'ok' : 'wrong';
+}
+
+/** The admin's new password. Fails as `wrong-current`, `weak`, `too-many`, or `failed`. */
+export async function changePassword(
+  current: string,
+  next: string,
+): Promise<'ok' | 'wrong-current' | 'weak' | 'too-many' | 'failed'> {
+  const res = await fetch('/api/password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', 'x-kodra-console': '1' },
+    body: JSON.stringify({ current, next }),
+  });
+  if (res.ok) return 'ok';
+  if (res.status === 429) return 'too-many';
+  const body = (await res.json().catch(() => ({}))) as { code?: string };
+  return body.code === 'wrong-current' || body.code === 'weak' ? body.code : 'failed';
 }
 
 export async function signOut(): Promise<void> {
