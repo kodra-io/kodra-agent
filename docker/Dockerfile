@@ -5,7 +5,7 @@
 # others) that are published for glibc. Every base image and tool is pinned.
 
 FROM ghcr.io/astral-sh/uv:0.12.21 AS uv
-FROM docker:29.8.2-cli AS docker-cli
+FROM docker:29.9.0-cli AS docker-cli
 FROM alpine/helm:4.3.0 AS helm
 
 # Production dependencies of the agent and its workspace packages, from the lockfile.
