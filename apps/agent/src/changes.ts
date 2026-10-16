@@ -6,7 +6,13 @@ import { unifiedDiff } from './diff.ts';
 import type { FileReader } from './forge-files.ts';
 import type { HostedTool } from './mcp/host.ts';
 import { decide, touchedBy, type Risk } from './policy.ts';
-import { recordOverride, wrapUntrusted, type AgentDeps } from './agent.ts';
+import {
+  NO_ROUTER,
+  recordOverride,
+  wrapUntrusted,
+  type AgentDeps,
+  type ModelRouter,
+} from './agent.ts';
 
 /**
  * Proposed changes (M9): the model proposes several tool calls as one change, the agent
@@ -171,6 +177,7 @@ export function proposeChangeTool(
   deps: AgentDeps,
   task: string,
   offered: readonly HostedTool[],
+  router: ModelRouter = NO_ROUTER,
 ): Tool {
   const actor = deps.actor ?? 'agent';
   const byName = new Map(offered.map((t) => [t.name, t]));
@@ -275,6 +282,12 @@ export function proposeChangeTool(
         repos: touched.flatMap((t) => t.repos),
       });
       if (!rules.ok) return refuse(rules.reason);
+      // The preview and results hold the environment's data: its model only (M13).
+      const misplaced = router.place({
+        namespaces: touched.flatMap((t) => t.namespaces),
+        repos: touched.flatMap((t) => t.repos),
+      });
+      if (misplaced) return refuse(misplaced);
 
       let preview: Preview;
       try {

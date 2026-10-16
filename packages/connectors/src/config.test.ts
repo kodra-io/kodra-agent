@@ -436,3 +436,39 @@ ${extra}
     ]);
   });
 });
+
+describe('data protection and named models', () => {
+  const plain = (result: ParseResult) =>
+    messages(result).map((m) => m.replace(/^kodra-agent\.yaml:\d+:\d+ /, ''));
+  const withModels = (extra: string) => `${config(ollama)}  models:
+    local:
+      provider: ollama
+      name: m
+      baseUrl: http://ollama:11434
+  environments:
+    - name: production
+      namespaces: [shop]
+      model: ${extra}
+  dataProtection:
+    redact: [cards, emails]
+    patterns:
+      - {name: customer-id, regex: '\bCUST-[0-9]{8}\b'}
+`;
+
+  it('accepts named models, an environment that names one, and detectors', () => {
+    const result = parseAgentConfig(withModels('local'));
+    expect(result.ok ? [] : plain(result)).toEqual([]);
+  });
+
+  it('refuses an unknown model and patterns that match nothing or are invalid', () => {
+    const bad = withModels('cloud').replace(
+      "regex: '\bCUST-[0-9]{8}\b'}",
+      "regex: '.*'}\n      - {name: broken, regex: '([a-z'}",
+    );
+    expect(plain(parseAgentConfig(bad))).toEqual([
+      'spec.dataProtection.patterns.0.regex: must be a valid regular expression that does not match empty text',
+      'spec.dataProtection.patterns.1.regex: must be a valid regular expression that does not match empty text',
+      'spec.environments.0.model: cloud is not in spec.models. Name a model defined there.',
+    ]);
+  });
+});

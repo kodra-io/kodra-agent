@@ -1,3 +1,5 @@
+import type { DataMasker } from './data-protection.ts';
+
 /**
  * Masks secret values in any text before it leaves the process: terminal output, logs,
  * the audit log, and (from M4) everything sent to the model.
@@ -64,6 +66,12 @@ const CREDENTIAL_FIELD =
 export class Redactor {
   private readonly forms = new Set<string>();
   private matcher: RegExp | null = null;
+  private masker: DataMasker | null = null;
+
+  /** Customer data to mask after secrets (M13), from spec.dataProtection. */
+  setMasker(masker: DataMasker | null): void {
+    this.masker = masker?.active ? masker : null;
+  }
 
   /**
    * Registers a secret value. Every later redact() call masks it in all its forms. For
@@ -96,7 +104,23 @@ export class Redactor {
     return longest;
   }
 
+  /** Secrets, then customer data: what may leave the process. */
   redact(text: string): string {
+    return this.redactCounted(text).text;
+  }
+
+  /** Like redact(), and how many customer values of each type were masked (for the audit log). */
+  redactCounted(text: string): { text: string; counts: Record<string, number> } {
+    const counts: Record<string, number> = {};
+    const secretsOut = this.redactSecrets(text);
+    return { text: this.masker ? this.masker.mask(secretsOut, counts) : secretsOut, counts };
+  }
+
+  /**
+   * Secrets only, for showing people what they typed themselves (the console's own messages);
+   * everything else, and everything sent to the model, goes through redact().
+   */
+  redactSecrets(text: string): string {
     let out = text;
     if (this.forms.size > 0) {
       // Longest first, so a value that contains another one is masked whole.

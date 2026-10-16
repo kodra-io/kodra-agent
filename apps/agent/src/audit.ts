@@ -41,6 +41,8 @@ export const auditRecordSchema = z.strictObject({
       output: z.int().nonnegative(),
     })
     .optional(),
+  /** Customer values masked in this record, counted by type (M13); never the values. */
+  redactions: z.record(z.string(), z.int().nonnegative()).optional(),
   /** The model, for model.call records (provider/name). */
   model: z.string().max(200).optional(),
 });
@@ -80,7 +82,12 @@ export class AuditLog {
     if (!parsed.success) return Promise.reject(new Error('invalid audit record'));
     const record = parsed.data;
     // Redact the serialized line, so a secret in any field is masked.
-    const line = `${this.redactor.redact(JSON.stringify(record))}\n`;
+    const { text, counts } = this.redactor.redactCounted(JSON.stringify(record));
+    const line = `${
+      Object.keys(counts).length > 0
+        ? JSON.stringify({ ...(JSON.parse(text) as object), redactions: counts })
+        : text
+    }\n`;
     const next = this.queue.then(() => this.write(line));
     this.queue = next.catch(() => undefined);
     return next;

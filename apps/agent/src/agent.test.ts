@@ -575,6 +575,59 @@ describe('streaming and stopping (the console)', () => {
     expect(JSON.stringify(events)).not.toContain(STREAM_SECRET);
   });
 
+  it("streaming too: a pinned environment's tool output reaches only its model (M13)", async () => {
+    const { deps } = await setup({
+      responses: [],
+      policy: resolvePolicy({
+        profile: 'team',
+        policy: { approvals: { approvers: ['U01', 'U02'], expiresAfterMinutes: 15 } },
+        environments: [
+          { name: 'production', production: true, namespaces: ['api'], repos: [], model: 'local' },
+        ],
+      }),
+    });
+    const askForLogs = new MockLanguageModelV4({
+      doStream: [
+        {
+          stream: convertArrayToReadableStream([
+            {
+              type: 'tool-call',
+              toolCallId: 'c1',
+              toolName: 'fakek8s__pods_log',
+              input: JSON.stringify({ namespace: 'api', name: 'web' }),
+            },
+            finish('tool-calls'),
+          ]),
+        },
+      ],
+    });
+    const local = new MockLanguageModelV4({
+      doStream: [
+        {
+          stream: convertArrayToReadableStream([
+            ...textParts('The database refuses connections.', 8),
+            finish('stop'),
+          ]),
+        },
+      ],
+    });
+    const result = await runTurn(
+      {
+        ...deps,
+        model: askForLogs,
+        models: { local: { model: local, label: 'ollama/local' } },
+        stream: true,
+      },
+      [],
+      'why?',
+      's-route',
+    );
+    expect(result.text).toBe('The database refuses connections.');
+    expect(askForLogs.doStreamCalls).toHaveLength(1);
+    expect(JSON.stringify(askForLogs.doStreamCalls[0]?.prompt)).not.toContain('logs for api/web');
+    expect(JSON.stringify(local.doStreamCalls[0]?.prompt)).toContain('logs for api/web');
+  });
+
   it('stops on request: keeps what it said, cancels a waiting approval, runs nothing', async () => {
     const { deps, audit } = await setup({ access: 'read-write-approved', responses: [] });
     const stop = new AbortController();
@@ -637,5 +690,100 @@ describe('streaming and stopping (the console)', () => {
       false,
     );
     expect(records.at(-1)).toMatchObject({ event: 'result', detail: 'stopped: by the user' });
+  });
+});
+
+describe('model routing (M13)', () => {
+  const routed = (envs: { name: string; namespaces: string[]; model: string }[]) =>
+    resolvePolicy({
+      profile: 'team',
+      policy: { approvals: { approvers: ['U01', 'U02'], expiresAfterMinutes: 15 } },
+      environments: envs.map((e) => ({ ...e, production: true, repos: [] })),
+    });
+  const seen = (m: MockLanguageModelV4) => JSON.stringify(m.doGenerateCalls.map((c) => c.prompt));
+
+  it("sends a pinned environment's tool output only to its model, this turn and the next", async () => {
+    const { deps } = await setup({
+      policy: routed([{ name: 'production', namespaces: ['api'], model: 'local' }]),
+      responses: [call('fakek8s__pods_log', { namespace: 'api', name: 'web' })],
+    });
+    const local = new MockLanguageModelV4({
+      doGenerate: [answer('The database refuses connections.'), answer('Still the database.')],
+    });
+    const routedDeps = { ...deps, models: { local: { model: local, label: 'ollama/local' } } };
+    const first = await runTurn(routedDeps, [], 'why is web failing?', 't-route');
+    expect(first.pin).toEqual({ model: 'local', environment: 'production' });
+    expect(first.text).toBe('The database refuses connections.');
+    // The default model asked for the logs and never saw them; the pinned model did.
+    const defaultModel = deps.model as MockLanguageModelV4;
+    expect(defaultModel.doGenerateCalls).toHaveLength(1);
+    expect(seen(defaultModel)).not.toContain('logs for api/web');
+    expect(seen(local)).toContain('logs for api/web');
+
+    // The next turn starts on the pinned model: the history holds the logs.
+    const second = await runTurn(routedDeps, first.messages, 'and now?', 't-route-2', {
+      pin: first.pin,
+    });
+    expect(second.text).toBe('Still the database.');
+    expect(defaultModel.doGenerateCalls).toHaveLength(1);
+  });
+
+  it('counts a read that names no namespace as touching every pinned environment', async () => {
+    const { deps } = await setup({
+      policy: routed([{ name: 'production', namespaces: ['api'], model: 'local' }]),
+      responses: [call('fakek8s__whoami', {})],
+    });
+    const local = new MockLanguageModelV4({ doGenerate: [answer('Done.')] });
+    const result = await runTurn(
+      { ...deps, models: { local: { model: local, label: 'ollama/local' } } },
+      [],
+      'who are you?',
+      't-route-3',
+    );
+    expect(result.pin).toEqual({ model: 'local', environment: 'production' });
+    expect(local.doGenerateCalls).toHaveLength(1);
+  });
+
+  it('stops the turn when a second environment pins another model', async () => {
+    const { deps, audit } = await setup({
+      policy: routed([
+        { name: 'production', namespaces: ['api'], model: 'local' },
+        { name: 'partner', namespaces: ['web'], model: 'partner' },
+      ]),
+      responses: [],
+    });
+    const local = new MockLanguageModelV4({
+      doGenerate: [call('fakek8s__pods_log', { namespace: 'web', name: 'web' })],
+    });
+    const partner = new MockLanguageModelV4({ doGenerate: [] });
+    const result = await runTurn(
+      {
+        ...deps,
+        models: {
+          local: { model: local, label: 'ollama/local' },
+          partner: { model: partner, label: 'openai/partner' },
+        },
+      },
+      [],
+      'and the web logs?',
+      't-route-4',
+      { pin: { model: 'local', environment: 'production' } },
+    );
+    expect(result.stoppedBy).toBe('model-pin');
+    expect(result.text).toContain(
+      'Stopped: this conversation already uses the local model for production. Ask about partner in a new conversation.',
+    );
+    expect(partner.doGenerateCalls).toHaveLength(0);
+    expect(seen(local)).not.toContain('logs for web');
+    expect((await audit()).some((r) => r['decision'] === 'blocked')).toBe(true);
+  });
+
+  it('refuses a pin whose model is not available, before any call', async () => {
+    const { deps } = await setup({ responses: [] });
+    const result = await runTurn(deps, [], 'hello', 't-route-5', {
+      pin: { model: 'local', environment: 'production' },
+    });
+    expect(result.stoppedBy).toBe('model-pin');
+    expect((deps.model as MockLanguageModelV4).doGenerateCalls).toHaveLength(0);
   });
 });

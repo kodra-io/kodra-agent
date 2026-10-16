@@ -38,7 +38,15 @@ export const fakeManifest: Manifest = defineManifest({
     wipe_everything: 'destructive',
   },
   guards: {
-    pods_log: [{ kind: 'arg-in-setting', arg: 'namespace', setting: 'namespaces', required: true }],
+    pods_log: [
+      {
+        kind: 'arg-in-setting',
+        arg: 'namespace',
+        setting: 'namespaces',
+        required: true,
+        scope: 'namespace',
+      },
+    ],
     resources_scale: [
       {
         kind: 'arg-in-setting',

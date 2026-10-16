@@ -10,7 +10,7 @@ import {
   type StopCondition,
   type Tool,
 } from 'ai';
-import type { EffectivePolicy } from '@kodra-agent/schema';
+import { pinnedEnvironments, type EffectivePolicy } from '@kodra-agent/schema';
 import {
   decisionAudit,
   newApprovalRequest,
@@ -68,6 +68,8 @@ export interface AgentDeps {
   audit: AuditLog;
   redactor: Redactor;
   term: Terminal;
+  /** Named models (spec.models) that environments pin (M13). */
+  models?: Readonly<Record<string, { model: LanguageModel; label: string }>>;
   /** Tells all approvers something they must know, like a freeze override (Slack channel). */
   announce?: (text: string) => Promise<void>;
   policy: {
@@ -215,7 +217,11 @@ export function alwaysBlocked(
   );
 }
 
-function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
+function buildTools(
+  deps: AgentDeps,
+  task: string,
+  router: ModelRouter = NO_ROUTER,
+): Record<string, Tool> {
   const actor = deps.actor ?? 'agent';
   const tools: Record<string, Tool> = {};
   const hostedTools = deps.host
@@ -223,7 +229,7 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
     .filter((t) => !alwaysBlocked(t, deps.policy, deps.readOnly === true));
   // Proposed changes come first, so the cache breakpoint on the last tool still covers all.
   if (deps.readOnly !== true && hostedTools.some((t) => t.risk !== 'read')) {
-    tools[PROPOSE_CHANGE] = proposeChangeTool(deps, task, hostedTools);
+    tools[PROPOSE_CHANGE] = proposeChangeTool(deps, task, hostedTools, router);
   }
   const last = hostedTools.at(-1)?.name;
   for (const hosted of hostedTools) {
@@ -263,6 +269,19 @@ function buildTools(deps: AgentDeps, task: string): Record<string, Tool> {
           });
         };
 
+        // Data from an environment with its own model goes only to that model (M13).
+        const misplaced = router.place(touchedBy(hosted.guards, args));
+        if (misplaced) {
+          deps.term.out(`  [blocked] ${source}: ${misplaced}`);
+          toolEvent('blocked', misplaced);
+          await deps.audit.append({
+            ...base,
+            event: 'tool.call',
+            decision: 'blocked',
+            detail: clip(`${misplaced}; args ${redactedArgs}`, 3_500),
+          });
+          return wrapUntrusted(source, `BLOCKED: ${misplaced}. Nothing was run.`, deps.redactor);
+        }
         const pausedReason = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
         let decision: Decision =
           deps.readOnly && hosted.risk !== 'read'
@@ -420,9 +439,28 @@ export interface TurnUsage {
 export interface TurnResult {
   text: string;
   messages: ModelMessage[];
-  stoppedBy?: 'token-budget' | 'timeout' | 'step-limit' | 'user';
+  stoppedBy?: 'token-budget' | 'timeout' | 'step-limit' | 'user' | 'model-pin';
   usage: TurnUsage;
+  /** The model this conversation is pinned to: keep it for the next turn (M13). */
+  pin: ModelPin | null;
 }
+
+/**
+ * A conversation that saw data from an environment with its own model stays on that model
+ * (M13): the history now holds that data, so no other model may read it.
+ */
+export interface ModelPin {
+  model: string;
+  environment: string;
+}
+
+/** Places a tool call's data with a model; returns why it is refused, or null (M13). */
+export interface ModelRouter {
+  place(touched: { namespaces: readonly string[]; repos: readonly string[] }): string | null;
+}
+
+/** A router for tools used outside a turn: nothing is pinned. */
+export const NO_ROUTER: ModelRouter = { place: () => null };
 
 /**
  * A change that overrode a freeze is audited on its own record and announced to all approvers
@@ -556,22 +594,62 @@ export async function runTurn(
   history: readonly ModelMessage[],
   userText: string,
   task: string,
+  options: { pin?: ModelPin | null } = {},
 ): Promise<TurnResult> {
   const limits = deps.limits ?? DEFAULT_LIMITS;
   const actor = deps.actor ?? 'agent';
   const userMessage: ModelMessage = { role: 'user', content: deps.redactor.redact(userText) };
   const messages = [...history, userMessage];
-  const tools = buildTools(deps, task);
   let usage = NO_USAGE;
+
+  // Model routing (M13): the conversation's pin decides the model for every step. A tool call
+  // that touches an environment with its own model pins the conversation before its result is
+  // sent (prepareStep switches the model); a second, different pin stops the turn.
+  let pin = options.pin ?? null;
+  let pinStop: string | null = null;
+  const pinned = (p: ModelPin) => deps.models?.[p.model];
+  if (pin && !pinned(pin)) {
+    return {
+      text: `This conversation uses the ${pin.model} model for ${pin.environment}, which is not available now. Start a new conversation.`,
+      messages: [...history],
+      stoppedBy: 'model-pin',
+      usage,
+      pin,
+    };
+  }
+  const current = () =>
+    (pin ? pinned(pin) : undefined) ?? { model: deps.model, label: deps.modelLabel };
+  const router: ModelRouter = {
+    place(touched) {
+      const hits = pinnedEnvironments(deps.policy.effective, touched);
+      const models = [...new Set(hits.map((e) => e.model ?? ''))];
+      if (models.length === 0) return null;
+      const names = hits.map((e) => e.name).join(' and ');
+      const want = models.length === 1 ? models[0] : undefined;
+      if (want === undefined) {
+        pinStop = `this reads ${names}, which send their data to different models. Ask about one of them at a time`;
+      } else if (pin && pin.model !== want) {
+        pinStop = `this conversation already uses the ${pin.model} model for ${pin.environment}. Ask about ${names} in a new conversation`;
+      } else if (!deps.models?.[want]) {
+        pinStop = `the ${want} model for ${names} is not available`;
+      } else {
+        pin ??= { model: want, environment: hits[0]?.name ?? names };
+        return null;
+      }
+      return pinStop;
+    },
+  };
+  const tools = buildTools(deps, task, router);
+  let stepLabel = current().label;
 
   const logCall = async (u: TurnUsage, finish: string) => {
     await deps.audit.append({
       event: 'model.call',
       actor,
       task,
-      model: deps.modelLabel,
+      model: stepLabel,
       usage: u,
-      detail: `${deps.modelLabel}; ${String(u.input)} in (${String(u.cacheRead)} cached), ${String(u.output)} out; finish ${finish}`,
+      detail: `${stepLabel}; ${String(u.input)} in (${String(u.cacheRead)} cached), ${String(u.output)} out; finish ${finish}`,
     });
   };
 
@@ -590,7 +668,13 @@ export async function runTurn(
    */
   const callModel = async (options: ModelCallOptions): Promise<ModelCallResult> => {
     const common = {
-      model: deps.model,
+      model: current().model,
+      // Before each step: the pinned model, once a tool result pinned the conversation.
+      prepareStep: () => {
+        const now = current();
+        stepLabel = now.label;
+        return { model: now.model };
+      },
       instructions: SYSTEM_PROMPT,
       messages: options.messages,
       tools: options.tools,
@@ -656,6 +740,7 @@ export async function runTurn(
       ...(deps.signal ? { abortSignal: deps.signal } : {}),
       stopWhen: [
         stepCountIs(limits.maxSteps),
+        () => pinStop !== null,
         ({ steps }) =>
           weightedTokens(steps.reduce((u, s) => addUsage(u, stepUsage(s.usage)), NO_USAGE)) >
           limits.tokenBudget,
@@ -667,6 +752,19 @@ export async function runTurn(
         await logCall(u, step.finishReason);
       },
     });
+    // Set by the router during the call, which TypeScript cannot see from here.
+    const refused = pinStop as string | null;
+    if (refused !== null) {
+      await deps.audit.append({ event: 'result', actor, task, detail: `stopped: ${refused}` });
+      const said = deps.redactor.redact(result.text).trim();
+      return {
+        text: `${said ? `${said}\n\n` : ''}Stopped: ${refused}.`,
+        messages: [...messages, ...result.responseMessages],
+        stoppedBy: 'model-pin',
+        usage,
+        pin,
+      };
+    }
     let stoppedBy: 'token-budget' | 'step-limit' | undefined;
     if (result.finishReason === 'tool-calls') {
       stoppedBy = weightedTokens(usage) > limits.tokenBudget ? 'token-budget' : 'step-limit';
@@ -702,6 +800,7 @@ export async function runTurn(
       messages: turnMessages,
       ...(stoppedBy ? { stoppedBy } : {}),
       usage,
+      pin,
     };
   } catch (error) {
     if (deps.signal?.aborted) {
@@ -712,6 +811,7 @@ export async function runTurn(
         messages,
         stoppedBy: 'user',
         usage,
+        pin,
       };
     }
     const isTimeout =
@@ -729,6 +829,7 @@ export async function runTurn(
       messages,
       stoppedBy: 'timeout',
       usage,
+      pin,
     };
   }
 }

@@ -198,6 +198,11 @@ const environmentSchema = z
       .prefault({}),
     /** Freeze windows: writes here need an approver's override, with a reason. */
     freezes: z.array(freezeSchema).max(20).default([]),
+    /** A name from spec.models: data from this environment goes only to that model (M13). */
+    model: z
+      .string()
+      .regex(/^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/, 'must be a name from spec.models')
+      .optional(),
   })
   .meta({ description: 'Namespaces and repositories with their own approval rules.' });
 export type EnvironmentConfig = z.infer<typeof environmentSchema>;
@@ -281,6 +286,43 @@ const networkSchema = z
   })
   .prefault({})
   .meta({ description: 'Proxy and CA certificates for every outbound connection.' });
+
+/** Customer data the redactor masks besides secrets (M13); the profile picks the default. */
+export const DETECTORS = ['cards', 'ibans', 'emails', 'phones'] as const;
+export type Detector = (typeof DETECTORS)[number];
+
+const dataProtectionSchema = z
+  .strictObject({
+    redact: z
+      .array(z.enum(DETECTORS, { error: 'must be cards, ibans, emails, or phones' }))
+      .optional(),
+    patterns: z
+      .array(
+        z.strictObject({
+          name: z
+            .string()
+            .regex(
+              /^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/,
+              'must be lowercase letters, digits, and hyphens',
+            ),
+          regex: z
+            .string()
+            .min(1)
+            .max(500)
+            .refine((p) => {
+              try {
+                return !new RegExp(p).test('');
+              } catch {
+                return false;
+              }
+            }, 'must be a valid regular expression that does not match empty text'),
+        }),
+      )
+      .max(20)
+      .default([]),
+  })
+  .prefault({})
+  .meta({ description: 'Customer data masked before anything leaves the agent.' });
 
 const registryHost = z
   .string()
@@ -439,6 +481,19 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         limits: limitsSchema,
         console: consoleSchema,
         network: networkSchema,
+        dataProtection: dataProtectionSchema,
+        /** Named models besides spec.model, for environments that pin one (M13). */
+        models: z
+          .record(
+            z
+              .string()
+              .regex(
+                /^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/,
+                'must be lowercase letters, digits, and hyphens',
+              ),
+            modelSchema,
+          )
+          .default({}),
         ship: shipSchema,
       }),
     })
@@ -476,6 +531,15 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
           message: 'console approvers need the console: set spec.console.enabled to true.',
         });
       }
+      config.spec.environments.forEach((env, i) => {
+        if (env.model && !(env.model in config.spec.models)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['spec', 'environments', i, 'model'],
+            message: `${env.model} is not in spec.models. Name a model defined there.`,
+          });
+        }
+      });
       for (const problem of policyProblems(config.spec)) {
         ctx.addIssue({ code: 'custom', path: problem.path, message: problem.message });
       }
@@ -524,6 +588,11 @@ export interface AgentConfig {
       timeoutMinutes: number;
       monthlyBudgetUsd?: number | undefined;
     };
+    dataProtection: {
+      redact?: Detector[] | undefined;
+      patterns: { name: string; regex: string }[];
+    };
+    models: Record<string, ModelConfig>;
     network: {
       proxy?:
         | { https?: string | undefined; http?: string | undefined; noProxy?: string | undefined }
