@@ -558,7 +558,7 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           held.push({
             id: 'p1',
             title: 'changed gitlab.access',
-            requestedBy: user?.name ?? '',
+            requestedBy: user.name,
             expiresAt: '2026-10-09T09:30:00.000Z',
           });
           return route.fulfill({ status: 202, json: { pending: 'p1' } });

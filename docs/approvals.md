@@ -93,3 +93,67 @@ user ids (`U…` or `W…`) and console approvers (`console:<name>`).
   only when every name matches exactly one person, and otherwise writes nothing.
 - A name left in the config approves nothing. `run` warns about it at startup, and
   `doctor` fails with a hint to run `init`.
+
+## Change control (M11)
+
+### Freeze windows
+
+```yaml
+environments:
+  - name: production
+    production: true
+    namespaces: [api, web]
+    freezes:
+      - name: weekend
+        timezone: Asia/Amman
+        weekly: { from: 'Thu 18:00', to: 'Sat 23:59' } # may wrap past Saturday
+      - name: year-end
+        timezone: Asia/Amman
+        dates: { from: '2026-12-28', to: '2027-01-02' } # whole local days
+```
+
+- Each freeze has `weekly` or `dates`, not both, and its own IANA time zone. Times are local
+  wall-clock times in that zone, so daylight saving changes never move a window. Both ends
+  are included, to the minute.
+- A write in a frozen environment is not run on its own. It goes to approval as a
+  break-glass request: Slack, the console, and the terminal say the environment is frozen
+  and until when, and approving needs a written reason. In `strict`, it needs two approvers.
+- An approved override is audited twice (on the decision, and as an `override` record) and
+  announced in the agent's Slack channel. Console Activity shows it too.
+
+### Change references
+
+```yaml
+approvals:
+  requireChangeRef: true # on by default for strict production
+  changeRefPattern: '^CHG[0-9]{7}$' # optional
+```
+
+- The first approval must give a reference that matches the pattern: in a Slack form, in
+  the console's confirm step, or at the terminal prompt. Later approvers see it.
+- It is stored on the audit record (`changeRef`) and shown with the decision. The agent
+  makes no calls to any ticketing system.
+
+### Policy changes from the console
+
+A console save is a policy change when it changes the profile, environments, approvers
+(including adding or removing someone in People), approval rules, destructive actions, or a
+connector's access or scope. Undo counts too when what it puts back is a policy change.
+
+| Profile   | What happens                                                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `starter` | Audited, like any settings change.                                                                                                    |
+| `team`    | Audited, and announced in Slack with the diff.                                                                                        |
+| `strict`  | Held until a second approver approves it (the person who saved cannot). It then applies, checked again first, and the agent restarts. |
+
+A held add in People creates no token. Once it is approved, create the new approver's token
+with Rotate.
+
+### The agent never changes itself
+
+Every Kubernetes write tool carries a `not-self` guard. On Kubernetes the chart tells the
+agent its own namespace and names (`KODRA_AGENT_SELF_NAMESPACE`, `KODRA_AGENT_SELF_NAMES`),
+and any write to those objects, or to pods named after them, is blocked even with approval.
+A missing namespace counts as the agent's own, and a manifest that cannot be read is
+blocked. `src/self-protection.test.ts` fails if a new write-capable tool is added without
+the guard or a reason it cannot reach the agent.

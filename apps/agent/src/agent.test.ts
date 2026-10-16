@@ -181,6 +181,58 @@ describe('agent loop', () => {
     expect(req?.ballot.requester).toBe('U01');
   });
 
+  it('a write during a freeze is a break-glass override: audited and announced', async () => {
+    const policy = resolvePolicy({
+      profile: 'team',
+      policy: { approvals: { approvers: ['U01', 'U02'], expiresAfterMinutes: 15 } },
+      environments: [
+        {
+          name: 'production',
+          production: true,
+          namespaces: ['api'],
+          repos: [],
+          // Frozen all week, so the test does not depend on today's date.
+          freezes: [
+            { name: 'always', timezone: 'UTC', weekly: { from: 'Sun 00:00', to: 'Sat 23:59' } },
+          ],
+        },
+      ],
+    });
+    const { deps, channel, audit } = await setup({
+      access: 'read-write-approved',
+      policy,
+      approval: { decision: 'approved', by: 'U02', override: 'Checkout is down.' },
+      responses: [
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', scale: 3 }),
+        answer('Scaled.'),
+      ],
+    });
+    const announced: string[] = [];
+    await runTurn(
+      {
+        ...deps,
+        actor: 'slack:U01',
+        announce: (text) => {
+          announced.push(text);
+          return Promise.resolve();
+        },
+      },
+      [],
+      'scale web to 3',
+      't-freeze',
+    );
+    expect(channel.requests[0]?.ballot.rules.freeze).toMatchObject({ name: 'always' });
+    expect(channel.requests[0]?.ballot.needs.reason).toBe(true);
+    const records = await audit();
+    expect(records.find((r) => r['event'] === 'approval.decision')?.['detail']).toContain(
+      'break-glass during always: Checkout is down.',
+    );
+    expect(records.find((r) => r['event'] === 'override')).toMatchObject({ actor: 'U02' });
+    expect(announced).toEqual([
+      'Freeze override in production: U02 approved "fakek8s/resources_scale" during always (until Sat 23:59 UTC). Reason: Checkout is down.',
+    ]);
+  });
+
   it('asks for approval for a write, with the reason, then runs it', async () => {
     const { deps, model, channel, audit } = await setup({
       access: 'read-write-approved',

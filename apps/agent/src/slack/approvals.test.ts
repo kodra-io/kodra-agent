@@ -6,7 +6,7 @@ import { AuditLog } from '../audit.ts';
 import { Redactor } from '../redactor.ts';
 import { fakeSlack, tempDir, testRules } from '../test-helpers.ts';
 import { resolveApprovers } from './approvers.ts';
-import { APPROVE_ACTION, DENY_ACTION, SlackApprovals } from './approvals.ts';
+import { APPROVE_ACTION, APPROVE_MODAL, DENY_ACTION, SlackApprovals } from './approvals.ts';
 
 async function setup(
   opts: {
@@ -213,5 +213,95 @@ describe('resolveApprovers', () => {
     const result = resolveApprovers(['@omar', 'U09DIRECT', 'W0GRID', 'console:omar']);
     expect([...result.ids].sort()).toEqual(['U09DIRECT', 'W0GRID']);
     expect(result.unresolved).toEqual(['@omar']);
+  });
+});
+
+describe('SlackApprovals forms', () => {
+  it('asks for a change reference in a modal, shows a bad one in place, then approves', async () => {
+    const { slack, approvals, req, audit } = await setup({
+      rules: { requireChangeRef: true, changeRefPattern: '^CHG[0-9]{7}$' },
+    });
+    const outcome = approvals.channelFor('C0CHANNEL', undefined).request(req);
+    await Promise.resolve();
+    expect(JSON.stringify(slack.posted[0]?.blocks)).toContain('Needs a change reference');
+    expect(
+      await approvals.handleAction({
+        user: 'U0APPROVER',
+        actionId: APPROVE_ACTION,
+        value: req.id,
+        triggerId: 'trigger-1',
+      }),
+    ).toBe('asked');
+    expect(slack.modals).toHaveLength(1);
+    expect(slack.modals[0]).toMatchObject({
+      triggerId: 'trigger-1',
+      view: { callback_id: APPROVE_MODAL, private_metadata: req.id },
+    });
+    const submit = (changeRef: string) =>
+      approvals.handleSubmission({
+        user: 'U0APPROVER',
+        callbackId: APPROVE_MODAL,
+        privateMetadata: req.id,
+        values: { change_ref: changeRef },
+      });
+    expect(await submit('chg-1')).toEqual({
+      change_ref: 'The change reference does not have the required format. Expected: ^CHG[0-9]{7}$',
+    });
+    expect(approvals.pendingCount).toBe(1);
+    expect(await submit('CHG1234567')).toBeNull();
+    expect(await outcome).toEqual({
+      decision: 'approved',
+      by: 'U0APPROVER',
+      changeRef: 'CHG1234567',
+    });
+    expect(JSON.stringify(slack.updated.at(-1)?.blocks)).toContain(
+      'approved by <@U0APPROVER> (change CHG1234567)',
+    );
+    expect(await audit()).toEqual([]);
+  });
+
+  it('asks for a reason to override a freeze, and needs one', async () => {
+    const freeze = { name: 'weekend', timezone: 'Asia/Amman', until: 'Sat 23:59' };
+    const { slack, approvals, req } = await setup({
+      rules: { environment: 'production', freeze },
+    });
+    const outcome = approvals.channelFor('C0CHANNEL', undefined).request(req);
+    await Promise.resolve();
+    expect(JSON.stringify(slack.posted[0]?.blocks)).toContain('Frozen (weekend, until Sat 23:59');
+    await approvals.handleAction({
+      user: 'U0APPROVER',
+      actionId: APPROVE_ACTION,
+      value: req.id,
+      triggerId: 't',
+    });
+    expect(JSON.stringify(slack.modals[0]?.view)).toContain('*production is frozen*');
+    const submit = (reason: string) =>
+      approvals.handleSubmission({
+        user: 'U0APPROVER',
+        callbackId: APPROVE_MODAL,
+        privateMetadata: req.id,
+        values: reason ? { reason } : {},
+      });
+    expect(await submit('')).toEqual({
+      reason: 'This environment is frozen. Approving needs a reason for the override.',
+    });
+    expect(await submit('Checkout is down.')).toBeNull();
+    expect(await outcome).toMatchObject({ decision: 'approved', override: 'Checkout is down.' });
+  });
+
+  it('refuses a click from someone who cannot approve, without a modal', async () => {
+    const { slack, approvals, req } = await setup({ rules: { requireChangeRef: true } });
+    void approvals.channelFor('C0CHANNEL', undefined).request(req);
+    await Promise.resolve();
+    expect(
+      await approvals.handleAction({
+        user: 'U0SOMEONE',
+        actionId: APPROVE_ACTION,
+        value: req.id,
+        triggerId: 't',
+      }),
+    ).toBe('refused');
+    expect(slack.modals).toHaveLength(0);
+    await approvals.cancelAll();
   });
 });

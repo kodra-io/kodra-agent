@@ -341,6 +341,7 @@ ${environments}
       namespaces: ['staging'],
       repos: [],
       approvals: {},
+      freezes: [],
     });
   });
 
