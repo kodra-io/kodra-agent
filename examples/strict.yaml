@@ -47,8 +47,20 @@ spec:
       repos: ['example-org/deploy']
       # Two of these three, never the person who asked.
       approvers: ['U0123ABCD', 'U0456EFGH', 'U0789IJKL']
+      # Production data goes only to the model inside your network.
+      model: local
     - name: test
       namespaces: ['services-test']
+  models:
+    local:
+      provider: ollama
+      name: '<model-id>'
+      baseUrl: http://ollama.ai-tools:11434
+  # Strict masks cards, IBANs, emails, and phone numbers; add your own identifiers too.
+  dataProtection:
+    patterns:
+      - name: account-id
+        regex: '\bACC-[0-9]{10}\b'
   policy:
     approvals:
       approvers: ['U0123ABCD', 'U0456EFGH', 'console:release-manager']

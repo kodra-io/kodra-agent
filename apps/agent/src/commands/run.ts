@@ -210,11 +210,17 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           }),
         investigate: async (alert) => {
           const deps = { ...runtime.deps(refuseAll), readOnly: true, actor: 'monitor' };
+          // The alert's namespace picks the model before the first call (M13).
+          const namespace = alert.labels['namespace'];
+          const env = resolvePolicy(runtime.config.spec).environments.find(
+            (e) => e.model !== null && namespace !== undefined && e.namespaces.includes(namespace),
+          );
           const result = await runTurn(
             deps,
             [],
             investigationPrompt(alert),
             `alert-${randomUUID().slice(0, 8)}`,
+            env?.model ? { pin: { model: env.model, environment: env.name } } : {},
           );
           await investigationLog
             .append({

@@ -201,3 +201,63 @@ describe('secret canary: console chat', () => {
     }
   });
 });
+
+describe('customer data canary (M13)', () => {
+  it('keeps masked customer data out of the prompts, output, and audit log', async () => {
+    const EMAIL = 'canary.customer@example.com';
+    const CARD = '4111 1111 1111 1111';
+    const dir = await tempDir();
+    const auditPath = join(dir, 'audit', 'audit.jsonl');
+    const path = await writeConfig(
+      `${configYaml({
+        auditPath: posixPath(auditPath),
+        model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+      })}  dataProtection:\n    redact: [cards, emails]\n`,
+      dir,
+    );
+    const model = new MockLanguageModelV4({
+      doGenerate: [
+        {
+          // A model that repeats customer data it should never have seen.
+          content: [{ type: 'text', text: `Refund ${CARD} for ${EMAIL}.` }],
+          finishReason: { unified: 'stop', raw: 'end_turn' },
+          usage,
+          warnings: [],
+        },
+      ],
+    });
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: API_KEY },
+      launcher: fakeLauncher(),
+      modelFactory: () => model,
+    });
+    const code = await main(
+      ['chat', '--config', path, '--message', `why did ${EMAIL} get declined on ${CARD}?`],
+      t.ctx,
+    );
+    expect(code).toBe(0);
+    const prompts = model.doGenerateCalls.map((c) => JSON.stringify(c.prompt)).join('\n');
+    expect(prompts).toMatch(/\[email:[0-9a-f]{4}\] get declined on \[card:[0-9a-f]{4}\]/);
+    const everything = [
+      prompts,
+      t.output(),
+      t.logLines.join('\n'),
+      await readFile(auditPath, 'utf8'),
+    ].join('\n');
+    const sources = {
+      prompts,
+      output: t.output(),
+      logs: t.logLines.join('\n'),
+      audit: await readFile(auditPath, 'utf8'),
+    };
+    for (const [where, text] of Object.entries(sources)) {
+      for (const canary of [EMAIL, CARD, CARD.replaceAll(' ', '')]) {
+        expect(
+          text.includes(canary),
+          `${canary} leaked into ${where}: ${JSON.stringify(text.slice(0, 900))}`,
+        ).toBe(false);
+      }
+    }
+    expect(everything).not.toContain(EMAIL);
+  });
+});

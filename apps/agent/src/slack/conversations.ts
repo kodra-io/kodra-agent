@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
-import { formatUsage, runTurn, type AgentDeps } from '../agent.ts';
+import { formatUsage, runTurn, type AgentDeps, type ModelPin } from '../agent.ts';
 import { fanOut, type ApprovalChannel, type SettleableChannel } from '../approvals.ts';
 import type { Redactor } from '../redactor.ts';
 import type { IncomingMessage, SlackApi } from './api.ts';
@@ -28,7 +28,10 @@ export interface ConversationsOptions {
  * Messages from Slack are untrusted input: redacted, and they never bypass the policy.
  */
 export class SlackConversations {
-  private readonly histories = new Map<string, ModelMessage[]>();
+  private readonly histories = new Map<
+    string,
+    { messages: ModelMessage[]; pin: ModelPin | null }
+  >();
   private readonly queues = new Map<string, Promise<void>>();
   private readonly opts: ConversationsOptions;
 
@@ -95,13 +98,15 @@ export class SlackConversations {
       return;
     }
     try {
+      const thread = this.histories.get(key);
       const result = await runTurn(
         deps,
-        this.histories.get(key) ?? [],
+        thread?.messages ?? [],
         text,
         `slack-${randomUUID().slice(0, 8)}`,
+        { pin: thread?.pin ?? null },
       );
-      this.remember(key, result.messages);
+      this.remember(key, { messages: result.messages, pin: result.pin });
       reply = `${result.text || '(no answer)'}\n_${formatUsage(result.usage)}_`;
     } catch (error) {
       reply = `Something went wrong: ${error instanceof Error ? error.message : 'the request failed'}`;
@@ -113,9 +118,9 @@ export class SlackConversations {
     });
   }
 
-  private remember(key: string, messages: ModelMessage[]): void {
+  private remember(key: string, thread: { messages: ModelMessage[]; pin: ModelPin | null }): void {
     this.histories.delete(key);
-    this.histories.set(key, messages);
+    this.histories.set(key, thread);
     const max = this.opts.maxThreads ?? 50;
     while (this.histories.size > max) {
       const oldest = this.histories.keys().next().value;

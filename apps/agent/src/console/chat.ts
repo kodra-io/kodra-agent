@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
-import { runTurn, type AgentDeps, type TurnEvent, type TurnUsage } from '../agent.ts';
+import {
+  runTurn,
+  type AgentDeps,
+  type ModelPin,
+  type TurnEvent,
+  type TurnUsage,
+} from '../agent.ts';
 import type { ApprovalChannel } from '../approvals.ts';
 import type { Redactor } from '../redactor.ts';
 import type { ConsoleUser } from './approvals.ts';
@@ -33,6 +39,8 @@ export interface ConversationSummary {
 
 interface Conversation extends ConversationSummary {
   history: ModelMessage[];
+  /** The model this conversation is pinned to (M13). */
+  pin: ModelPin | null;
   /** Stops the running turn, if any. */
   stop?: AbortController;
   events: ChatEvent[];
@@ -132,7 +140,12 @@ export class ConsoleChat {
 
     const conversation = c;
     conversation.busy = true;
-    this.push(conversation, { type: 'user', text: this.opts.redactor.redact(text), by: user.name });
+    // People see what they typed (secrets still masked); the model gets the masked text.
+    this.push(conversation, {
+      type: 'user',
+      text: this.opts.redactor.redactSecrets(text),
+      by: user.name,
+    });
     const turn = this.turn(conversation, user, text).finally(() => {
       this.running.delete(turn);
     });
@@ -174,6 +187,7 @@ export class ConsoleChat {
       createdAt: this.now().toISOString(),
       busy: false,
       history: [],
+      pin: null,
       events: [],
       listeners: new Set(),
     };
@@ -207,8 +221,11 @@ export class ConsoleChat {
           this.push(c, event);
         },
       };
-      const result = await runTurn(deps, c.history, text, `console-${randomUUID().slice(0, 8)}`);
+      const result = await runTurn(deps, c.history, text, `console-${randomUUID().slice(0, 8)}`, {
+        pin: c.pin,
+      });
       c.history = result.messages;
+      c.pin = result.pin;
       this.push(c, {
         type: 'answer',
         text: result.text,

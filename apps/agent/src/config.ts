@@ -46,6 +46,8 @@ export interface Component {
   /** Model fields or the connector's `config`, after defaults. */
   settings: Record<string, unknown>;
   secrets: SecretUse[];
+  /** For a named model (spec.models), its name (M13). */
+  named?: string;
 }
 
 export interface SecretUse {
@@ -67,6 +69,25 @@ export function components(config: AgentConfig): Component[] {
     const manifest = getConnector(id);
     if (!manifest) continue;
     out.push(component(manifest, entry.config ?? {}, entry.secrets ?? {}));
+  }
+  // Named models, for environments that pin one (M13): their keys are checked like any other.
+  for (const [name, named] of Object.entries(config.spec.models)) {
+    const m = named as Record<string, unknown> & { provider: string };
+    const manifest = getModelProvider(m.provider);
+    if (!manifest) continue;
+    const comp = component(manifest, m, m);
+    const displayName = `${manifest.displayName} (model ${name})`;
+    out.push({
+      ...comp,
+      id: `model:${name}`,
+      displayName,
+      named: name,
+      secrets: comp.secrets.map((s) => ({
+        ...s,
+        component: `model:${name}`,
+        componentName: displayName,
+      })),
+    });
   }
   return out;
 }

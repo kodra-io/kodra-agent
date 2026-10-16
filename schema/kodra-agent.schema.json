@@ -935,6 +935,10 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "model": {
+                "type": "string",
+                "pattern": "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
               }
             },
             "required": [
@@ -1103,6 +1107,198 @@
             }
           },
           "additionalProperties": false
+        },
+        "dataProtection": {
+          "description": "Customer data masked before anything leaves the agent.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "redact": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "cards",
+                  "ibans",
+                  "emails",
+                  "phones"
+                ]
+              }
+            },
+            "patterns": {
+              "default": [],
+              "maxItems": 20,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
+                  },
+                  "regex": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "name",
+                  "regex"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "models": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "const": "anthropic"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                    "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                  },
+                  "baseUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "name",
+                  "apiKey"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "const": "openai"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                    "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                  },
+                  "baseUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "name",
+                  "apiKey"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "const": "azure-openai"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                    "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                  },
+                  "endpoint": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "deployment": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "provider",
+                  "name",
+                  "apiKey",
+                  "endpoint",
+                  "deployment"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "const": "bedrock"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "region": {
+                    "type": "string",
+                    "pattern": "^[a-z]{2}(-gov)?-[a-z]+-\\d$"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "name",
+                  "region"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "const": "ollama"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "baseUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "name",
+                  "baseUrl"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
         },
         "ship": {
           "description": "Settings for the ship flow.",

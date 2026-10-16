@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelMessage } from 'ai';
-import { formatUsage, runTurn } from '../agent.ts';
+import { formatUsage, runTurn, type ModelPin } from '../agent.ts';
 import { budgetRefusal } from '../budget.ts';
 import { cliApprovalChannel, type ApprovalChannel } from '../approvals.ts';
 import type { Context } from '../context.ts';
@@ -34,14 +34,18 @@ export async function chat(opts: ChatOptions, ctx: Context): Promise<number> {
     if (runtime.connectorLogPath) ctx.term.out(`Connector logs: ${runtime.connectorLogPath}`);
 
     let history: ModelMessage[] = [];
+    let pin: ModelPin | null = null;
     const turn = async (text: string) => {
       const refusal = budgetRefusal(await runtime.budget());
       if (refusal) {
         ctx.term.err(refusal);
         return;
       }
-      const result = await runTurn(deps, history, text, `chat-${randomUUID().slice(0, 8)}`);
+      const result = await runTurn(deps, history, text, `chat-${randomUUID().slice(0, 8)}`, {
+        pin,
+      });
       history = result.messages;
+      pin = result.pin;
       ctx.term.out('');
       ctx.term.out(result.text);
       ctx.term.out(`(${formatUsage(result.usage)})`);

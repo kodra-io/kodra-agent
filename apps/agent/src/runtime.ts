@@ -1,6 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { isSecretRequired, resolvePolicy, type AgentConfig } from '@kodra-agent/schema';
+import {
+  defaultDetectors,
+  isSecretRequired,
+  resolvePolicy,
+  type AgentConfig,
+} from '@kodra-agent/schema';
+import type { LanguageModel } from 'ai';
+import { DataMasker } from './data-protection.ts';
 import { alwaysBlocked, type AgentDeps } from './agent.ts';
 import { applyNetwork, networkSettings, type NetworkSettings } from './network.ts';
 import { selfTarget } from './policy.ts';
@@ -73,6 +80,13 @@ export async function startRuntime(
   for (const [key, value] of Object.entries(env)) {
     if (key.startsWith(CONSOLE_TOKEN_ENV) && value) ctx.redactor.add(value);
   }
+  // Customer data is masked wherever secrets are (M13), with a key made for this run.
+  ctx.redactor.setMasker(
+    new DataMasker({
+      redact: config.spec.dataProtection.redact ?? defaultDetectors(config.spec.profile),
+      patterns: config.spec.dataProtection.patterns,
+    }),
+  );
   // Proxy and CA first: every connection after this goes through them (M12).
   const settings = networkSettings(config, env);
   const network = await applyNetwork(settings, ctx.redactor, ctx.networkRuntime);
@@ -80,6 +94,7 @@ export async function startRuntime(
 
   const inputs: ConnectorInput[] = [];
   let modelSecrets: Record<string, string> = {};
+  const namedSecrets = new Map<string, Record<string, string>>();
   const missing: string[] = [];
   // A connector missing a required secret is skipped (the agent runs without it); only a
   // missing model key stops the agent, because nothing works without the model.
@@ -89,6 +104,12 @@ export async function startRuntime(
     const gaps = resolved.missing
       .filter((gap) => isSecretRequired(gap.use.spec, config.spec.target))
       .map((gap) => `${secretLabel(gap.use)}: ${gap.reason}`);
+    if (comp.named !== undefined) {
+      // A named model without its key is not available: environments that pin it refuse.
+      if (gaps.length > 0) ctx.term.err(`Model ${comp.named} is not available: ${gaps.join('; ')}`);
+      else namedSecrets.set(comp.named, resolved.values);
+      continue;
+    }
     if (comp.manifest.category === 'model') {
       missing.push(...gaps);
       modelSecrets = resolved.values;
@@ -173,6 +194,15 @@ export async function startRuntime(
   const control = new AgentControl(config.spec.audit.path, audit);
   await control.load();
   const modelLabel = `${config.spec.model.provider}/${config.spec.model.name}`;
+  const models: Record<string, { model: LanguageModel; label: string }> = {};
+  for (const [name, named] of Object.entries(config.spec.models)) {
+    const secrets = namedSecrets.get(name);
+    if (!secrets) continue;
+    models[name] = {
+      model: (ctx.modelFactory ?? createModel)(named, secrets),
+      label: `${named.provider}/${named.name}`,
+    };
+  }
   return {
     config,
     inputs,
@@ -193,6 +223,7 @@ export async function startRuntime(
     deps: (approvals) => ({
       model,
       modelLabel,
+      models,
       paused: control.reason,
       host,
       approvals,

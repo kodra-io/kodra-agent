@@ -30,6 +30,8 @@ export interface EnvironmentInput {
   approvers?: readonly string[] | undefined;
   approvals?: ApprovalRuleInput | undefined;
   freezes?: readonly FreezeInput[] | undefined;
+  /** A name from spec.models this environment's data goes to (M13). */
+  model?: string | undefined;
 }
 
 /** The parts of `spec` the policy comes from. */
@@ -58,6 +60,8 @@ export interface EffectiveEnvironment extends ApprovalRules {
   namespaces: string[];
   repos: string[];
   freezes: FreezeInput[];
+  /** The named model this environment's data goes to, or null for the default model. */
+  model: string | null;
 }
 
 export interface EffectivePolicy {
@@ -122,6 +126,7 @@ export function resolvePolicy(source: PolicySource): EffectivePolicy {
         requireChangeRef: env.approvals?.requireChangeRef ?? d.requireChangeRef,
         changeRefPattern: env.approvals?.changeRefPattern ?? null,
         freezes: [...(env.freezes ?? [])],
+        model: env.model ?? null,
       };
     }),
   };
@@ -297,4 +302,27 @@ export function matchEnvironment(
   }
   if (matched.length > 1) return { kind: 'conflict', names: matched.map((e) => e.name) };
   return { kind: 'default', rules: policy.default };
+}
+
+/** The customer data the profile masks by default (M13): payment data always, contacts in team and strict. */
+export function defaultDetectors(profile: Profile): ('cards' | 'ibans' | 'emails' | 'phones')[] {
+  return profile === 'starter' ? ['cards', 'ibans'] : ['cards', 'ibans', 'emails', 'phones'];
+}
+
+/**
+ * The environments with a pinned model that a call touches (M13). A call that names no
+ * namespace or repo (a list across every namespace, a metrics query) may return data from
+ * any of them, so it touches every one.
+ */
+export function pinnedEnvironments(
+  policy: EffectivePolicy,
+  touched: { namespaces: readonly string[]; repos: readonly string[] },
+): EffectiveEnvironment[] {
+  const pinned = policy.environments.filter((e) => e.model !== null);
+  if (touched.namespaces.length === 0 && touched.repos.length === 0) return pinned;
+  return pinned.filter(
+    (e) =>
+      touched.namespaces.some((ns) => e.namespaces.includes(ns)) ||
+      touched.repos.some((r) => e.repos.some((o) => o.toLowerCase() === r.toLowerCase())),
+  );
 }

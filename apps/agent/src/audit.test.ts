@@ -2,6 +2,7 @@ import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AuditLog } from './audit.ts';
+import { DataMasker } from './data-protection.ts';
 import { REDACTED, Redactor } from './redactor.ts';
 import { tempDir } from './test-helpers.ts';
 
@@ -94,5 +95,22 @@ describe('AuditLog', () => {
     await writeFile(path, '', { mode: 0o644 });
     await new AuditLog(path, new Redactor()).append({ event: 'result', actor: 'cli' });
     expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('AuditLog and customer data (M13)', () => {
+  it('records masked values as counts by type, never the values', async () => {
+    const path = join(await tempDir(), 'audit.jsonl');
+    const redactor = new Redactor();
+    redactor.setMasker(new DataMasker({ redact: ['cards', 'emails'], patterns: [] }));
+    await new AuditLog(path, redactor).append({
+      event: 'tool.call',
+      actor: 'agent',
+      detail: 'refund to jane@example.com, card 4111 1111 1111 1111, card 5555-5555-5555-4444',
+    });
+    const text = await readFile(path, 'utf8');
+    expect(text).not.toContain('jane@example.com');
+    expect(text).not.toContain('4111');
+    expect(JSON.parse(text)).toMatchObject({ redactions: { email: 1, card: 2 } });
   });
 });

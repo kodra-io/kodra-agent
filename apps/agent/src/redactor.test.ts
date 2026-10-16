@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DataMasker } from './data-protection.ts';
 import { REDACTED, Redactor, StreamingRedactor } from './redactor.ts';
 
 describe('Redactor', () => {
@@ -148,5 +149,40 @@ describe('StreamingRedactor', () => {
     out += s.end();
     expect(out).not.toContain('QUJDRA');
     expect(out).toContain(`${REDACTED} done.`);
+  });
+});
+
+describe('Redactor with customer data (M13)', () => {
+  const withMasker = () => {
+    const redactor = new Redactor();
+    redactor.add('sk-ant-test-secret-12345');
+    redactor.setMasker(new DataMasker({ redact: ['cards', 'emails'], patterns: [] }));
+    return redactor;
+  };
+
+  it('masks secrets first, then customer data, and counts the customer data', () => {
+    const out = withMasker().redactCounted(
+      'key sk-ant-test-secret-12345 card 4111 1111 1111 1111 for jane@example.com',
+    );
+    expect(out.text).toMatch(
+      /^key \[REDACTED\] card \[card:[0-9a-f]{4}\] for \[email:[0-9a-f]{4}\]$/,
+    );
+    expect(out.counts).toEqual({ card: 1, email: 1 });
+  });
+
+  it('keeps customer data for what people typed themselves, never secrets', () => {
+    expect(withMasker().redactSecrets('mail jane@example.com, key sk-ant-test-secret-12345')).toBe(
+      `mail jane@example.com, key ${REDACTED}`,
+    );
+  });
+
+  it('masks a card number split across streamed pieces', () => {
+    const streaming = new StreamingRedactor(withMasker());
+    const card = '4111 1111 1111 1111';
+    const out = [
+      ...['charge ', card.slice(0, 7), card.slice(7), ' failed'].map((p) => streaming.push(p)),
+      streaming.end(),
+    ].join('');
+    expect(out).toMatch(/^charge \[card:[0-9a-f]{4}\] failed$/);
   });
 });
