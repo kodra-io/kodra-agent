@@ -55,6 +55,14 @@ export function isConsoleApprover(entry: string): boolean {
   return CONSOLE_APPROVER.test(entry);
 }
 
+/** The console admin: signs in with a password, not a token, and approves where it is listed. */
+export const CONSOLE_ADMIN = 'console:admin';
+
+/** Whether an approver entry is a console approver with a sign-in token (all but the admin). */
+export function isTokenApprover(entry: string): boolean {
+  return isConsoleApprover(entry) && entry !== CONSOLE_ADMIN;
+}
+
 /** The environment variable holding a console approver's sign-in token: console:on-call -> KODRA_CONSOLE_TOKEN_ON_CALL. */
 export function consoleApproverTokenEnv(entry: string): string {
   return `KODRA_CONSOLE_TOKEN_${entry.slice(CONSOLE_APPROVER_PREFIX.length).toUpperCase().replaceAll('-', '_')}`;

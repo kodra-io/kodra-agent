@@ -8,10 +8,11 @@ import { formatUsage, runTurn } from '../agent.ts';
 import {
   allApprovers,
   consoleApproverTokenEnv,
-  isConsoleApprover,
+  isTokenApprover,
   resolvePolicy,
 } from '@kodra-agent/schema';
 import { fanOut, type ApprovalChannel, type SettleableChannel } from '../approvals.ts';
+import { ADMIN_USER, AdminAccount } from '../console/admin.ts';
 import { ConsoleApprovals } from '../console/approvals.ts';
 import { ConsoleChat } from '../console/chat.ts';
 import { budgetRefusal } from '../budget.ts';
@@ -94,8 +95,10 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   // Console approvers who can sign in: each needs their own token.
   const consoleAccounts: ConsoleAccount[] = [];
   const everyApprover = allApprovers(resolvePolicy(runtime.config.spec));
+  // The admin signs in with a password, and approves where console:admin is an approver.
+  const adminCanApprove = consoleOn && everyApprover.includes(ADMIN_USER);
   if (consoleOn) {
-    for (const entry of everyApprover.filter(isConsoleApprover)) {
+    for (const entry of everyApprover.filter(isTokenApprover)) {
       const token = runtime.env[consoleApproverTokenEnv(entry)];
       if (token) consoleAccounts.push({ token, user: { name: entry, canApprove: true } });
       else {
@@ -106,7 +109,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     }
   }
   const consoleChannels: SettleableChannel[] =
-    consoleAccounts.length > 0 ? [consoleApprovals.channel] : [];
+    consoleAccounts.length > 0 || adminCanApprove ? [consoleApprovals.channel] : [];
   // New questions stop when the monthly budget is used up; investigations keep running.
   const gate = async (): Promise<string | null> => {
     const refusal = budgetRefusal(await runtime.budget());
@@ -249,107 +252,112 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
 
     if (consoleOn) {
       const token = runtime.env[CONSOLE_TOKEN_ENV];
-      if (!token) {
-        ctx.term.err(
-          `The console is off: ${CONSOLE_TOKEN_ENV} is not set. Run \`kodra-agent init\` to create it.`,
-        );
-      } else {
-        if (runtime.config.spec.console.chat) {
-          // A console question asks for approval in the console and in Slack's channel.
-          const slackChannel =
-            approvals && channelId ? [approvals.channelFor(channelId, undefined)] : [];
-          consoleChat = new ConsoleChat({
-            deps,
-            approvals: fanOut([...consoleChannels, ...slackChannel]),
-            redactor: ctx.redactor,
-            gate,
-          });
-        }
-        // Kubernetes: the chart names the agent's own objects and lets it patch only those.
-        let kube: ReturnType<typeof kubernetesBackend> | null = null;
-        if (self && runtime.config.spec.target === 'kubernetes') {
-          try {
-            kube = kubernetesBackend(
-              (ctx.selfKubernetes ?? realSelfKubernetes)(),
-              self,
-              await readFile(opts.configPath, 'utf8'),
-            );
-          } catch (error) {
-            ctx.term.err(
-              `Settings are read-only: no access to the cluster (${error instanceof Error ? error.message : String(error)}).`,
-            );
-          }
-        }
-        const settings = new SettingsStore({
-          backend: kube ?? fileBackend(opts.configPath),
-          audit: runtime.audit,
+      const admin = new AdminAccount({
+        path: join(dirname(runtime.config.spec.audit.path), 'console-users.json'),
+        audit: runtime.audit,
+      });
+      await admin.load();
+      if (runtime.config.spec.console.chat) {
+        // A console question asks for approval in the console and in Slack's channel.
+        const slackChannel =
+          approvals && channelId ? [approvals.channelFor(channelId, undefined)] : [];
+        consoleChat = new ConsoleChat({
+          deps,
+          approvals: fanOut([...consoleChannels, ...slackChannel]),
           redactor: ctx.redactor,
-          env: runtime.env,
-          fetch: ctx.fetch,
-          kubernetes: ctx.kubernetes,
-          probeTimeoutMs: ctx.probeTimeoutMs,
+          gate,
         });
-        // Sign-outs are kept next to the audit log, so a restart does not undo them.
-        const sessions = new SessionRegistry({
-          path: join(dirname(runtime.config.spec.audit.path), 'console-sessions.json'),
-        });
-        await sessions.load();
-        const people = new People({ store: settings, sessions, env: runtime.env });
-        // Policy changes from the console: announced (team) or held for a second approver
-        // (strict), through the same approvals as any change.
-        const effective = resolvePolicy(runtime.config.spec);
-        const policyGate = new PolicyGate({
-          mode: effective.policyChanges,
-          approvals: fanOut([
-            ...consoleChannels,
-            ...(approvals && channelId ? [approvals.channelFor(channelId, undefined)] : []),
-          ]),
-          approvers: allApprovers(effective),
-          expiresAfterMinutes: effective.default.expiresAfterMinutes,
-          audit: runtime.audit,
-          redactor: ctx.redactor,
-          announce,
-        });
-        const api = consoleApi(
-          runtime,
-          { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },
-          investigationLog,
-          consoleApprovals,
-          consoleChat,
-          {
-            store: settings,
-            people,
-            gate: policyGate,
-            // After the response is sent, so the page hears that the save worked.
-            restart: () => {
-              setTimeout(() => {
-                if (!kube) {
-                  restart.abort();
-                  return;
-                }
-                // A new pod picks up the new ConfigMap and Secret; this one is stopped.
-                ctx.term.out('Restarting the Deployment to apply the new settings.');
-                kube.restart(new Date()).catch((error: unknown) => {
-                  ctx.term.err(
-                    `Could not restart the Deployment (${error instanceof Error ? error.message : String(error)}). Run kubectl rollout restart.`,
-                  );
-                });
-              }, 300);
-            },
-          },
-        );
-        consoleServer = await startConsoleServer({
-          port: ctx.consolePort ?? runtime.config.spec.console.port,
-          accounts: [{ token, user: { name: 'console', canApprove: false } }, ...consoleAccounts],
-          ...api,
-          features: { chat: consoleChat !== null },
-          sessions,
-          ...(ctx.consoleStaticDir ? { staticDir: ctx.consoleStaticDir } : {}),
-        });
-        ctx.term.out(
-          `Console on port ${String(portOf(consoleServer))}: sign in with ${CONSOLE_TOKEN_ENV}.`,
-        );
       }
+      // Kubernetes: the chart names the agent's own objects and lets it patch only those.
+      let kube: ReturnType<typeof kubernetesBackend> | null = null;
+      if (self && runtime.config.spec.target === 'kubernetes') {
+        try {
+          kube = kubernetesBackend(
+            (ctx.selfKubernetes ?? realSelfKubernetes)(),
+            self,
+            await readFile(opts.configPath, 'utf8'),
+          );
+        } catch (error) {
+          ctx.term.err(
+            `Settings are read-only: no access to the cluster (${error instanceof Error ? error.message : String(error)}).`,
+          );
+        }
+      }
+      const settings = new SettingsStore({
+        backend: kube ?? fileBackend(opts.configPath),
+        audit: runtime.audit,
+        redactor: ctx.redactor,
+        env: runtime.env,
+        fetch: ctx.fetch,
+        kubernetes: ctx.kubernetes,
+        probeTimeoutMs: ctx.probeTimeoutMs,
+      });
+      // Sign-outs are kept next to the audit log, so a restart does not undo them.
+      const sessions = new SessionRegistry({
+        path: join(dirname(runtime.config.spec.audit.path), 'console-sessions.json'),
+      });
+      await sessions.load();
+      const people = new People({ store: settings, sessions, env: runtime.env });
+      // Policy changes from the console: announced (team) or held for a second approver
+      // (strict), through the same approvals as any change.
+      const effective = resolvePolicy(runtime.config.spec);
+      const policyGate = new PolicyGate({
+        mode: effective.policyChanges,
+        approvals: fanOut([
+          ...consoleChannels,
+          ...(approvals && channelId ? [approvals.channelFor(channelId, undefined)] : []),
+        ]),
+        approvers: allApprovers(effective),
+        expiresAfterMinutes: effective.default.expiresAfterMinutes,
+        audit: runtime.audit,
+        redactor: ctx.redactor,
+        announce,
+      });
+      const api = consoleApi(
+        runtime,
+        { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },
+        investigationLog,
+        consoleApprovals,
+        consoleChat,
+        {
+          store: settings,
+          people,
+          gate: policyGate,
+          // After the response is sent, so the page hears that the save worked.
+          restart: () => {
+            setTimeout(() => {
+              if (!kube) {
+                restart.abort();
+                return;
+              }
+              // A new pod picks up the new ConfigMap and Secret; this one is stopped.
+              ctx.term.out('Restarting the Deployment to apply the new settings.');
+              kube.restart(new Date()).catch((error: unknown) => {
+                ctx.term.err(
+                  `Could not restart the Deployment (${error instanceof Error ? error.message : String(error)}). Run kubectl rollout restart.`,
+                );
+              });
+            }, 300);
+          },
+        },
+      );
+      consoleServer = await startConsoleServer({
+        port: ctx.consolePort ?? runtime.config.spec.console.port,
+        accounts: [
+          ...(token ? [{ token, user: { name: 'console', canApprove: false } }] : []),
+          ...consoleAccounts,
+        ],
+        admin: { account: admin, user: { name: ADMIN_USER, canApprove: adminCanApprove } },
+        ...api,
+        features: { chat: consoleChat !== null },
+        sessions,
+        ...(ctx.consoleStaticDir ? { staticDir: ctx.consoleStaticDir } : {}),
+      });
+      ctx.term.out(
+        admin.mustChange()
+          ? `Console on port ${String(portOf(consoleServer))}: sign in as admin with the password admin, then set a new one.`
+          : `Console on port ${String(portOf(consoleServer))}: sign in as admin.`,
+      );
     }
 
     ready = true;

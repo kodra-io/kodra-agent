@@ -5,6 +5,7 @@ import {
   resumeAgent,
   session as loadSession,
   SignedOut,
+  changePassword,
   signIn,
   signOut,
   type PendingApproval,
@@ -77,7 +78,9 @@ export function App() {
     };
   }, [refreshSession]);
 
-  const signedIn = session?.signedIn === true;
+  // Signed in with the default admin password: only the password screen until it changes.
+  const mustChange = session?.signedIn === true && session.mustChangePassword === true;
+  const signedIn = session?.signedIn === true && !mustChange;
 
   // The approvals badge (sidebar and tab title) and the status card.
   const loadStatus = useCallback(() => {
@@ -124,6 +127,9 @@ export function App() {
 
   if (session === null) {
     return <p className="p-6">{t('app.loading')}</p>;
+  }
+  if (mustChange) {
+    return <ChangePassword onChanged={refreshSession} onSignedOut={onSignedOut} />;
   }
   if (!signedIn) {
     return <SignIn onSignedIn={refreshSession} />;
@@ -394,22 +400,110 @@ function Sidebar({
   );
 }
 
-function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+const FIELD = 'mt-1.5 h-10 w-full rounded-lg border border-line-strong bg-surface px-3';
+const SUBMIT =
+  'mt-5 h-10 w-full rounded-lg bg-primary font-semibold text-white shadow-md hover:bg-primary-deep disabled:opacity-50';
+
+function Brand() {
+  const { t } = useI18n();
+  return (
+    <div className="mb-5 flex items-center gap-2.5">
+      <span
+        aria-hidden="true"
+        className="inline-flex size-9 items-center justify-center rounded-lg bg-primary font-bold text-white"
+      >
+        K
+      </span>
+      <span className="font-semibold">{t('app.productName')}</span>
+    </div>
+  );
+}
+
+function LanguageSwitch() {
   const { t, lang, setLang } = useI18n();
+  return (
+    <button
+      type="button"
+      className="text-sm text-ink-secondary underline underline-offset-2"
+      lang={lang === 'en' ? 'ar' : 'en'}
+      aria-label={t('app.switchLanguageLabel')}
+      onClick={() => {
+        setLang(lang === 'en' ? 'ar' : 'en');
+      }}
+    >
+      {t('app.switchLanguage')}
+    </button>
+  );
+}
+
+function Field(props: {
+  id: string;
+  label: string;
+  value: string;
+  type?: 'text' | 'password';
+  autoComplete: string;
+  invalid: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <>
+      <label className="mt-4 block text-sm font-medium" htmlFor={props.id}>
+        {props.label}
+      </label>
+      <input
+        id={props.id}
+        type={props.type ?? 'password'}
+        autoComplete={props.autoComplete}
+        dir="ltr"
+        className={FIELD}
+        value={props.value}
+        aria-invalid={props.invalid}
+        aria-describedby={props.invalid ? 'login-problem' : undefined}
+        onChange={(e) => {
+          props.onChange(e.target.value);
+        }}
+      />
+    </>
+  );
+}
+
+function Problem({ problem }: { problem: MessageKey | null }) {
+  const { t } = useI18n();
+  if (!problem) return null;
+  return (
+    <p id="login-problem" role="alert" className="mt-2 text-sm font-semibold text-bad-text">
+      {t(problem)}
+    </p>
+  );
+}
+
+function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+  const { t } = useI18n();
+  // The admin signs in with a password; a sign-in token still works for everyone else.
+  const [withToken, setWithToken] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [problem, setProblem] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const ready = withToken ? token.trim() !== '' : username.trim() !== '' && password !== '';
   const submit = async () => {
     setBusy(true);
-    const result = await signIn(token.trim()).catch(() => 'wrong' as const);
+    const result = await signIn(
+      withToken ? { token: token.trim() } : { username: username.trim(), password },
+    ).catch(() => 'wrong' as const);
     setBusy(false);
     if (result === 'ok') {
       setToken('');
+      setPassword('');
       onSignedIn();
-    } else {
-      setProblem(result === 'too-many' ? 'login.tooMany' : 'login.wrong');
-    }
+    } else if (result === 'too-many') setProblem('login.tooMany');
+    else setProblem(withToken ? 'login.wrong' : 'login.wrongPassword');
+  };
+  const typed = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    setProblem(null);
   };
 
   return (
@@ -421,58 +515,148 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           void submit();
         }}
       >
-        <div className="mb-5 flex items-center gap-2.5">
-          <span
-            aria-hidden="true"
-            className="inline-flex size-9 items-center justify-center rounded-lg bg-primary font-bold text-white"
-          >
-            K
-          </span>
-          <span className="font-semibold">{t('app.productName')}</span>
-        </div>
+        <Brand />
         <h1 className="text-2xl font-bold">{t('login.title')}</h1>
-        <p className="mt-2 text-sm text-ink-secondary">{t('login.intro')}</p>
-        <label className="mt-5 block text-sm font-medium" htmlFor="token">
-          {t('login.token')}
-        </label>
-        <input
-          id="token"
-          type="password"
-          autoComplete="current-password"
-          dir="ltr"
-          className="mt-1.5 h-10 w-full rounded-lg border border-line-strong bg-surface px-3"
-          value={token}
-          aria-invalid={problem !== null}
-          aria-describedby={problem ? 'login-problem' : undefined}
-          onChange={(e) => {
-            setToken(e.target.value);
-            setProblem(null);
-          }}
-        />
-        {problem && (
-          <p id="login-problem" role="alert" className="mt-2 text-sm font-semibold text-bad-text">
-            {t(problem)}
-          </p>
+        <p className="mt-2 text-sm text-ink-secondary">
+          {t(withToken ? 'login.intro' : 'login.passwordIntro')}
+        </p>
+        {withToken ? (
+          <Field
+            id="token"
+            label={t('login.token')}
+            value={token}
+            autoComplete="current-password"
+            invalid={problem !== null}
+            onChange={typed(setToken)}
+          />
+        ) : (
+          <>
+            <Field
+              id="username"
+              type="text"
+              label={t('login.username')}
+              value={username}
+              autoComplete="username"
+              invalid={problem !== null}
+              onChange={typed(setUsername)}
+            />
+            <Field
+              id="password"
+              label={t('login.password')}
+              value={password}
+              autoComplete="current-password"
+              invalid={problem !== null}
+              onChange={typed(setPassword)}
+            />
+          </>
         )}
-        <button
-          type="submit"
-          disabled={busy || token.trim() === ''}
-          className="mt-5 h-10 w-full rounded-lg bg-primary font-semibold text-white shadow-md hover:bg-primary-deep disabled:opacity-50"
-        >
+        <Problem problem={problem} />
+        <button type="submit" disabled={busy || !ready} className={SUBMIT}>
           {t('login.submit')}
         </button>
+        <button
+          type="button"
+          className="mt-3 w-full text-sm text-primary underline underline-offset-2"
+          onClick={() => {
+            setWithToken(!withToken);
+            setProblem(null);
+          }}
+        >
+          {t(withToken ? 'login.usePassword' : 'login.useToken')}
+        </button>
       </form>
-      <button
-        type="button"
-        className="text-sm text-ink-secondary underline underline-offset-2"
-        lang={lang === 'en' ? 'ar' : 'en'}
-        aria-label={t('app.switchLanguageLabel')}
-        onClick={() => {
-          setLang(lang === 'en' ? 'ar' : 'en');
+      <LanguageSwitch />
+    </main>
+  );
+}
+
+/** After signing in with admin/admin: a new password before anything else. */
+function ChangePassword({
+  onChanged,
+  onSignedOut,
+}: {
+  onChanged: () => void;
+  onSignedOut: () => void;
+}) {
+  const { t } = useI18n();
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [problem, setProblem] = useState<MessageKey | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (next !== repeat) {
+      setProblem('password.mismatch');
+      return;
+    }
+    setBusy(true);
+    const result = await changePassword(current, next).catch(() => 'failed' as const);
+    setBusy(false);
+    if (result === 'ok') onChanged();
+    else setProblem(`password.${result}`);
+  };
+  const typed = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    setProblem(null);
+  };
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
+      <form
+        className="w-full max-w-sm rounded-2xl border border-line bg-raised p-6 shadow-xl"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
         }}
       >
-        {t('app.switchLanguage')}
-      </button>
+        <Brand />
+        <h1 className="text-2xl font-bold">{t('password.title')}</h1>
+        <p className="mt-2 text-sm text-ink-secondary">{t('password.intro')}</p>
+        <Field
+          id="current-password"
+          label={t('password.current')}
+          value={current}
+          autoComplete="current-password"
+          invalid={problem !== null}
+          onChange={typed(setCurrent)}
+        />
+        <Field
+          id="new-password"
+          label={t('password.new')}
+          value={next}
+          autoComplete="new-password"
+          invalid={problem !== null}
+          onChange={typed(setNext)}
+        />
+        <Field
+          id="repeat-password"
+          label={t('password.repeat')}
+          value={repeat}
+          autoComplete="new-password"
+          invalid={problem !== null}
+          onChange={typed(setRepeat)}
+        />
+        <p className="mt-2 text-sm text-ink-secondary">{t('password.rules')}</p>
+        <Problem problem={problem} />
+        <button
+          type="submit"
+          disabled={busy || current === '' || next === '' || repeat === ''}
+          className={SUBMIT}
+        >
+          {t('password.submit')}
+        </button>
+        <button
+          type="button"
+          className="mt-3 w-full text-sm text-ink-secondary underline underline-offset-2"
+          onClick={() => {
+            void signOut().then(onSignedOut);
+          }}
+        >
+          {t('app.signOut')}
+        </button>
+      </form>
+      <LanguageSwitch />
     </main>
   );
 }

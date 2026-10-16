@@ -4,7 +4,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import {
   allApprovers,
   consoleApproverTokenEnv,
-  isConsoleApprover,
+  isTokenApprover,
   isSecretRequired,
   resolvePolicy,
   type AgentConfig,
@@ -524,7 +524,7 @@ function consoleTokens(config: AgentConfig): { env: string; who: string }[] {
   return [
     { env: CONSOLE_TOKEN_ENV, who: 'the team (view and chat)' },
     ...allApprovers(resolvePolicy(config.spec))
-      .filter(isConsoleApprover)
+      .filter(isTokenApprover)
       .map((entry) => ({ env: consoleApproverTokenEnv(entry), who: entry })),
   ];
 }

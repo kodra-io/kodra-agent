@@ -2,7 +2,7 @@ import { getConnector, getModelProvider } from '@kodra-agent/connectors';
 import {
   allApprovers,
   consoleApproverTokenEnv,
-  isConsoleApprover,
+  isTokenApprover,
   type AccessLevel,
   type ApprovalRules,
   type Profile,
@@ -21,7 +21,7 @@ import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
 
 /** The published image and chart. A test checks these against the chart and the agent version. */
 export const AGENT_IMAGE = 'ghcr.io/kodra-io/kodra-agent';
-export const AGENT_VERSION = '0.3.0';
+export const AGENT_VERSION = '0.3.1';
 export const AGENT_CHART = 'oci://ghcr.io/kodra-io/charts/kodra-agent';
 export const AGENT_NAMESPACE = 'kodra-agent';
 const CONFIG_PATH = '/etc/kodra-agent/kodra-agent.yaml';
@@ -190,7 +190,7 @@ services:
 ${common}    command: ["run"]
 ${
   draft.console.enabled
-    ? `    # The web console, on this machine only. Sign in with a token from .env.
+    ? `    # The web console, on this machine only. Sign in as admin (password admin the first time).
     ports: ["127.0.0.1:${String(CONSOLE_PORT)}:${String(CONSOLE_PORT)}"]
 `
     : ''
@@ -450,7 +450,7 @@ function readme(draft: AgentDraft): string {
   }
   if (draft.console.enabled) {
     const name = agentName(draft);
-    const consoleApprovers = allApprovers(effectivePolicy(draft)).filter(isConsoleApprover);
+    const consoleApprovers = allApprovers(effectivePolicy(draft)).filter(isTokenApprover);
     const tokens = [
       { env: 'KODRA_CONSOLE_TOKEN', who: 'the team: view and chat, cannot approve' },
       ...consoleApprovers.map((a) => ({
@@ -465,13 +465,15 @@ function readme(draft: AgentDraft): string {
         ? 'The console shows status, activity, usage, and approvals, and lets you chat with the agent. Changes still need an approver.'
         : 'The console shows status, activity, usage, and approvals. Chat is off.',
       '',
-      '`init` creates one sign-in token per person or group:',
+      'Sign in as `admin` with the password `admin`. The console asks for a new password right away. To approve changes in the console as admin, add `console:admin` to the approvers.',
+      '',
+      '`init` also creates one sign-in token per person or group (**Sign in with a token instead**):',
       '',
       ...tokens.map((tk) => `- \`${tk.env}\`: ${tk.who}`),
       '',
       ...(draft.target === 'compose'
         ? [
-            `Open http://localhost:${String(CONSOLE_PORT)} on this machine and sign in with a token from \`.env\`.`,
+            `Open http://localhost:${String(CONSOLE_PORT)} on this machine and sign in as \`admin\`.`,
             'The console listens on this machine only.',
           ]
         : [
@@ -485,7 +487,7 @@ function readme(draft: AgentDraft): string {
             ),
             '```',
             '',
-            `Then open http://localhost:${String(CONSOLE_PORT)} and sign in with one of those tokens.`,
+            `Then open http://localhost:${String(CONSOLE_PORT)} and sign in as \`admin\` or with one of those tokens.`,
           ]),
       '',
     );

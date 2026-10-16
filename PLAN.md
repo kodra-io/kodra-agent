@@ -12,6 +12,7 @@ Owner: Omar Al-Amad. Last updated 16 October 2026, at `a38c85d`.
 - **Released:** v0.2.0 (13 October 2026): the MVP, the web console, and proposed changes.
 - **Done since:** M10 to M14 (#36 to #40): profiles, environments and approvals; change control; corporate networks; data protection and model routing; trust and observability.
 - **Released:** v0.3.0 (16 October 2026): M10 to M14. The M15 demo was deferred until partners need it.
+- **v0.3.1** (17 October 2026): console sign-in as `admin` with a password (`admin`/`admin` until changed). Tokens still work; user accounts come later.
 - **Next:** publish the configurator, test with our own setup, then design partners.
 - **Who it's for:** many kinds of organizations, from solo developers and startups to large and regulated companies. The same product serves all of them, configured through profiles (`starter`, `team`, `strict`) that set defaults and never limits. See SPEC section 5 and `docs/approvals.md`.
 

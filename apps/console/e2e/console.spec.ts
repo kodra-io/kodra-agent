@@ -1,5 +1,6 @@
 import { AxeBuilder } from '@axe-core/playwright';
 import {
+  ADMIN_PASSWORD,
   APPROVER_TOKEN,
   CHAT_REQUEST,
   expect,
@@ -15,12 +16,13 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   await expect(page.getByRole('navigation')).toHaveCount(0);
 
+  await page.getByRole('button', { name: 'Sign in with a token instead' }).click();
   await page.getByLabel('Console token').fill('not-it');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveText('That token is not right.');
 
   await page.getByLabel('Console token').fill(TOKEN);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   await expect(page.getByText('anthropic/claude-sonnet-5-5')).toBeVisible();
   await expect(page.getByText('2 h 3 min')).toBeVisible();
@@ -40,6 +42,39 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
 
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+});
+
+test('admin signs in with admin/admin and must set a new password first', async ({ page, api }) => {
+  await page.goto('/');
+  await page.getByLabel('Username').fill('admin');
+  await page.getByLabel('Password').fill('wrong');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('That username or password is not right.');
+
+  await page.getByLabel('Password').fill('admin');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Set a new password' })).toBeVisible();
+  await expect(page.getByRole('navigation')).toHaveCount(0);
+
+  await page.getByLabel('Current password').fill('admin');
+  await page.getByLabel('New password', { exact: true }).fill(ADMIN_PASSWORD);
+  await page.getByLabel('New password again').fill('something else');
+  await page.getByRole('button', { name: 'Save password' }).click();
+  await expect(page.getByRole('alert')).toHaveText('The two new passwords do not match.');
+
+  await page.getByLabel('New password', { exact: true }).fill('short');
+  await page.getByLabel('New password again').fill('short');
+  await page.getByRole('button', { name: 'Save password' }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Use at least 12 characters, different from the current password.',
+  );
+
+  await page.getByLabel('New password', { exact: true }).fill(ADMIN_PASSWORD);
+  await page.getByLabel('New password again').fill(ADMIN_PASSWORD);
+  await page.getByRole('button', { name: 'Save password' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  expect(api).toContain('POST password');
+  expect(api.join('\n')).not.toContain(ADMIN_PASSWORD);
 });
 
 test('shows why a connector is not available, and the tools it gives', async ({ page }) => {

@@ -29,12 +29,21 @@ the machine running the agent:
   `kubectl port-forward svc/<release>-console 8081:8081` and open `http://localhost:8081`.
   The chart's notes print the exact command.
 
-Do not put the console behind a public load balancer or ingress. It signs people in with
-tokens, not user accounts.
+Do not put the console behind a public load balancer or ingress. It has one password
+account (`admin`) and sign-in tokens, not full user accounts yet.
 
 ## Who can do what
 
-There are two kinds of sign-in token:
+**The admin.** Sign in with the username `admin` and the password `admin`. The console then
+asks for a new password (at least 12 characters) and allows nothing else until it is set.
+The admin signs in as `console:admin`: they can view every page and chat, and approve where
+`console:admin` is listed as an approver. Only a scrypt hash of the password is kept, in
+`console-users.json` next to the audit log (owner-only). Changing it signs out the admin's
+other sessions and is audited (`settings`, never the password). To reset a forgotten
+password, stop the agent, delete that file, and start it again: `admin`/`admin` works once
+more. A broken file stops the agent instead of falling back to the default.
+
+There are also two kinds of sign-in token (**Sign in with a token instead**):
 
 | Token                                  | Who                                        | Can                                      |
 | -------------------------------------- | ------------------------------------------ | ---------------------------------------- |
@@ -72,14 +81,15 @@ the agent sees it and the audit log keeps it.
   `init` run makes new tokens. `init` prints the command to read each one, for example
   `kubectl get secret <name> -o jsonpath='{.data.KODRA_CONSOLE_TOKEN_OMAR}' | base64 -d`.
 
-If the console is on and `KODRA_CONSOLE_TOKEN` is missing, `run` prints an error and starts
-without the console. A console approver without a token cannot sign in, and `run` says so.
+The console starts without `KODRA_CONSOLE_TOKEN`: the admin can still sign in. A console
+approver without a token cannot sign in, and `run` says so (`console:admin` needs no token).
 
 How the console is protected:
 
 - Tokens are compared in constant time, against every account, and registered with the
-  redactor, so they never reach output, the model, or the audit log.
-- A correct token gives an `HttpOnly`, `SameSite=Strict` session cookie for 12 hours.
+  redactor, so they never reach output, the model, or the audit log. Wrong passwords and
+  wrong tokens share the same limit of 10 a minute.
+- A correct token or password gives an `HttpOnly`, `SameSite=Strict` session cookie for 12 hours.
   Signing out ends the session and its live streams.
 - At most 10 failed sign-ins per minute per address.
 - Every `POST` checks the `Origin` header. Chat and approval requests also need the session,

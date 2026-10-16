@@ -5,9 +5,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ConsoleUser } from './approvals.ts';
+import { ADMIN_USERNAME, passwordProblem, type AdminAccount } from './admin.ts';
 
 /**
- * The console's HTTP server: the static app, a token sign-in, a JSON API, write actions
+ * The console's HTTP server: the static app, a password or token sign-in, a JSON API, write actions
  * (chat and approvals), and server-sent events. Security: a session cookie (HttpOnly,
  * SameSite=Strict) after a constant-time token check, sign-in and message rate limits, an
  * Origin check on every POST, a required custom header and JSON body on actions, and strict
@@ -23,6 +24,7 @@ const MAX_FAILED_SIGN_INS_PER_MINUTE = 10;
 /** Actions must send this header: a plain cross-site form cannot, so it is a CSRF check too. */
 export const ACTION_HEADER = 'x-kodra-console';
 const MAX_ACTION_BODY = 16 * 1024;
+const MUST_CHANGE = 'change the admin password first';
 const HEARTBEAT_MS = 20_000;
 
 export const CONSOLE_CSP = [
@@ -99,6 +101,8 @@ export interface ConsoleServerOptions {
   host?: string;
   /** The shared token (view and chat) and each console approver's own token. */
   accounts: readonly ConsoleAccount[];
+  /** The admin, who signs in with a password (admin/admin until it is changed). */
+  admin?: { account: AdminAccount; user: ConsoleUser };
   routes: Record<string, ApiRoute>;
   actions?: Record<string, ActionRoute>;
   streams?: Record<string, StreamRoute>;
@@ -115,6 +119,8 @@ interface Session {
   expires: number;
   user: ConsoleUser;
   streams: Set<() => void>;
+  /** Signed in with the default password: nothing works until it is changed. */
+  mustChange: boolean;
 }
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest();
@@ -243,12 +249,39 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
     ) {
       return null;
     }
-    const account = accounts.find((a) => a.user.name === u);
+    const account = accountNamed(u);
     if (!account || e < now() || registry.isRevoked(i)) return null;
-    const expected = Buffer.from(signSession(account.digest, { i, u, e, t }).split('.')[1] ?? '');
+    const expected = Buffer.from(signSession(account.key, { i, u, e, t }).split('.')[1] ?? '');
     const given = Buffer.from(mac);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-    return { id: i, expires: e, user: account.user, streams: registry.seen(i, u, t) };
+    return {
+      id: i,
+      expires: e,
+      user: account.user,
+      streams: registry.seen(i, u, t),
+      mustChange: account.isAdmin && (o.admin?.account.mustChange() ?? false),
+    };
+  };
+
+  /** The account a session names, with the key that signs its sessions. */
+  const accountNamed = (name: string) => {
+    if (o.admin?.user.name === name) {
+      return { user: o.admin.user, key: o.admin.account.sessionKey(), isAdmin: true };
+    }
+    const found = accounts.find((a) => a.user.name === name);
+    return found ? { user: found.user, key: found.digest, isAdmin: false } : null;
+  };
+
+  const sessionCookieFor = (user: ConsoleUser): string => {
+    const account = accountNamed(user.name);
+    if (!account) throw new Error('account vanished');
+    const value = signSession(account.key, {
+      i: randomBytes(18).toString('base64url'),
+      u: user.name,
+      e: now() + SESSION_HOURS * 3_600_000,
+      t: now(),
+    });
+    return `${SESSION_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(SESSION_HOURS * 3600)}`;
   };
 
   const endSession = async (session: Session) => {
@@ -290,26 +323,26 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
             return;
           }
           const body = await readBody(req, 8 * 1024);
-          const user = accountFor(typeof body?.['token'] === 'string' ? body['token'] : '');
+          const text = (key: string) => {
+            const value = body?.[key];
+            return typeof value === 'string' ? value : '';
+          };
+          let user: ConsoleUser | null = null;
+          if (text('username') === '') user = accountFor(text('token'));
+          else if (o.admin && text('username') === ADMIN_USERNAME) {
+            if (await o.admin.account.verify(text('password'))) user = o.admin.user;
+          }
           if (!user) {
             failures.set(ip, [...recent, now()]);
-            json(res, 401, { error: 'wrong token' });
+            json(res, 401, { error: 'wrong username, password, or token' });
             return;
           }
           failures.delete(ip);
-          const account = accounts.find((a) => a.user === user);
-          if (!account) throw new Error('account vanished');
-          const value = signSession(account.digest, {
-            i: randomBytes(18).toString('base64url'),
-            u: user.name,
-            e: now() + SESSION_HOURS * 3_600_000,
-            t: now(),
+          res.setHeader('set-cookie', sessionCookieFor(user));
+          json(res, 200, {
+            signedIn: true,
+            mustChangePassword: user === o.admin?.user && o.admin.account.mustChange(),
           });
-          res.setHeader(
-            'set-cookie',
-            `${SESSION_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(SESSION_HOURS * 3600)}`,
-          );
-          json(res, 200, { signedIn: true });
           return;
         }
         if (name === 'logout') {
@@ -323,7 +356,7 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
           return;
         }
         const action = o.actions?.[name];
-        if (!action) {
+        if (!action && !(name === 'password' && o.admin)) {
           json(res, 404, { error: 'not found' });
           return;
         }
@@ -347,6 +380,14 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
           });
           return;
         }
+        if (name === 'password' && o.admin) {
+          await changePassword(req, res, session, body, o.admin);
+          return;
+        }
+        if (session.mustChange || !action) {
+          json(res, 403, { error: MUST_CHANGE, mustChangePassword: true });
+          return;
+        }
         const result = await action({ query: url.searchParams, user: session.user, body });
         json(res, result.status, result.body);
         return;
@@ -366,6 +407,8 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
                 user: session.user.name,
                 canApprove: session.user.canApprove,
                 features: o.features ?? {},
+                mustChangePassword: session.mustChange,
+                passwordAccount: session.user === o.admin?.user,
               }
             : { signedIn: false },
         );
@@ -374,6 +417,10 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
       const session = sessionOf(req);
       if (!session) {
         json(res, 401, { error: 'sign in first' });
+        return;
+      }
+      if (session.mustChange) {
+        json(res, 403, { error: MUST_CHANGE, mustChangePassword: true });
         return;
       }
       const stream = o.streams?.[name];
@@ -397,6 +444,43 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
       return;
     }
     await serveStatic(staticDir, path, res);
+  }
+
+  /** The admin's own password change: needs the current one, and ends every other session. */
+  async function changePassword(
+    req: IncomingMessage,
+    res: ServerResponse,
+    session: Session,
+    body: Record<string, unknown>,
+    admin: NonNullable<ConsoleServerOptions['admin']>,
+  ): Promise<void> {
+    if (session.user !== admin.user) {
+      json(res, 403, { error: 'only the admin has a password' });
+      return;
+    }
+    const ip = req.socket.remoteAddress ?? 'unknown';
+    const recent = (failures.get(ip) ?? []).filter((t) => t > now() - 60_000);
+    if (recent.length >= MAX_FAILED_SIGN_INS_PER_MINUTE) {
+      json(res, 429, { error: 'too many attempts, wait a minute' });
+      return;
+    }
+    const current = typeof body['current'] === 'string' ? body['current'] : '';
+    const next = typeof body['next'] === 'string' ? body['next'] : '';
+    if (!(await admin.account.verify(current))) {
+      failures.set(ip, [...recent, now()]);
+      json(res, 400, { error: 'The current password is not right.', code: 'wrong-current' });
+      return;
+    }
+    const problem = passwordProblem(next, current);
+    if (problem) {
+      json(res, 400, { error: problem, code: 'weak' });
+      return;
+    }
+    await admin.account.change(next);
+    // The new key ends every session signed with the old one; this one gets a new cookie.
+    await registry.revoke(session.id, session.expires);
+    res.setHeader('set-cookie', sessionCookieFor(admin.user));
+    json(res, 200, { changed: true });
   }
 
   await new Promise<void>((resolveListen, reject) => {
