@@ -14,6 +14,7 @@
     "mcp:fetch": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/fetch-mcp.ts",
     "test:kind": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/kind-test.ts",
     "test:package": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/package-test.ts",
+    "test:proxy": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/proxy-test.ts",
     "demo:slack": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/kind-test.ts --demo-slack"
   },
   "dependencies": {
@@ -33,6 +34,7 @@
     "@slack/bolt": "5.1.0",
     "@smithy/signature-v4": "5.7.4",
     "ai": "7.0.126",
+    "undici": "8.11.2",
     "yaml": "2.9.1",
     "zod": "4.6.5"
   }

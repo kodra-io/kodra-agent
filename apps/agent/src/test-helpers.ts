@@ -1,3 +1,4 @@
+import { NO_NETWORK_RUNTIME } from './network.ts';
 import type { EffectivePolicy } from '@kodra-agent/schema';
 import type { RequestRules } from './approvals.ts';
 import type { SelfKubernetes } from './console/config-backend.ts';
@@ -90,6 +91,7 @@ export function testContext(overrides: Partial<Context> = {}) {
   const term = memoryTerminal(redactor);
   const logLines: string[] = [];
   const ctx: Context = {
+    networkRuntime: NO_NETWORK_RUNTIME,
     term,
     log: jsonLogger((l) => logLines.push(l), redactor),
     redactor,

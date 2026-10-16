@@ -3,6 +3,8 @@
 #     --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml
 
 image:
+  # A private registry or mirror replaces the host: <registry>/kodra-io/kodra-agent.
+  registry: ''
   repository: ghcr.io/kodra-io/kodra-agent
   # Defaults to the chart's appVersion.
   tag: ''
@@ -78,6 +80,36 @@ securityContext:
   readOnlyRootFilesystem: true
   capabilities:
     drop: [ALL]
+
+# Extra CA certificates (a TLS-inspecting proxy, an internal CA), from a ConfigMap or a Secret,
+# mounted at /etc/kodra-agent-ca. Point spec.network.caBundleFile at /etc/kodra-agent-ca/<key>.
+caBundle:
+  configMap: ''
+  secret: ''
+  key: ca.pem
+
+# OpenShift assigns each namespace its own user ids: leave runAsUser, runAsGroup, and fsGroup
+# unset so the restricted SCC can choose them. The image runs under any user in group 0.
+openshift: false
+
+# Outbound traffic for the agent: DNS, the API server, in-cluster services from connector URLs,
+# then the proxy alone (spec.network.proxy) or HTTPS to public addresses.
+networkPolicy:
+  # On for the team and strict profiles when left empty; true or false to choose.
+  enabled: null
+  # The API server's address and port. Found with helm lookup when empty; set it for helm
+  # template and GitOps.
+  apiServer:
+    cidr: ''
+    port: 443
+  # Required when spec.network.proxy is set: the proxy's address, like 10.0.0.12/32.
+  proxy:
+    cidr: ''
+    port: 3128
+  # Also create a CiliumNetworkPolicy that allows only the connectors' hostnames (toFQDNs).
+  cilium: false
+  # More egress rules, appended as written.
+  extraEgress: []
 
 nodeSelector: {}
 tolerations: []

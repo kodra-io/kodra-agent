@@ -22,6 +22,7 @@
     "mcp:fetch": "pnpm --filter @kodra-agent/agent mcp:fetch",
     "test:kind": "pnpm --filter @kodra-agent/agent test:kind",
     "test:package": "pnpm --filter @kodra-agent/agent test:package",
+    "test:proxy": "pnpm --filter @kodra-agent/agent test:proxy",
     "demo:slack": "pnpm --filter @kodra-agent/agent demo:slack"
   },
   "devDependencies": {

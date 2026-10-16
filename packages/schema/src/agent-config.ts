@@ -260,6 +260,47 @@ const limitsSchema = z
   .meta({ description: 'Limits for each question the agent answers, and a monthly budget.' });
 
 /** The web console the agent serves (M8): status, chat, and approvals. */
+/**
+ * Proxies and private CAs (PLAN-v0.2 M12). The proxy URLs are secret references, because a
+ * proxy URL can hold a user name and password; the agent registers them with the redactor.
+ */
+const networkSchema = z
+  .strictObject({
+    proxy: z
+      .strictObject({
+        /** For HTTPS requests, like ${env:HTTPS_PROXY}. */
+        https: secretRefSchema.optional(),
+        /** For plain HTTP requests, like ${env:HTTP_PROXY}. */
+        http: secretRefSchema.optional(),
+        /** Hosts that skip the proxy, comma-separated, like localhost,.svc,.cluster.local. */
+        noProxy: z.string().max(4000).optional(),
+      })
+      .optional(),
+    /** A PEM file of extra CA certificates (a TLS-inspecting proxy, an internal CA). */
+    caBundleFile: absolutePath.optional(),
+  })
+  .prefault({})
+  .meta({ description: 'Proxy and CA certificates for every outbound connection.' });
+
+const registryHost = z
+  .string()
+  .regex(/^[a-z0-9.-]+(:\d+)?$/, 'must be a registry host, like docker.io or gcr.io');
+const mirrorPath = z
+  .string()
+  .regex(
+    /^[a-z0-9.-]+(:\d+)?(\/[a-z0-9._-]+)*$/,
+    'must be a registry and path, like harbor.example.com/dockerhub-proxy',
+  );
+
+/** The ship flow (M6): where generated Dockerfiles and CI pull their base images from. */
+const shipSchema = z
+  .strictObject({
+    /** Base images from a registry come from its mirror instead, keeping the pinned tag or digest. */
+    baseImageMirrors: z.record(registryHost, mirrorPath).default({}),
+  })
+  .prefault({})
+  .meta({ description: 'Settings for the ship flow.' });
+
 const consoleSchema = z
   .strictObject({
     enabled: z.boolean().default(true),
@@ -397,6 +438,8 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         monitoring: monitoringSchema,
         limits: limitsSchema,
         console: consoleSchema,
+        network: networkSchema,
+        ship: shipSchema,
       }),
     })
     .superRefine((config, ctx) => {
@@ -481,6 +524,13 @@ export interface AgentConfig {
       timeoutMinutes: number;
       monthlyBudgetUsd?: number | undefined;
     };
+    network: {
+      proxy?:
+        | { https?: string | undefined; http?: string | undefined; noProxy?: string | undefined }
+        | undefined;
+      caBundleFile?: string | undefined;
+    };
+    ship: { baseImageMirrors: Record<string, string> };
     console: {
       enabled: boolean;
       port: number;

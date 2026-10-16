@@ -33,10 +33,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
+        {{- if .Values.openshift }}
+        {{- toYaml (omit .Values.podSecurityContext "runAsUser" "runAsGroup" "fsGroup") | nindent 8 }}
+        {{- else }}
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- end }}
       containers:
         - name: agent
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "kodra-agent.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["run"]
           env:
@@ -112,6 +116,11 @@ spec:
               mountPath: /var/lib/kodra-agent
             - name: tmp
               mountPath: /tmp
+            {{- if or .Values.caBundle.configMap .Values.caBundle.secret }}
+            - name: ca-bundle
+              mountPath: /etc/kodra-agent-ca
+              readOnly: true
+            {{- end }}
             {{- if and .Values.console.enabled .Values.console.editSettings .Values.serviceAccount.automountToken }}
             - name: settings
               mountPath: /etc/kodra-agent-settings
@@ -137,6 +146,17 @@ spec:
         # The root filesystem is read-only; MCP servers get private folders under /tmp.
         - name: tmp
           emptyDir: {}
+        {{- if .Values.caBundle.configMap }}
+        - name: ca-bundle
+          configMap:
+            name: {{ .Values.caBundle.configMap }}
+            items: [{ key: {{ .Values.caBundle.key }}, path: {{ .Values.caBundle.key }} }]
+        {{- else if .Values.caBundle.secret }}
+        - name: ca-bundle
+          secret:
+            secretName: {{ .Values.caBundle.secret }}
+            items: [{ key: {{ .Values.caBundle.key }}, path: {{ .Values.caBundle.key }} }]
+        {{- end }}
         {{- if and .Values.console.enabled .Values.console.editSettings .Values.serviceAccount.automountToken }}
         # What was saved in the console; the agent uses it only if it was made from this config.
         - name: settings

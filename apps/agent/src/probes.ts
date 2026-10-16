@@ -1,3 +1,4 @@
+import * as https from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import type { Component } from './config.ts';
@@ -328,6 +329,8 @@ async function awsIdentity(
   const client = new STSClient({
     region,
     maxAttempts: 1,
+    // The AWS SDK brings its own agent; the global one carries the proxy and extra CAs (M12).
+    requestHandler: { httpsAgent: https.globalAgent },
     ...(credentials ? { credentials } : {}),
     ...(ctx.endpoints?.sts ? { endpoint: ctx.endpoints.sts } : {}),
   });

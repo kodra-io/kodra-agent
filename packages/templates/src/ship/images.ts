@@ -30,3 +30,30 @@ export const CHECKOUT_ACTION = 'actions/checkout@3d3c42e5aac5ba805825da76410c181
 
 export type JavaVersion = 17 | 21;
 export const JAVA_VERSIONS: readonly JavaVersion[] = [17, 21];
+
+/**
+ * An image reference pulled through a mirror (PLAN-v0.2 M12), keeping its tag and digest.
+ * Images without a registry are Docker Hub's: `node:24` is `docker.io/library/node:24`.
+ */
+export function mirrorImage(image: string, mirrors: Readonly<Record<string, string>>): string {
+  const first = image.split('/')[0] ?? '';
+  const hasRegistry =
+    image.includes('/') && (first.includes('.') || first.includes(':') || first === 'localhost');
+  const registry = hasRegistry ? first : 'docker.io';
+  let path = hasRegistry ? image.slice(first.length + 1) : image;
+  if (registry === 'docker.io' && !path.includes('/')) path = `library/${path}`;
+  const mirror = mirrors[registry];
+  return mirror ? `${mirror.replace(/\/+$/, '')}/${path}` : image;
+}
+
+/** Every pinned base image, so generated files can be rewritten for mirrors. */
+export function pinnedImages(): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === 'string') out.push(v);
+    else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+  };
+  walk(IMAGES);
+  // Longest first, so a tag never replaces part of a longer one.
+  return [...new Set(out)].sort((a, b) => b.length - a.length);
+}

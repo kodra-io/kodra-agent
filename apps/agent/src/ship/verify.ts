@@ -19,7 +19,13 @@ export async function buildImage(
   tag: string,
   timeoutMs: number,
 ): Promise<Check> {
-  const result = await exec('docker', ['build', '--progress=plain', '-t', tag, '.'], {
+  // Proxy settings reach the build by name only: docker reads the values from the
+  // environment, so a proxy password never appears in the arguments.
+  const proxyArgs = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY'].flatMap((name) => [
+    '--build-arg',
+    name,
+  ]);
+  const result = await exec('docker', ['build', '--progress=plain', ...proxyArgs, '-t', tag, '.'], {
     cwd: dir,
     timeoutMs,
   });

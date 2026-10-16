@@ -14,6 +14,7 @@ import { components, loadConfig, secretLabel, type Component, type SecretUse } f
 import { CONSOLE_TOKEN_ENV, newConsoleToken } from '../console/token.ts';
 import { AGENT_NAMESPACE, type Context } from '../context.ts';
 import { parseEnvFile, renderEnvFile, writePrivateFile } from '../env-file.ts';
+import { applyNetwork, networkSettings } from '../network.ts';
 import { runProbe, type ProbeResult } from '../probes.ts';
 import { approverNames, listSlackUsers, matchNames, replaceApproverNames } from '../slack/names.ts';
 
@@ -65,6 +66,13 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
   const existingText = target === 'compose' ? await readOptional(envPath) : null;
   const existing = existingText === null ? new Map<string, string>() : parseEnvFile(existingText);
   for (const value of existing.values()) ctx.redactor.add(value);
+  // Key checks go through the proxy and trust the extra CAs, like the agent itself (M12).
+  const network = await applyNetwork(
+    networkSettings(config, { ...Object.fromEntries(existing), ...ctx.env }),
+    ctx.redactor,
+    ctx.networkRuntime,
+  );
+  for (const problem of network.problems) ctx.term.err(`Network: ${problem}.`);
 
   if (uses.length > 0) {
     ctx.term.out(

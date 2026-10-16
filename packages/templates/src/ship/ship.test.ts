@@ -6,6 +6,7 @@ import {
   detectStack,
   dockerfile,
   helmChart,
+  mirrorImage,
   planShip,
   shipPrBody,
   type Detection,
@@ -348,5 +349,45 @@ describe('shipPrBody', () => {
     expect(body).toContain('- The image builds.');
     expect(body).toContain('## Changed by the model');
     expect(body).not.toMatch(/—/);
+  });
+});
+
+describe('base image mirrors', () => {
+  const mirrors = {
+    'docker.io': 'harbor.example.com/dockerhub-proxy',
+    'gcr.io': 'harbor.example.com/gcr-proxy/',
+  };
+
+  it('pulls each registry through its mirror, keeping tags and digests', () => {
+    expect(mirrorImage('node:24.21.0-alpine3.24', mirrors)).toBe(
+      'harbor.example.com/dockerhub-proxy/library/node:24.21.0-alpine3.24',
+    );
+    expect(mirrorImage('alpine/helm:4.3.0', mirrors)).toBe(
+      'harbor.example.com/dockerhub-proxy/alpine/helm:4.3.0',
+    );
+    expect(mirrorImage('gcr.io/distroless/static-debian12:nonroot@sha256:abc', mirrors)).toBe(
+      'harbor.example.com/gcr-proxy/distroless/static-debian12:nonroot@sha256:abc',
+    );
+    expect(mirrorImage('quay.io/org/app:1', mirrors)).toBe('quay.io/org/app:1');
+  });
+
+  it('rewrites the generated Dockerfile and CI, and nothing else', () => {
+    const plain = planShip(NODE, { provider: 'github', repo: 'acme/api', defaultBranch: 'main' });
+    const mirrored = planShip(NODE, {
+      provider: 'github',
+      repo: 'acme/api',
+      defaultBranch: 'main',
+      mirrors,
+    });
+    const dockerfile = mirrored.files.find((f) => f.path === 'Dockerfile')?.content ?? '';
+    expect(dockerfile).toContain(
+      'FROM harbor.example.com/dockerhub-proxy/library/node:24.21.0-alpine3.24',
+    );
+    expect(dockerfile).not.toMatch(/FROM node:/);
+    expect(mirrored.files.map((f) => f.path)).toEqual(plain.files.map((f) => f.path));
+    expect(
+      planShip(NODE, { provider: 'github', repo: 'acme/api', defaultBranch: 'main', mirrors: {} })
+        .files,
+    ).toEqual(plain.files);
   });
 });

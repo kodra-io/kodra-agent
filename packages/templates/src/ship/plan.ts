@@ -2,6 +2,17 @@ import { helmChart } from './chart.ts';
 import { githubWorkflow, gitlabCi } from './ci.ts';
 import type { Detection } from './detect.ts';
 import { dockerfile, dockerignore } from './dockerfile.ts';
+import { mirrorImage, pinnedImages } from './images.ts';
+
+/** Generated files with every pinned base image pulled through its mirror. */
+function withMirrors(text: string, mirrors: Readonly<Record<string, string>>): string {
+  if (Object.keys(mirrors).length === 0) return text;
+  let out = text;
+  for (const image of pinnedImages()) {
+    out = out.split(image).join(`\u0000${mirrorImage(image, mirrors)}\u0000`);
+  }
+  return out.replaceAll('\u0000', '');
+}
 
 export type SourceProvider = 'github' | 'gitlab';
 
@@ -13,6 +24,8 @@ export interface PlanOptions {
   defaultBranch: string;
   /** GitLab address, for the registry host. */
   gitlabUrl?: string;
+  /** Registry mirrors for base images (spec.ship.baseImageMirrors). */
+  mirrors?: Readonly<Record<string, string>>;
 }
 
 export interface ShipFile {
@@ -100,7 +113,14 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
         reason: `GitLab CI: builds the image on every pipeline, pushes it to ${image} from the default branch, and lints the chart.`,
       });
   }
-  return { files, kept, chartDir, image, generatedDockerfile: !d.existing.dockerfile };
+  const mirrors = o.mirrors ?? {};
+  return {
+    files: files.map((f) => ({ ...f, content: withMirrors(f.content, mirrors) })),
+    kept,
+    chartDir,
+    image,
+    generatedDockerfile: !d.existing.dockerfile,
+  };
 }
 
 export interface PrBodyInput {
