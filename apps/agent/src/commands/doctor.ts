@@ -1,12 +1,18 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AuditLog } from '../audit.ts';
-import { allApprovers, isSecretRequired, resolvePolicy } from '@kodra-agent/schema';
+import {
+  allApprovers,
+  isSecretRequired,
+  resolvePolicy,
+  type AgentConfig,
+} from '@kodra-agent/schema';
 import { components, loadConfig, secretLabel, type SecretUse } from '../config.ts';
 import type { Context } from '../context.ts';
 import { parseEnvFile } from '../env-file.ts';
 import { probeIds, runProbe, type ProbeStatus } from '../probes.ts';
 import { resolveAll } from '../secrets.ts';
+import { applyNetwork, networkSettings, pemCertificates } from '../network.ts';
 import { approverNames } from '../slack/names.ts';
 
 export interface DoctorOptions {
@@ -69,6 +75,8 @@ export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number>
   const envText = await readOptional(envPath);
   const dotenv = envText === null ? {} : Object.fromEntries(parseEnvFile(envText));
   const env = { ...dotenv, ...ctx.env };
+  // Checks below go through the proxy and trust the extra CAs, like the agent itself (M12).
+  for (const row of await networkRows(config, env, ctx)) add(row);
 
   const audit = new AuditLog(config.spec.audit.path, ctx.redactor);
   const auditOk = await audit
@@ -233,4 +241,70 @@ function missingHint(use: SecretUse, target: 'compose' | 'kubernetes'): string {
     return `Copy the file into the bundle folder as secrets/${use.ref.path.slice('/secrets/'.length)}, or run \`kodra-agent init\`.`;
   }
   return 'Run `kodra-agent init` to set it.';
+}
+
+/** Proxy and CA rows, when the config has either: set, readable, and usable by this Node.js. */
+async function networkRows(
+  config: AgentConfig,
+  env: Readonly<Record<string, string | undefined>>,
+  ctx: Context,
+): Promise<DoctorRow[]> {
+  const settings = networkSettings(config, env);
+  const proxy = config.spec.network.proxy;
+  if (!proxy?.https && !proxy?.http && !settings.caFile) return [];
+  const rows: DoctorRow[] = [];
+  const row = (check: string, problem: string | null, ok: string, hint?: string): DoctorRow =>
+    problem
+      ? { status: 'fail', component: 'network', check, message: problem, ...(hint ? { hint } : {}) }
+      : { status: 'pass', component: 'network', check, message: ok };
+  if (proxy?.https || proxy?.http) {
+    const shown = settings.httpsProxy ?? settings.httpProxy;
+    let where = '';
+    try {
+      // Only the host and port: the URL may hold a user name and password.
+      if (shown) where = new URL(shown).host;
+    } catch {
+      where = '';
+    }
+    rows.push(
+      settings.missing.length > 0
+        ? row(
+            'proxy',
+            `${settings.missing.join(', ')} ${settings.missing.length === 1 ? 'is' : 'are'} not set`,
+            '',
+            'Put the proxy URL in .env (Docker Compose) or the agent Secret (Kubernetes).',
+          )
+        : row(
+            'proxy',
+            where ? null : 'the proxy is not a URL like http://proxy.example.com:3128',
+            `through ${where}; direct for ${settings.noProxy}`,
+          ),
+    );
+  }
+  if (settings.caFile) {
+    const text = await readOptional(settings.caFile);
+    const count = text === null ? 0 : pemCertificates(text).length;
+    rows.push(
+      row(
+        'CA certificates',
+        text === null
+          ? `cannot read ${settings.caFile}`
+          : count === 0
+            ? `${settings.caFile} holds no PEM certificates`
+            : null,
+        `${String(count)} from ${settings.caFile}`,
+        'Mount the PEM file at that path: in the bundle folder on Docker Compose, from a ConfigMap on Kubernetes.',
+      ),
+    );
+  }
+  const applied = await applyNetwork(settings, ctx.redactor);
+  rows.push(
+    row(
+      'this Node.js',
+      applied.problems.join('; ') || null,
+      'applies the proxy and CA certificates to every connection',
+      'Run the agent image, or Node.js 24.14 or newer.',
+    ),
+  );
+  return rows;
 }

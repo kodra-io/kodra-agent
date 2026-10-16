@@ -67,7 +67,7 @@ describe('compose bundle', () => {
       services: { 'kodra-agent': Record<string, unknown> };
     };
     const service = compose.services['kodra-agent'];
-    expect(service['image']).toBe('ghcr.io/kodra-io/kodra-agent:0.2.0');
+    expect(service['image']).toBe('${KODRA_AGENT_IMAGE:-ghcr.io/kodra-io/kodra-agent:0.2.0}');
     expect(service['read_only']).toBe(true);
     expect(service['cap_drop']).toEqual(['ALL']);
     // The root filesystem is read-only; MCP servers get private folders under /tmp.

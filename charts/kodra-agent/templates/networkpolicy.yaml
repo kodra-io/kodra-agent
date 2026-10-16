@@ -1,0 +1,162 @@
+{{- /*
+Outbound traffic for the agent pod (PLAN-v0.2 M12), worked out from kodra-agent.yaml:
+DNS, the API server, in-cluster services named in connector URLs, then either the proxy
+alone (when spec.network.proxy is set) or HTTPS to public addresses, private ranges blocked.
+On by default for the team and strict profiles.
+*/ -}}
+{{- $cfg := fromYaml (.Values.config | default "{}") | default dict -}}
+{{- $spec := get $cfg "spec" | default dict -}}
+{{- $profile := get $spec "profile" | default "starter" -}}
+{{- $enabled := .Values.networkPolicy.enabled -}}
+{{- if kindIs "invalid" $enabled }}{{ $enabled = ne $profile "starter" }}{{ end -}}
+{{- if $enabled }}
+{{- $np := .Values.networkPolicy -}}
+{{- $network := get $spec "network" | default dict -}}
+{{- $proxy := get $network "proxy" | default dict -}}
+{{- $useProxy := or (get $proxy "https") (get $proxy "http") -}}
+{{- if and $useProxy (not $np.proxy.cidr) }}
+{{- fail "spec.network.proxy is set: give the proxy's address as networkPolicy.proxy.cidr, like 10.0.0.12/32" }}
+{{- end }}
+{{- /* The API server: from values, else the default/kubernetes endpoints. */ -}}
+{{- $apiCidrs := list -}}
+{{- $apiPort := $np.apiServer.port -}}
+{{- if $np.apiServer.cidr }}
+{{- $apiCidrs = list $np.apiServer.cidr -}}
+{{- else }}
+{{- $ep := lookup "v1" "Endpoints" "default" "kubernetes" -}}
+{{- range ($ep.subsets | default list) }}
+{{- range (.addresses | default list) }}{{ $apiCidrs = append $apiCidrs (printf "%s/32" .ip) }}{{ end }}
+{{- range (.ports | default list) }}{{ $apiPort = .port }}{{ end }}
+{{- end }}
+{{- end }}
+{{- /* In-cluster services from connector URLs: <service>.<namespace>[.svc[.cluster.local]]. */ -}}
+{{- $inCluster := list -}}
+{{- range $id, $connector := (get $spec "connectors" | default dict) }}
+{{- if and (kindIs "map" $connector) (get $connector "enabled") }}
+{{- range $key, $value := (get $connector "config" | default dict) }}
+{{- if and (kindIs "string" $value) (regexMatch "^https?://" $value) }}
+{{- $u := urlParse $value -}}
+{{- $host := regexReplaceAll ":[0-9]+$" $u.host "" -}}
+{{- $labels := splitList "." $host -}}
+{{- if include "kodra-agent.inCluster" $host }}
+{{- $port := regexFind "[0-9]+$" (regexFind ":[0-9]+$" $u.host) | default (ternary "443" "80" (eq $u.scheme "https")) -}}
+{{- $inCluster = append $inCluster (dict "namespace" (index $labels 1) "port" (atoi $port)) -}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kodra-agent.fullname" . }}
+  labels:
+    {{- include "kodra-agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kodra-agent.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- if $apiCidrs }}
+    # The Kubernetes API server
+    - to:
+        {{- range $apiCidrs }}
+        - ipBlock: { cidr: {{ . }} }
+        {{- end }}
+      ports:
+        - { protocol: TCP, port: {{ $apiPort }} }
+    {{- end }}
+    {{- range $inCluster }}
+    # An in-cluster service a connector uses
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .namespace }}
+      ports:
+        - { protocol: TCP, port: {{ .port }} }
+    {{- end }}
+    {{- if $useProxy }}
+    # Everything else goes through the proxy.
+    - to:
+        - ipBlock: { cidr: {{ $np.proxy.cidr }} }
+      ports:
+        - { protocol: TCP, port: {{ $np.proxy.port }} }
+    {{- else }}
+    # HTTPS to public addresses; private and link-local ranges stay blocked.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+      ports:
+        - { protocol: TCP, port: 443 }
+    {{- end }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- if $np.cilium }}
+---
+{{- /* Hostnames, which a standard NetworkPolicy cannot match: Cilium's toFQDNs. */ -}}
+{{- $names := list -}}
+{{- $model := get $spec "model" | default dict -}}
+{{- $provider := get $model "provider" | default "" -}}
+{{- if get $model "baseUrl" }}{{ $names = append $names (urlParse (get $model "baseUrl")).hostname }}
+{{- else if eq $provider "anthropic" }}{{ $names = append $names "api.anthropic.com" }}
+{{- else if eq $provider "openai" }}{{ $names = append $names "api.openai.com" }}
+{{- else if eq $provider "azure-openai" }}{{ $names = append $names (urlParse (get $model "endpoint")).hostname }}
+{{- end }}
+{{- $patterns := list -}}
+{{- if eq $provider "bedrock" }}{{ $patterns = append $patterns "*.amazonaws.com" }}{{ end }}
+{{- $connectors := get $spec "connectors" | default dict -}}
+{{- range $id, $c := $connectors }}
+{{- if and (kindIs "map" $c) (get $c "enabled") }}
+{{- if eq $id "github" }}{{ $names = concat $names (list "api.github.com" "github.com") }}{{ end }}
+{{- if eq $id "slack" }}{{ $names = append $names "slack.com" }}{{ $patterns = append $patterns "*.slack.com" }}{{ end }}
+{{- if eq $id "aws" }}{{ $patterns = append $patterns "*.amazonaws.com" }}{{ end }}
+{{- range $key, $value := (get $c "config" | default dict) }}
+{{- if and (kindIs "string" $value) (regexMatch "^https?://" $value) }}
+{{- $h := (urlParse $value).hostname -}}
+{{- if not (include "kodra-agent.inCluster" $h) }}{{ $names = append $names $h }}{{ end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "kodra-agent.fullname" . }}-fqdn
+  labels:
+    {{- include "kodra-agent.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "kodra-agent.selectorLabels" . | nindent 6 }}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports: [{ port: "53", protocol: ANY }]
+          rules:
+            dns: [{ matchPattern: "*" }]
+    - toFQDNs:
+        {{- range (uniq $names) }}
+        - matchName: {{ . | quote }}
+        {{- end }}
+        {{- range (uniq $patterns) }}
+        - matchPattern: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports: [{ port: "443", protocol: TCP }]
+{{- end }}
+{{- end }}

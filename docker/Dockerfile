@@ -52,7 +52,10 @@ RUN apt-get update \
  # The audit log volume. World-writable with the sticky bit, so the agent can also run as
  # the host user that owns the bundle folder (see the bundle README).
  && install -d -m 1777 /var/lib/kodra-agent \
- && install -d -o kodra -g kodra /etc/kodra-agent
+ && install -d -o kodra -g kodra /etc/kodra-agent \
+ # OpenShift runs the image as a random user in group 0: what it writes belongs to group 0.
+ && chgrp -R 0 /home/kodra /etc/kodra-agent \
+ && chmod -R g=u /home/kodra /etc/kodra-agent
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 # BuildKit builds (`docker build`) need the buildx plugin; the legacy builder is deprecated.
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-buildx \
@@ -65,6 +68,7 @@ COPY --from=build /app /app
 COPY --from=console /app/apps/console/dist /app/apps/console/dist
 # Caches go to /tmp, so the root filesystem can be read-only.
 ENV NODE_ENV=production \
+    HOME=/home/kodra \
     KODRA_MCP_DIR=/opt/kodra-mcp \
     KODRA_AGENT_CONFIG=/etc/kodra-agent/kodra-agent.yaml \
     XDG_CACHE_HOME=/tmp/.cache \

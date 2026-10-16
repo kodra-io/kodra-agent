@@ -6,7 +6,15 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**'] },
+  // The proxy test's stub runs in a stock node image as plain JavaScript, with no project.
+  {
+    ignores: [
+      '**/dist/**',
+      '**/coverage/**',
+      '**/node_modules/**',
+      'apps/agent/scripts/proxy-stub.mjs',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {

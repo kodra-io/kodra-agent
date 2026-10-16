@@ -142,6 +142,34 @@ describe('doctor', () => {
     });
   });
 
+  it('checks the proxy and the CA file, showing only the proxy host', async () => {
+    const dir = await tempDir();
+    const ca = join(dir, 'ca.pem');
+    await writeFile(ca, '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n');
+    const network = `  network:\n    proxy:\n      https: '\${env:CORP_PROXY}'\n    caBundleFile: ${posixPath(ca)}\n`;
+    const path = await writeConfig(
+      configYaml({ auditPath: posixPath(join(dir, 'audit.jsonl')) }) + network,
+      dir,
+    );
+    const missing = testContext();
+    await doctor({ configPath: path, json: true }, missing.ctx);
+    expect(rowsOf(missing).find((r) => r.check === 'proxy')).toMatchObject({
+      status: 'fail',
+      message: 'CORP_PROXY is not set',
+    });
+    expect(rowsOf(missing).find((r) => r.check === 'CA certificates')).toMatchObject({
+      status: 'pass',
+      message: `1 from ${posixPath(ca)}`,
+    });
+
+    const set = testContext({ env: { CORP_PROXY: 'http://user:pw-9f2c@proxy.corp:3128' } });
+    await doctor({ configPath: path, json: true }, set.ctx);
+    expect(rowsOf(set).find((r) => r.check === 'proxy')?.message).toBe(
+      'through proxy.corp:3128; direct for localhost,127.0.0.1,::1,.svc,.cluster.local',
+    );
+    expect(set.output()).not.toContain('pw-9f2c');
+  });
+
   it('reports an invalid config with its line numbers', async () => {
     const dir = await tempDir();
     const path = await writeConfig(

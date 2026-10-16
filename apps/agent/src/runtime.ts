@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isSecretRequired, resolvePolicy, type AgentConfig } from '@kodra-agent/schema';
 import { alwaysBlocked, type AgentDeps } from './agent.ts';
+import { applyNetwork, networkSettings } from './network.ts';
 import { selfTarget } from './policy.ts';
 import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
@@ -27,6 +28,8 @@ export interface Runtime {
   host: ConnectorHost;
   audit: AuditLog;
   env: Readonly<Record<string, string | undefined>>;
+  /** Proxy and CA variables for child processes (git, helm, docker, MCP servers). */
+  networkEnv: Readonly<Record<string, string>>;
   /** Agent dependencies for one turn or investigation, with a given approval channel. */
   deps: (approvals: ApprovalChannel) => AgentDeps;
   /** The pause switch (saved next to the audit log). */
@@ -68,6 +71,9 @@ export async function startRuntime(
   for (const [key, value] of Object.entries(env)) {
     if (key.startsWith(CONSOLE_TOKEN_ENV) && value) ctx.redactor.add(value);
   }
+  // Proxy and CA first: every connection after this goes through them (M12).
+  const network = await applyNetwork(networkSettings(config, env), ctx.redactor);
+  for (const problem of network.problems) ctx.term.err(`Network: ${problem}.`);
 
   const inputs: ConnectorInput[] = [];
   let modelSecrets: Record<string, string> = {};
@@ -152,6 +158,7 @@ export async function startRuntime(
     log: options.connectorLogFile ? fileLogger(connectorLogPath, ctx.redactor) : ctx.log,
     audit,
     env,
+    networkEnv: network.childEnv,
     ...(ctx.launcher ? { launcher: ctx.launcher } : {}),
   });
   for (const failure of host.failures()) {
@@ -178,6 +185,7 @@ export async function startRuntime(
         pricing: config.spec.console.pricing,
         limit: config.spec.limits.monthlyBudgetUsd,
       }),
+    networkEnv: network.childEnv,
     deps: (approvals) => ({
       model,
       modelLabel,

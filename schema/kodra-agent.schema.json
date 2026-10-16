@@ -1071,6 +1071,58 @@
             }
           },
           "additionalProperties": false
+        },
+        "network": {
+          "description": "Proxy and CA certificates for every outbound connection.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "proxy": {
+              "type": "object",
+              "properties": {
+                "https": {
+                  "type": "string",
+                  "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                  "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                },
+                "http": {
+                  "type": "string",
+                  "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                  "description": "Secret reference. Use ${env:NAME} or ${file:/path}."
+                },
+                "noProxy": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "additionalProperties": false
+            },
+            "caBundleFile": {
+              "type": "string",
+              "pattern": "^\\/[^\\0]*$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "ship": {
+          "description": "Settings for the ship flow.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "baseImageMirrors": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]+(:\\d+)?$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]+(:\\d+)?(\\/[a-z0-9._-]+)*$"
+              }
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

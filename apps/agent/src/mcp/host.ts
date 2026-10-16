@@ -76,6 +76,8 @@ export interface HostOptions {
   timeoutMs?: number;
   /** Connectors left out before starting (a required secret is missing), reported as failures. */
   skipped?: readonly ConnectorFailure[];
+  /** Proxy and CA variables every server gets (M12), whatever its manifest inherits. */
+  networkEnv?: Readonly<Record<string, string>>;
 }
 
 export interface ConnectorInput {
@@ -279,7 +281,10 @@ export class ConnectorHost {
       args.push(runtime.configFile.arg, path);
     }
 
-    const childEnv: Record<string, string> = { ...getDefaultEnvironment() };
+    const childEnv: Record<string, string> = {
+      ...getDefaultEnvironment(),
+      ...this.opts.networkEnv,
+    };
     for (const name of runtime.inheritEnv ?? []) {
       const value = env[name];
       if (value === undefined) continue;

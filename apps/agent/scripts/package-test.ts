@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseAllDocuments } from 'yaml';
 import {
   AGENT_IMAGE,
   AGENT_VERSION,
@@ -693,9 +694,116 @@ async function consoleSettingsOnKind(
   }
 }
 
+/**
+ * OpenShift (PLAN-v0.2 M12): the image runs as a random user in group 0, with a read-only root
+ * filesystem. doctor passes its config and audit checks, and `run` answers /healthz.
+ */
+async function openshiftUser(): Promise<void> {
+  console.log('\n== As an OpenShift user (1000680000:0), read-only root filesystem');
+  const dir = writeBundle('compose', 'openshift');
+  const name = 'kodra-openshift-test';
+  const base = [
+    '--user',
+    '1000680000:0',
+    '--read-only',
+    '--tmpfs',
+    '/tmp',
+    '--tmpfs',
+    '/var/lib/kodra-agent',
+    '-v',
+    `${dir}:/etc/kodra-agent:ro`,
+    '-e',
+    'KODRA_CONSOLE_TOKEN=openshift-test-token',
+  ];
+  const doctor = spawnSync('docker', ['run', '--rm', ...base, IMAGE, 'doctor', '--json'], {
+    encoding: 'utf8',
+  });
+  const rows = (JSON.parse(doctor.stdout) as { checks: { check: string; status: string }[] })
+    .checks;
+  for (const check of ['kodra-agent.yaml', 'audit log']) {
+    if (rows.find((r) => r.check === check)?.status !== 'pass') {
+      throw new Error(`doctor's ${check} check fails as an OpenShift user:\n${doctor.stdout}`);
+    }
+  }
+  spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  show('docker', ['run', '-d', '--name', name, ...base, IMAGE, 'run']);
+  try {
+    await until(
+      '/healthz as an OpenShift user',
+      () =>
+        spawnSync('docker', [
+          'exec',
+          name,
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]).status === 0,
+      60_000,
+    );
+  } catch (error) {
+    spawnSync('docker', ['logs', name], { stdio: 'inherit' });
+    throw error;
+  } finally {
+    spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  }
+  console.log('openshift: doctor and /healthz work as a random user in group 0');
+}
+
+/** The chart's NetworkPolicy for each profile, with and without a proxy, and the Cilium one. */
+function chartPolicies(): void {
+  console.log('\n== Chart: NetworkPolicy per profile');
+  const examples = fileURLToPath(new URL('../../../examples/', import.meta.url));
+  const render = (example: string, ...set: string[]) =>
+    parseAllDocuments(
+      sh('helm', [
+        'template',
+        'np',
+        CHART,
+        '--set-file',
+        `config=${join(examples, example)}`,
+        '--set',
+        'networkPolicy.apiServer.cidr=10.96.0.1/32',
+        ...set.flatMap((s) => ['--set', s]),
+      ]),
+    )
+      .map((d) => d.toJS() as { kind?: string; spec?: Record<string, unknown> } | null)
+      .filter((d): d is { kind?: string; spec?: Record<string, unknown> } => d !== null);
+  const policy = (docs: ReturnType<typeof render>) =>
+    JSON.stringify(docs.find((d) => d.kind === 'NetworkPolicy') ?? null);
+  if (policy(render('starter.yaml')) !== 'null')
+    throw new Error('starter should have no NetworkPolicy');
+  if (!policy(render('starter.yaml', 'networkPolicy.enabled=true')).includes('0.0.0.0/0')) {
+    throw new Error('networkPolicy.enabled=true should turn it on for starter');
+  }
+  const team = policy(render('team.yaml'));
+  for (const want of ['kube-dns', '10.96.0.1/32', '"monitoring"', '0.0.0.0/0']) {
+    if (!team.includes(want)) throw new Error(`the team policy lacks ${want}: ${team}`);
+  }
+  if (team.includes('"com"')) throw new Error('gitlab.com was taken for an in-cluster service');
+  const strict = sh('helm', [
+    'template',
+    'np',
+    CHART,
+    '--set-file',
+    `config=${join(examples, 'strict.yaml')}`,
+    '--set',
+    'networkPolicy.apiServer.cidr=10.96.0.1/32',
+  ]);
+  if (!strict.includes('kind: NetworkPolicy'))
+    throw new Error('strict should have a NetworkPolicy');
+  const cilium = render('team.yaml', 'networkPolicy.cilium=true');
+  const fqdn = JSON.stringify(cilium.find((d) => d.kind === 'CiliumNetworkPolicy') ?? null);
+  for (const want of ['api.openai.com', 'gitlab.com', '*.slack.com']) {
+    if (!fqdn.includes(want)) throw new Error(`the Cilium policy lacks ${want}: ${fqdn}`);
+  }
+  console.log('chart: NetworkPolicy off for starter, on for team and strict; Cilium names hosts');
+}
+
 try {
   servers();
   eksToken();
+  chartPolicies();
+  await openshiftUser();
   await compose();
   shipInContainer();
   if (!process.argv.includes('--no-kind')) await kind();

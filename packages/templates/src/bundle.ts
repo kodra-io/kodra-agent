@@ -160,7 +160,8 @@ function composeYaml(draft: AgentDraft): string {
   return `# Docker Compose for ${agentName(draft)} (Kodra AI Agent ${AGENT_VERSION}).
 services:
   kodra-agent:
-    image: ${AGENT_IMAGE}:${AGENT_VERSION}
+    # A private registry or mirror: set KODRA_AGENT_IMAGE in .env.
+    image: \${KODRA_AGENT_IMAGE:-${AGENT_IMAGE}:${AGENT_VERSION}}
     command: ["run"]
     # On Linux, the README has you set KODRA_AGENT_USER in .env to your own user, so the
     # agent can write .env and read secrets/ in this folder.

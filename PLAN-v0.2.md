@@ -461,8 +461,8 @@ Update this table at the end of every milestone.
 | Milestone                                   | Status      | PR  |
 | ------------------------------------------- | ----------- | --- |
 | M10 Profiles, environments, and approvals   | Done        | #36 |
-| M11 Change control                          | In review   | #37 |
-| M12 Works on any network                    | Not started |     |
+| M11 Change control                          | Done        | #37 |
+| M12 Works on any network                    | In review   | #38 |
 | M13 Data protection and model routing       | Not started |     |
 | M14 Trust and observability                 | Not started |     |
 | M15 Value on day one                        | Not started |     |

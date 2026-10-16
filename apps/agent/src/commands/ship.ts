@@ -94,7 +94,11 @@ const refuseAll: ApprovalChannel = {
  * times), lint the chart, then push a new branch and open a PR after one approval.
  */
 export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
-  const exec = ctx.exec ?? spawnExec;
+  const baseExec = ctx.exec ?? spawnExec;
+  // git, helm, and docker get the proxy and CA settings too (M12), once the runtime is up.
+  let networkEnv: Readonly<Record<string, string>> = {};
+  const exec: typeof baseExec = (command, args, o = {}) =>
+    baseExec(command, args, { ...o, env: { ...networkEnv, ...o.env } });
   const localDir = (await isDirectory(opts.target)) ? resolve(opts.target) : null;
   if (!localDir && !REPO.test(opts.target)) {
     ctx.term.err(
@@ -105,6 +109,7 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
 
   const runtime = await startRuntime(opts.configPath, ctx);
   if (!runtime) return 1;
+  networkEnv = runtime.networkEnv;
   const work = await mkdtemp(join(tmpdir(), 'kodra-ship-'));
   const task = `ship-${randomUUID().slice(0, 8)}`;
   try {
@@ -196,6 +201,7 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       repo: source?.repo ?? name,
       defaultBranch: baseBranch || 'main',
       ...(source?.gitlabUrl ? { gitlabUrl: source.gitlabUrl } : {}),
+      mirrors: runtime.config.spec.ship.baseImageMirrors,
     });
     for (const kept of plan.kept) ctx.term.out(`  Keeping: ${kept}`);
     if (plan.files.length === 0) {
