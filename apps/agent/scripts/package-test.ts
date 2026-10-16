@@ -374,7 +374,9 @@ function shipInContainer(): void {
   // A sample app inside the bundle folder, which the container sees at /etc/kodra-agent.
   cpSync(SAMPLE, join(dir, 'go-api'), { recursive: true });
   // The always-on service never has the socket (M14); the one-shot builder does.
-  const config = JSON.parse(sh('docker', ['compose', 'config', '--format', 'json'], dir)) as {
+  const config = JSON.parse(
+    sh('docker', ['compose', '--profile', 'build', 'config', '--format', 'json'], dir),
+  ) as {
     services: Record<string, { volumes?: { source?: string; target?: string }[] }>;
   };
   const mounts = (service: string) =>
