@@ -136,8 +136,11 @@ export async function applyNetwork(
       problems.push(`cannot read the CA file ${settings.caFile}`);
     }
     if (extra.length > 0) {
-      const roots =
-        runtime.getDefaultCACertificates?.() ?? tls.rootCertificates.map((c) => `${c}\n`);
+      // Node returns them without a trailing newline: joined as they are, one certificate's
+      // END line runs into the next one's BEGIN, and Go and Python cannot read the file.
+      const roots = (runtime.getDefaultCACertificates?.() ?? [...tls.rootCertificates]).map((c) =>
+        c.endsWith('\n') ? c : `${c}\n`,
+      );
       if (!runtime.setDefaultCACertificates) {
         problems.push(
           'this Node.js cannot add CA certificates (needs 24.5 or newer; the image has it)',

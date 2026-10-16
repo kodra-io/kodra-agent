@@ -25,7 +25,8 @@ function recording(): NetworkRuntime & { proxy: Record<string, string>[]; cas: s
     cas,
     setGlobalProxyFromEnv: (env) => proxy.push(env),
     setDefaultCACertificates: (certs) => cas.push(certs),
-    getDefaultCACertificates: () => [`${CERT('ROOT')}\n`],
+    // Like Node.js: no trailing newline.
+    getDefaultCACertificates: () => [CERT('ROOT'), CERT('ROOT2')],
   };
 }
 
@@ -100,10 +101,13 @@ describe('applyNetwork', () => {
       new Redactor(),
       runtime,
     );
-    expect(runtime.cas).toEqual([[`${CERT('ROOT')}\n`, `${CERT('CORP')}\n`]]);
+    expect(runtime.cas).toEqual([[`${CERT('ROOT')}\n`, `${CERT('ROOT2')}\n`, `${CERT('CORP')}\n`]]);
     expect(applied.childEnv['NODE_EXTRA_CA_CERTS']).toBe(caFile);
     const combined = applied.childEnv['SSL_CERT_FILE'] ?? '';
-    expect(await readFile(combined, 'utf8')).toBe(`${CERT('ROOT')}\n${CERT('CORP')}\n`);
+    const text = await readFile(combined, 'utf8');
+    expect(text).toBe(`${CERT('ROOT')}\n${CERT('ROOT2')}\n${CERT('CORP')}\n`);
+    // Every certificate stays readable on its own, which Go and Python need.
+    expect(pemCertificates(text)).toHaveLength(3);
     for (const name of [
       'REQUESTS_CA_BUNDLE',
       'AWS_CA_BUNDLE',
