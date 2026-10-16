@@ -1,3 +1,5 @@
+> **Superseded by [PLAN.md](PLAN.md).** Kept for the history of M10 to M14, which code comments cite as "PLAN-v0.2 M<n>". Milestone ids are the same in both.
+
 # Kodra AI Agent: v0.2 Plan
 
 Addendum to `SPEC.md`. Owner: Omar Al-Amad.
