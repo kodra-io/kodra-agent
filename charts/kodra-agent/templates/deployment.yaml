@@ -86,6 +86,11 @@ spec:
               containerPort: {{ .Values.console.port }}
               protocol: TCP
             {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
           startupProbe:
             httpGet:
               path: /healthz

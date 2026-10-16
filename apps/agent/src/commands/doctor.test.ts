@@ -208,6 +208,33 @@ describe('doctor', () => {
     expect(events).toEqual(['task.start', 'result']);
   });
 
+  it('checks the audit chain and fails when a record was edited', async () => {
+    const { path, auditPath } = await setup(
+      '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.1:1',
+    );
+    const first = testContext();
+    await doctor({ configPath: path, json: true }, first.ctx);
+    expect(rowsOf(first).find((r) => r.check === 'audit chain')).toMatchObject({
+      status: 'pass',
+      message: 'intact up to record 1',
+    });
+    const second = testContext();
+    await doctor({ configPath: path, json: true }, second.ctx);
+    expect(rowsOf(second).find((r) => r.check === 'audit chain')).toMatchObject({
+      status: 'pass',
+      message: 'intact up to record 3',
+    });
+
+    const text = await readFile(auditPath, 'utf8');
+    await writeFile(auditPath, text.replace('"task.start"', '"task.started"'));
+    const third = testContext();
+    expect(await doctor({ configPath: path, json: true }, third.ctx)).toBe(1);
+    expect(rowsOf(third).find((r) => r.check === 'audit chain')).toMatchObject({
+      status: 'fail',
+      hint: expect.stringContaining('kodra-agent audit verify') as unknown,
+    });
+  });
+
   it.skipIf(process.platform === 'win32')('flags a .env that other users can read', async () => {
     const { dir, path } = await setup(
       '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.1:1',

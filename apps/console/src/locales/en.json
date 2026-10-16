@@ -345,5 +345,6 @@
   "settings.waitingBy": "asked by {who}, expires {time}",
   "settings.policyHeld": "This changes who may change what. It waits for a second approver before it applies.",
   "settings.policyAnnounced": "This changes who may change what. Every approver is told, with this diff.",
-  "people.held": "This change waits for a second approver. Once it is approved, create the new approver's token with Rotate."
+  "people.held": "This change waits for a second approver. Once it is approved, create the new approver's token with Rotate.",
+  "overview.auditHead": "Audit log: record {seq}, chained up to"
 }

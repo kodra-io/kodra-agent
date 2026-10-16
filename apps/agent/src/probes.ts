@@ -289,7 +289,7 @@ export const probes: Record<string, Probe> = {
         resolve(
           fail(
             'cannot reach the Docker socket',
-            `Is ${socketPath} mounted into the agent container?`,
+            `Is ${socketPath} mounted into the agent container? With Compose, only kodra-builder has it: docker compose run --rm kodra-builder doctor`,
           ),
         );
       });

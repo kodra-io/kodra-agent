@@ -956,6 +956,10 @@
               "default": "/var/lib/kodra-agent/audit.jsonl",
               "type": "string",
               "pattern": "^\\/[^\\0]*$"
+            },
+            "stdout": {
+              "default": false,
+              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -1148,6 +1152,40 @@
                 ],
                 "additionalProperties": false
               }
+            }
+          },
+          "additionalProperties": false
+        },
+        "metrics": {
+          "description": "The agent's own Prometheus metrics: counts and durations, never content.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "port": {
+              "default": 9464,
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            }
+          },
+          "additionalProperties": false
+        },
+        "tracing": {
+          "description": "OpenTelemetry traces of turns, model calls, and tool calls.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "endpoint": {
+              "type": "string",
+              "format": "uri"
             }
           },
           "additionalProperties": false

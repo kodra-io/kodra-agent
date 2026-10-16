@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { SCHEMA_API_VERSION } from '@kodra-agent/schema';
 import pkg from '../package.json' with { type: 'json' };
+import { auditVerify } from './commands/audit.ts';
 import { chat } from './commands/chat.ts';
 import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
@@ -17,6 +18,7 @@ const COMMANDS = [
   ['run', 'Start the service: Slack, alert monitoring, and health checks'],
   ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
   ['ship <repo|dir>', 'Add a Dockerfile, CI, and Helm chart, verify them, and open a PR'],
+  ['audit verify', "Check that the audit log's records were not edited, deleted, or reordered"],
 ] as const;
 
 export function helpText(): string {
@@ -40,7 +42,7 @@ export function helpText(): string {
     '  --non-interactive              Read values from the environment instead of asking',
     '  --dry-run                      Kubernetes: print the Secret manifest with placeholders',
     '',
-    'doctor options:',
+    'doctor and audit verify options:',
     '  --json                         Print the results as JSON',
     '',
     'chat options:',
@@ -110,6 +112,12 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
       return chat({ configPath: config, message: values.message }, ctx);
     case 'run':
       return run({ configPath: config }, ctx);
+    case 'audit':
+      if (positionals[1] !== 'verify') {
+        ctx.term.err('Usage: kodra-agent audit verify [--json]');
+        return 2;
+      }
+      return auditVerify({ configPath: config, json: values.json ?? false }, ctx);
     case 'ship': {
       const target = positionals[1];
       const maxFixes = Number(values['max-fixes'] ?? '2');

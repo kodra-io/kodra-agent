@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseAllDocuments } from 'yaml';
+import { parse, parseAllDocuments, stringify } from 'yaml';
 import {
   AGENT_IMAGE,
   AGENT_VERSION,
@@ -44,6 +44,9 @@ const CLUSTER = 'kodra-agent-package';
 const NAME = 'package-test';
 const SAMPLE = fileURLToPath(new URL('../../../examples/ship/go', import.meta.url));
 const CHART = fileURLToPath(new URL('../../../charts/kodra-agent', import.meta.url));
+// promtool for the chart's alert rules: prom/prometheus v3.15.0.
+const PROMETHEUS =
+  'prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e';
 const base =
   process.platform === 'win32'
     ? join(process.cwd(), 'node_modules', '.cache', 'kodra-package')
@@ -359,9 +362,9 @@ function linuxEnv(docker: boolean): string {
   return `${lines.join('\n')}\n`;
 }
 
-/** `ship` inside the agent container, through the bundle, with Docker build access. */
+/** `ship` in the bundle's one-shot kodra-builder container, the only one with the Docker socket. */
 function shipInContainer(): void {
-  console.log('\n== ship inside the agent container (Docker build access)');
+  console.log('\n== ship inside the kodra-builder container (Docker build access)');
   const docker = getConnector('docker');
   if (!docker) throw new Error('no Docker connector');
   const dir = writeBundle('compose', 'ship', {
@@ -370,9 +373,19 @@ function shipInContainer(): void {
   writeFileSync(join(dir, '.env'), linuxEnv(true));
   // A sample app inside the bundle folder, which the container sees at /etc/kodra-agent.
   cpSync(SAMPLE, join(dir, 'go-api'), { recursive: true });
+  // The always-on service never has the socket (M14); the one-shot builder does.
+  const config = JSON.parse(
+    sh('docker', ['compose', '--profile', 'build', 'config', '--format', 'json'], dir),
+  ) as {
+    services: Record<string, { volumes?: { source?: string; target?: string }[] }>;
+  };
+  const mounts = (service: string) =>
+    JSON.stringify(config.services[service]?.volumes ?? []).includes('/var/run/docker.sock');
+  if (mounts('kodra-agent')) throw new Error('the always-on kodra-agent mounts the Docker socket');
+  if (!mounts('kodra-builder')) throw new Error('kodra-builder does not mount the Docker socket');
   show(
     'docker',
-    ['compose', 'run', '--rm', '-T', 'kodra-agent', 'ship', '/etc/kodra-agent/go-api'],
+    ['compose', 'run', '--rm', '-T', 'kodra-builder', 'ship', '/etc/kodra-agent/go-api'],
     dir,
   );
   for (const file of ['Dockerfile', '.dockerignore', 'charts/go-api/Chart.yaml']) {
@@ -396,7 +409,9 @@ function shipInContainer(): void {
   ]).trim();
   if (leftover || networks)
     throw new Error(`ship left containers or networks behind: ${leftover} ${networks}`);
-  console.log('ship: built, started, and checked the app from inside the agent container');
+  console.log(
+    'ship: built, started, and checked the app from kodra-builder; kodra-agent has no socket',
+  );
   spawnSync('docker', ['compose', 'down', '-v'], { cwd: dir, stdio: 'inherit' });
 }
 
@@ -494,6 +509,16 @@ async function kind(): Promise<void> {
     if (item.spec.securityContext?.runAsUser !== 10001)
       throw new Error('the agent pod does not run as 10001');
     console.log('kind: the chart installed and the agent pod is ready, as uid 10001');
+    // The agent's own metrics (M14), scraped through the metrics Service.
+    const scrape = kubectl(
+      'get',
+      '--raw',
+      `/api/v1/namespaces/kodra-agent/services/http:${fullname}-metrics:metrics/proxy/metrics`,
+    );
+    for (const want of ['kodra_agent_info{version="', 'kodra_agent_approvals_pending 0']) {
+      if (!scrape.includes(want)) throw new Error(`/metrics lacks ${want}:\n${scrape}`);
+    }
+    console.log('kind: /metrics answers through the metrics Service');
     await consoleSettingsOnKind(kubectl, fullname, approver, (changed) => {
       // A changed config, as when someone edits kodra-agent.yaml and upgrades.
       if (changed)
@@ -749,6 +774,90 @@ async function openshiftUser(): Promise<void> {
   console.log('openshift: doctor and /healthz work as a random user in group 0');
 }
 
+/**
+ * The chart's alert rules (M14): promtool checks them, then a unit test feeds made-up series and
+ * expects each alert to fire, with its labels and filled-in annotations.
+ */
+function alertRules(): void {
+  console.log('\n== Chart alert rules with promtool');
+  const dir = join(work, 'rules');
+  mkdirSync(dir, { recursive: true });
+  const rulesText = readFileSync(join(CHART, 'files', 'alerts.yaml'), 'utf8');
+  writeFileSync(join(dir, 'alerts.yaml'), rulesText);
+  const rules = (
+    parse(rulesText) as {
+      groups: {
+        rules: {
+          alert: string;
+          labels: Record<string, string>;
+          annotations: Record<string, string>;
+        }[];
+      }[];
+    }
+  ).groups.flatMap((g) => g.rules);
+  const expect = (alert: string, labels: Record<string, string>) => {
+    const rule = rules.find((r) => r.alert === alert);
+    if (!rule) throw new Error(`no ${alert} rule`);
+    const fill = (text: string) =>
+      text.replace(/\{\{ \$labels\.(\w+) \}\}/g, (_, name: string) => labels[name] ?? '');
+    return {
+      alertname: alert,
+      exp_alerts: [
+        {
+          exp_labels: { ...rule.labels, ...labels },
+          exp_annotations: Object.fromEntries(
+            Object.entries(rule.annotations).map(([k, v]) => [k, fill(v)]),
+          ),
+        },
+      ],
+    };
+  };
+  const test = {
+    rule_files: ['alerts.yaml'],
+    evaluation_interval: '1m',
+    tests: [
+      {
+        interval: '1m',
+        input_series: [
+          { series: 'kodra_agent_connector_up{connector="grafana"}', values: '0x20' },
+          { series: 'kodra_agent_connector_up{connector="kubernetes"}', values: '1x20' },
+          { series: 'kodra_agent_errors_total{source="agent"}', values: '0+1x20' },
+          { series: 'kodra_agent_approval_oldest_seconds', values: '0+60x20' },
+          { series: 'kodra_agent_budget_remaining_ratio', values: '0.5 0.05x19' },
+        ],
+        alert_rule_test: [
+          { eval_time: '5m', alertname: 'KodraAgentConnectorDown', exp_alerts: [] },
+          { ...expect('KodraAgentConnectorDown', { connector: 'grafana' }), eval_time: '12m' },
+          { ...expect('KodraAgentErrors', { source: 'agent' }), eval_time: '12m' },
+          { eval_time: '10m', alertname: 'KodraAgentApprovalStuck', exp_alerts: [] },
+          { ...expect('KodraAgentApprovalStuck', {}), eval_time: '16m' },
+          { ...expect('KodraAgentBudgetLow', {}), eval_time: '5m' },
+        ],
+      },
+    ],
+  };
+  writeFileSync(join(dir, 'alerts.test.yaml'), stringify(test));
+  const promtool = (...args: string[]) => {
+    show('docker', [
+      'run',
+      '--rm',
+      '--network',
+      'none',
+      '-v',
+      `${dir}:/rules:ro`,
+      '-w',
+      '/rules',
+      '--entrypoint',
+      'promtool',
+      PROMETHEUS,
+      ...args,
+    ]);
+  };
+  promtool('check', 'rules', 'alerts.yaml');
+  promtool('test', 'rules', 'alerts.test.yaml');
+  console.log('alert rules: valid, and each alert fires on its test series');
+}
+
 /** The chart's NetworkPolicy for each profile, with and without a proxy, and the Cilium one. */
 function chartPolicies(): void {
   console.log('\n== Chart: NetworkPolicy per profile');
@@ -803,6 +912,7 @@ try {
   servers();
   eksToken();
   chartPolicies();
+  alertRules();
   await openshiftUser();
   await compose();
   shipInContainer();

@@ -348,6 +348,8 @@ export interface OverviewView {
   lastInvestigation: { alert: string; ts: string } | null;
   changesThisWeek: { approved: number; denied: number; expired: number };
   recentChanges: ApprovalView[];
+  /** The newest audit record (M14): note it, and a later rewrite of history shows. */
+  auditHead?: { seq: number; hash: string } | null;
 }
 
 export function overview(

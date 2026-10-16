@@ -54,6 +54,29 @@ The agent image, the Helm chart, and releases are described in
 [docs/packaging.md](docs/packaging.md); the ship flow in [docs/ship.md](docs/ship.md); the web console in
 [docs/console.md](docs/console.md).
 
+## Verify a release
+
+Every release image and chart is signed with cosign (keyless, from this repository's GitHub
+Actions), and comes with an SPDX SBOM, build provenance, and `SHA256SUMS`.
+
+```sh
+# The image and the chart were built by this repository's release workflow.
+cosign verify ghcr.io/kodra-io/kodra-agent:0.2.0   --certificate-identity-regexp '^https://github.com/kodra-io/kodra-agent/'   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify ghcr.io/kodra-io/charts/kodra-agent:0.2.0   --certificate-identity-regexp '^https://github.com/kodra-io/kodra-agent/'   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# The SBOM attached to the image, and the files on the GitHub release.
+docker buildx imagetools inspect ghcr.io/kodra-io/kodra-agent:0.2.0 --format '{{ json .SBOM }}'
+gh release download v0.2.0 --repo kodra-io/kodra-agent
+sha256sum -c SHA256SUMS
+```
+
+## Security
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). For a review
+before you run it, start with the [security review brief](docs/security/review-brief.md).
+The agent's metrics, dashboard, alerts, traces, and audit chain are in
+[docs/observability.md](docs/observability.md).
+
 ## License
 
 [Apache-2.0](LICENSE)

@@ -1,3 +1,4 @@
+import { auditHead } from '../audit.ts';
 import type { PolicyGate } from './policy-gate.ts';
 import type { Runtime } from '../runtime.ts';
 import type { ConsoleApprovals } from './approvals.ts';
@@ -65,7 +66,10 @@ export function consoleApi(
       paused: runtime.control.paused,
       budget: await runtime.budget(),
     }),
-    overview: async () => overview(await readAudit(auditPath), await investigations.list()),
+    overview: async () => ({
+      ...overview(await readAudit(auditPath), await investigations.list()),
+      auditHead: await auditHead(auditPath),
+    }),
     connectors: () => connectorViews(runtime),
     activity: async ({ query: q }) => {
       const limit = Number(q.get('limit') ?? '100');

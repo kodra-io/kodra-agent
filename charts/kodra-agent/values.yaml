@@ -51,6 +51,23 @@ console:
   # Deployment. Needs serviceAccount.automountToken. Set false to keep settings read-only.
   editSettings: true
 
+# The agent's own Prometheus metrics (spec.metrics in kodra-agent.yaml; keep the ports the same):
+# counts and durations, never content. A ClusterIP service named <release>-kodra-agent-metrics.
+metrics:
+  enabled: true
+  port: 9464
+  # A ServiceMonitor for the Prometheus Operator.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    # Labels your Prometheus selects ServiceMonitors by, like release: kube-prometheus-stack.
+    labels: {}
+  # A PrometheusRule with alerts on the agent itself (files/alerts.yaml): a connector down,
+  # repeated errors, an approval waiting over 15 minutes, and the monthly budget almost spent.
+  prometheusRule:
+    enabled: false
+    labels: {}
+
 # The audit log (spec.audit.path in kodra-agent.yaml, /var/lib/kodra-agent by default).
 persistence:
   enabled: false

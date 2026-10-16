@@ -230,7 +230,34 @@ export const policySchema = z
   })
   .meta({ description: 'Approval and safety policy.' });
 
-const auditSchema = z.strictObject({ path: absolutePath.default(DEFAULT_AUDIT_PATH) }).prefault({});
+/** The agent's own metrics (M14), in the Prometheus format on their own port. */
+const metricsSchema = z
+  .strictObject({
+    enabled: z.boolean().default(true),
+    port: z.int().min(1024).max(65535).default(9464),
+  })
+  .prefault({})
+  .meta({
+    description: "The agent's own Prometheus metrics: counts and durations, never content.",
+  });
+
+/** OpenTelemetry traces (M14), off by default: ids, names, and durations only, never content. */
+const tracingSchema = z
+  .strictObject({
+    enabled: z.boolean().default(false),
+    /** An OTLP/HTTP traces endpoint, like http://otel-collector.monitoring:4318/v1/traces. */
+    endpoint: httpUrl.optional(),
+  })
+  .prefault({})
+  .meta({ description: 'OpenTelemetry traces of turns, model calls, and tool calls.' });
+
+const auditSchema = z
+  .strictObject({
+    path: absolutePath.default(DEFAULT_AUDIT_PATH),
+    /** Also write each record, already redacted, as a JSON line to stdout for a log collector. */
+    stdout: z.boolean().default(false),
+  })
+  .prefault({});
 const telemetrySchema = z.strictObject({ enabled: z.boolean().default(false) }).prefault({});
 
 /** Alert investigations (M5): limits on cost and noise. */
@@ -482,6 +509,8 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         console: consoleSchema,
         network: networkSchema,
         dataProtection: dataProtectionSchema,
+        metrics: metricsSchema,
+        tracing: tracingSchema,
         /** Named models besides spec.model, for environments that pin one (M13). */
         models: z
           .record(
@@ -529,6 +558,14 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
           code: 'custom',
           path: ['spec', 'console', 'enabled'],
           message: 'console approvers need the console: set spec.console.enabled to true.',
+        });
+      }
+      if (config.spec.tracing.enabled && !config.spec.tracing.endpoint) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['spec', 'tracing', 'endpoint'],
+          message:
+            'tracing needs an OTLP/HTTP endpoint, like http://otel-collector:4318/v1/traces.',
         });
       }
       config.spec.environments.forEach((env, i) => {
@@ -579,7 +616,9 @@ export interface AgentConfig {
     connectors: Record<string, ConnectorEntry | undefined>;
     policy: z.infer<typeof policySchema>;
     environments: EnvironmentConfig[];
-    audit: { path: string };
+    audit: { path: string; stdout: boolean };
+    metrics: { enabled: boolean; port: number };
+    tracing: { enabled: boolean; endpoint?: string | undefined };
     telemetry: { enabled: boolean };
     monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
     limits: {

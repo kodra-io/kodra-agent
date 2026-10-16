@@ -1,3 +1,4 @@
+import type { SpanExporter } from '@opentelemetry/sdk-trace-base';
 import type { NetworkRuntime } from './network.ts';
 import type { ModelConfig } from '@kodra-agent/schema';
 import type { LanguageModel } from 'ai';
@@ -42,7 +43,11 @@ export interface Context {
   /** Port for /healthz and /readyz (0 picks a free port). */
   healthPort?: number;
   /** Called once `run` is ready, with the health server's port (tests). */
-  onReady?: (info: { healthPort: number; consolePort?: number }) => void;
+  onReady?: (info: { healthPort: number; consolePort?: number; metricsPort?: number }) => void;
+  /** The metrics port; tests use 0 (M14). */
+  metricsPort?: number;
+  /** Tests: where spans go instead of OTLP/HTTP when spec.tracing is on (M14). */
+  spanExporter?: SpanExporter;
   /** Port for the console (0 picks a free port); defaults to spec.console.port. */
   consolePort?: number;
   /** Where the built console is (tests). */
