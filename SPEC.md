@@ -1,7 +1,7 @@
 # Kodra Agent: Build Spec v0.1
 
 Owner: Omar Al-Amad (Kodra.io)
-Status: MVP built and released (v0.2.0). The current round (v0.2 plan, M10 onward) is in `PLAN-v0.2.md`. Decisions confirmed in section 14
+Status: released (v0.3.0). What is left to build is in `PLAN.md`. Decisions confirmed in section 14
 Audience: Claude Code (implementation) and Omar (review)
 
 ---
@@ -325,8 +325,8 @@ Build environment: the compose target may mount the Docker socket only when the 
 
 ## 12. Milestones
 
-M0 to M8 and M9a are built (v0.2.0 shipped M8c and M9a). The current round, from M10 on, is
-planned in `PLAN-v0.2.md`, which also holds its status table.
+M0 to M14 and M9a are built (v0.2.0 shipped M8c and M9a; v0.3.0 shipped M10 to M14). What is
+left is in `PLAN.md`, which also holds the status table.
 
 Every milestone ends with: all tests green, a short summary of what was built, how to try it, and open questions. Stop after each milestone for review.
 

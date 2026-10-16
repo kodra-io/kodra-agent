@@ -12,7 +12,7 @@ export const HOSTILE = '<img src="https://evil.example/x.png" onerror="alert(1)"
 
 const fixtures: Record<string, unknown> = {
   status: {
-    version: '0.2.0',
+    version: '0.3.0',
     model: 'anthropic/claude-sonnet-5-5',
     target: 'compose',
     startedAt: '2026-10-09T08:00:00.000Z',
