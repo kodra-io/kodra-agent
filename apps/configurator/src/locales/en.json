@@ -60,7 +60,7 @@
   "review.noSecrets": "None.",
   "review.policy": "Approvals",
   "review.approvers": "Approvers",
-  "review.approversHint": "Slack user ids like U0123ABCD, or Slack names like @omar that init looks up and replaces with the id, or console approvers like console:omar, separated by commas. Each console approver gets their own sign-in token.",
+  "review.approversHint": "Slack user ids like U0123ABCD, or Slack names like @omar that init looks up and replaces with the id, or console approvers like console:omar, separated by commas. console:admin is the console's admin, who signs in with a password. Each other console approver gets their own sign-in token.",
   "review.expires": "Approval requests expire after (minutes)",
   "review.destructive": "Destructive actions",
   "destructive.deny": "Blocked",

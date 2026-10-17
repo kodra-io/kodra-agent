@@ -1,7 +1,7 @@
 import { parseAgentConfig } from '@kodra-agent/connectors';
 import { describe, expect, it } from 'vitest';
 import { configYaml, effectivePolicy, validateDraft } from './config.ts';
-import { emptyDraft } from './draft.ts';
+import { emptyDraft, withConsoleAdmin } from './draft.ts';
 import { composeDraft, kubernetesDraft, withConnector } from './test-drafts.ts';
 
 const codes = (issues: ReturnType<typeof validateDraft>) =>
@@ -9,11 +9,19 @@ const codes = (issues: ReturnType<typeof validateDraft>) =>
 
 describe('validateDraft', () => {
   it('lists what an empty draft is missing', () => {
-    expect(codes(validateDraft(emptyDraft()))).toEqual([
-      'name:required',
-      'model.name:required',
-      'policy.approvers:required',
-    ]);
+    expect(codes(validateDraft(emptyDraft()))).toEqual(['name:required', 'model.name:required']);
+    // The console admin approves by default; a list emptied by hand is still required.
+    expect(emptyDraft().policy.approvers).toBe('console:admin');
+    const none = emptyDraft();
+    none.policy.approvers = '';
+    expect(codes(validateDraft(none))).toContain('policy.approvers:required');
+  });
+
+  it('adds console:admin with the console and takes it out without it', () => {
+    expect(withConsoleAdmin('@omar', true)).toBe('console:admin, @omar');
+    expect(withConsoleAdmin('console:admin, @omar', true)).toBe('console:admin, @omar');
+    expect(withConsoleAdmin('console:admin, @omar', false)).toBe('@omar');
+    expect(withConsoleAdmin('@omar', false)).toBe('@omar');
   });
 
   it.each([

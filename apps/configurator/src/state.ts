@@ -9,6 +9,7 @@ import {
   MAX_ENVIRONMENTS,
   encodeDraft,
   modelFieldDefaults,
+  withConsoleAdmin,
   type AgentDraft,
   type DestructivePolicy,
   type Target,
@@ -129,7 +130,15 @@ export function reducer(draft: AgentDraft, action: Action): AgentDraft {
     case 'destructive':
       return { ...draft, policy: { ...draft.policy, destructiveActions: action.value } };
     case 'console':
-      return { ...draft, console: { ...draft.console, enabled: action.enabled } };
+      // The console admin comes and goes with the console.
+      return {
+        ...draft,
+        console: { ...draft.console, enabled: action.enabled },
+        policy: {
+          ...draft.policy,
+          approvers: withConsoleAdmin(draft.policy.approvers, action.enabled),
+        },
+      };
     case 'consoleChat':
       return { ...draft, console: { ...draft.console, chat: action.chat } };
   }

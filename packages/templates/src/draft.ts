@@ -5,6 +5,7 @@ import {
   modelProviders,
 } from '@kodra-agent/connectors';
 import {
+  CONSOLE_ADMIN,
   PROFILES,
   type AccessLevel,
   type Manifest,
@@ -76,7 +77,8 @@ export function emptyDraft(): AgentDraft {
     target: 'compose',
     model: { provider: 'anthropic', name: '', fields: modelFieldDefaults('anthropic') },
     connectors: {},
-    policy: { approvers: '', expiresAfterMinutes: '15', destructiveActions: 'deny' },
+    // The console admin approves out of the box; the console is on by default.
+    policy: { approvers: CONSOLE_ADMIN, expiresAfterMinutes: '15', destructiveActions: 'deny' },
     console: { enabled: true, chat: true },
     environments: [],
   };
@@ -126,6 +128,13 @@ export function splitList(raw: string): string[] {
     .split(/[\s,]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** The approvers with console:admin added (console on) or taken out (console off). */
+export function withConsoleAdmin(raw: string, consoleOn: boolean): string {
+  const list = splitList(raw);
+  if (consoleOn) return list.includes(CONSOLE_ADMIN) ? raw : [CONSOLE_ADMIN, ...list].join(', ');
+  return list.includes(CONSOLE_ADMIN) ? list.filter((a) => a !== CONSOLE_ADMIN).join(', ') : raw;
 }
 
 // ---- Shareable link: the draft lives in the URL hash ----
