@@ -62,7 +62,7 @@ have to reach their stand-ins through it.
 ## Private registries
 
 - **The agent image.** Docker Compose: set `KODRA_AGENT_IMAGE` in `.env` to your copy, like
-  `harbor.example.com/mirror/kodra-io/kodra-agent:0.3.2`. Helm: set `image.registry`, which
+  `harbor.example.com/mirror/kodra-io/kodra-agent:0.3.3`. Helm: set `image.registry`, which
   replaces the registry host (`harbor.example.com/mirror` gives
   `harbor.example.com/mirror/kodra-io/kodra-agent`).
 - **Base images in the ship flow.** Generated Dockerfiles and CI pull pinned base images.
