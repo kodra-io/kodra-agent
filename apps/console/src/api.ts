@@ -437,3 +437,57 @@ export interface PeopleView {
   sessions: SessionInfo[];
   waiting: PendingPolicyChange[];
 }
+
+/** The dashboard (GET /api/dashboard): what each connector can see, from its read tools. */
+export type RunState = 'passed' | 'failed' | 'running' | 'other';
+
+export interface PodsData {
+  kind: 'pods';
+  counts: { running: number; pending: number; failing: number; completed: number };
+  pods: { namespace: string; name: string; status: string; ready: string; restarts: number }[];
+}
+
+export interface DeploymentsData {
+  kind: 'deployments';
+  ready: number;
+  total: number;
+  deployments: { namespace: string; name: string; ready: number; desired: number }[];
+}
+
+export interface EventsData {
+  kind: 'events';
+  warnings: { reason: string; object: string; message: string; at: string; count: number }[];
+}
+
+export interface RunsData {
+  kind: 'runs';
+  counts: Record<RunState, number>;
+  runs: {
+    id: string;
+    name: string | null;
+    ref: string;
+    state: RunState;
+    status: string;
+    url: string | null;
+    at: string;
+  }[];
+}
+
+export interface TargetResult {
+  target: string | null;
+  data?: PodsData | DeploymentsData | EventsData | RunsData;
+  error?: string;
+}
+
+export interface PanelResult {
+  id: string;
+  title: Localized;
+  view: 'pods' | 'deployments' | 'events' | 'runs';
+  results: TargetResult[];
+  note?: 'no-targets' | 'unavailable';
+}
+
+export interface DashboardView {
+  updatedAt: string;
+  connectors: { id: string; displayName: string; panels: PanelResult[] }[];
+}

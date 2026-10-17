@@ -501,6 +501,46 @@ test('rotating your own token signs you in again with the new one', async ({ pag
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 
+test('the dashboard shows what the connectors see, as plain text', async ({ page, api }) => {
+  await signIn(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Dashboard' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  expect(api).toContain('GET dashboard');
+
+  const tiles = page.getByRole('list', { name: 'Summary' });
+  await expect(tiles).toContainText('Pods running5');
+  await expect(tiles).toContainText('Pods failing1');
+  await expect(tiles).toContainText('Deployments ready2 of 3');
+  await expect(tiles).toContainText('Failed runs1');
+
+  const pods = page.getByRole('article', { name: 'Pods' });
+  await expect(pods.getByText('CrashLoopBackOff')).toBeVisible();
+  await expect(pods.getByText('14 restarts')).toBeVisible();
+  await expect(pods).toContainText('prod: could not read (pods is forbidden)');
+  await expect(page.getByRole('progressbar', { name: 'Deployments ready' })).toHaveAttribute(
+    'aria-valuenow',
+    '2',
+  );
+
+  // Tool output is text: the hostile message is shown, never rendered as HTML.
+  const warnings = page.getByRole('article', { name: 'Recent warnings' });
+  await expect(warnings).toContainText(HOSTILE);
+  await expect(warnings.locator('img')).toHaveCount(0);
+
+  const pipelines = page.getByRole('article', { name: 'Pipelines' });
+  await expect(pipelines).toContainText('75% of finished runs passed');
+  const open = pipelines.getByRole('link', { name: 'Open run 501' });
+  await expect(open).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(open).toHaveAttribute('href', /^https:\/\/gitlab\.com\//);
+  // A run without a web link has no link.
+  await expect(pipelines.getByRole('link', { name: 'Open run 500' })).toHaveCount(0);
+
+  await expect(page.getByRole('article', { name: 'Workflow runs' })).toContainText(
+    'Nothing is listed for this connector yet.',
+  );
+  expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+});
+
 test('only approvers see People and tokens', async ({ page }) => {
   await signIn(page);
   await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
@@ -512,14 +552,22 @@ test('has no accessibility violations, in both themes', async ({ page }) => {
   await signIn(page);
   await page.getByRole('button', { name: 'Switch to the dark theme' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  for (const name of ['Overview', 'Approvals']) {
+  for (const name of ['Overview', 'Dashboard', 'Approvals']) {
     await page.getByRole('navigation').getByRole('link', { name }).click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.map((v) => `dark ${name}: ${v.id}`)).toEqual([]);
   }
   await page.getByRole('button', { name: 'Switch to the light theme' }).click();
-  for (const name of ['Overview', 'Settings', 'Activity', 'Usage', 'Approvals', 'Chat']) {
+  for (const name of [
+    'Overview',
+    'Dashboard',
+    'Settings',
+    'Activity',
+    'Usage',
+    'Approvals',
+    'Chat',
+  ]) {
     await page.getByRole('navigation').getByRole('link', { name }).click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     if (name === 'Chat') {

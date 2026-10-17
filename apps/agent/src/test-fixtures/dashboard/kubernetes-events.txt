@@ -1,0 +1,279 @@
+# The following events (YAML format) were found:
+- InvolvedObject:
+    Kind: Pod
+    Name: badimage-6f6d479d4c-pjhpd
+    apiVersion: v1
+  Message: Successfully assigned dev/badimage-6f6d479d4c-pjhpd to kodra-dash-control-plane
+  Namespace: dev
+  Reason: Scheduled
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: badimage-6f6d479d4c-pjhpd
+    apiVersion: v1
+  Message: Pulling image "nginx:does-not-exist"
+  Namespace: dev
+  Reason: Pulling
+  Timestamp: 2026-10-17 12:38:23 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: badimage-6f6d479d4c-pjhpd
+    apiVersion: v1
+  Message: 'Failed to pull image "nginx:does-not-exist": rpc error: code = NotFound
+    desc = failed to pull and unpack image "docker.io/library/nginx:does-not-exist":
+    failed to resolve reference "docker.io/library/nginx:does-not-exist": docker.io/library/nginx:does-not-exist:
+    not found'
+  Namespace: dev
+  Reason: Failed
+  Timestamp: 2026-10-17 12:38:23 +0300 +03
+  Type: Warning
+- InvolvedObject:
+    Kind: Pod
+    Name: badimage-6f6d479d4c-pjhpd
+    apiVersion: v1
+  Message: 'Error: ErrImagePull'
+  Namespace: dev
+  Reason: Failed
+  Timestamp: 2026-10-17 12:38:23 +0300 +03
+  Type: Warning
+- InvolvedObject:
+    Kind: Pod
+    Name: badimage-6f6d479d4c-pjhpd
+    apiVersion: v1
+  Message: Back-off pulling image "nginx:does-not-exist"
+  Namespace: dev
+  Reason: BackOff
+  Timestamp: 2026-10-17 12:40:52 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: badimage-6f6d479d4c-pjhpd
+    apiVersion: v1
+  Message: 'Error: ImagePullBackOff'
+  Namespace: dev
+  Reason: Failed
+  Timestamp: 2026-10-17 12:40:37 +0300 +03
+  Type: Warning
+- InvolvedObject:
+    Kind: ReplicaSet
+    Name: badimage-6f6d479d4c
+    apiVersion: apps/v1
+  Message: 'Created pod: badimage-6f6d479d4c-pjhpd'
+  Namespace: dev
+  Reason: SuccessfulCreate
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Deployment
+    Name: badimage
+    apiVersion: apps/v1
+  Message: Scaled up replica set badimage-6f6d479d4c from 0 to 1
+  Namespace: dev
+  Reason: ScalingReplicaSet
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: broken-b4c5b6f66-kvwxv
+    apiVersion: v1
+  Message: Successfully assigned dev/broken-b4c5b6f66-kvwxv to kodra-dash-control-plane
+  Namespace: dev
+  Reason: Scheduled
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: broken-b4c5b6f66-kvwxv
+    apiVersion: v1
+  Message: Pulling image "busybox:1.36"
+  Namespace: dev
+  Reason: Pulling
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: broken-b4c5b6f66-kvwxv
+    apiVersion: v1
+  Message: 'Successfully pulled image "busybox:1.36" in 2.871s (8.258s including waiting).
+    Image size: 2217006 bytes.'
+  Namespace: dev
+  Reason: Pulled
+  Timestamp: 2026-10-17 12:35:30 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: broken-b4c5b6f66-kvwxv
+    apiVersion: v1
+  Message: Container created
+  Namespace: dev
+  Reason: Created
+  Timestamp: 2026-10-17 12:40:55 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: broken-b4c5b6f66-kvwxv
+    apiVersion: v1
+  Message: Container started
+  Namespace: dev
+  Reason: Started
+  Timestamp: 2026-10-17 12:40:55 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: broken-b4c5b6f66-kvwxv
+    apiVersion: v1
+  Message: Container image "busybox:1.36" already present on machine and can be accessed
+    by the pod
+  Namespace: dev
+  Reason: Pulled
+  Timestamp: 2026-10-17 12:40:55 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: broken-b4c5b6f66-kvwxv
+    apiVersion: v1
+  Message: Back-off restarting failed container busybox in pod broken-b4c5b6f66-kvwxv_dev(1b309f73-d6cd-40ad-bb37-b96ed28f6f6c)
+  Namespace: dev
+  Reason: BackOff
+  Timestamp: 2026-10-17 12:40:55 +0300 +03
+  Type: Warning
+- InvolvedObject:
+    Kind: ReplicaSet
+    Name: broken-b4c5b6f66
+    apiVersion: apps/v1
+  Message: 'Created pod: broken-b4c5b6f66-kvwxv'
+  Namespace: dev
+  Reason: SuccessfulCreate
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Deployment
+    Name: broken
+    apiVersion: apps/v1
+  Message: Scaled up replica set broken-b4c5b6f66 from 0 to 1
+  Namespace: dev
+  Reason: ScalingReplicaSet
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-4jqkc
+    apiVersion: v1
+  Message: Successfully assigned dev/web-7c6cdd646-4jqkc to kodra-dash-control-plane
+  Namespace: dev
+  Reason: Scheduled
+  Timestamp: 2026-10-17 12:35:21 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-4jqkc
+    apiVersion: v1
+  Message: Pulling image "nginx:1.27-alpine"
+  Namespace: dev
+  Reason: Pulling
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-4jqkc
+    apiVersion: v1
+  Message: 'Successfully pulled image "nginx:1.27-alpine" in 885ms (5.456s including
+    waiting). Image size: 20984244 bytes.'
+  Namespace: dev
+  Reason: Pulled
+  Timestamp: 2026-10-17 12:35:27 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-4jqkc
+    apiVersion: v1
+  Message: Container created
+  Namespace: dev
+  Reason: Created
+  Timestamp: 2026-10-17 12:35:27 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-4jqkc
+    apiVersion: v1
+  Message: Container started
+  Namespace: dev
+  Reason: Started
+  Timestamp: 2026-10-17 12:35:27 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-5kkpt
+    apiVersion: v1
+  Message: Successfully assigned dev/web-7c6cdd646-5kkpt to kodra-dash-control-plane
+  Namespace: dev
+  Reason: Scheduled
+  Timestamp: 2026-10-17 12:35:21 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-5kkpt
+    apiVersion: v1
+  Message: Pulling image "nginx:1.27-alpine"
+  Namespace: dev
+  Reason: Pulling
+  Timestamp: 2026-10-17 12:35:22 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-5kkpt
+    apiVersion: v1
+  Message: 'Successfully pulled image "nginx:1.27-alpine" in 4.576s (4.576s including
+    waiting). Image size: 20984244 bytes.'
+  Namespace: dev
+  Reason: Pulled
+  Timestamp: 2026-10-17 12:35:26 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-5kkpt
+    apiVersion: v1
+  Message: Container created
+  Namespace: dev
+  Reason: Created
+  Timestamp: 2026-10-17 12:35:26 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Pod
+    Name: web-7c6cdd646-5kkpt
+    apiVersion: v1
+  Message: Container started
+  Namespace: dev
+  Reason: Started
+  Timestamp: 2026-10-17 12:35:26 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: ReplicaSet
+    Name: web-7c6cdd646
+    apiVersion: apps/v1
+  Message: 'Created pod: web-7c6cdd646-5kkpt'
+  Namespace: dev
+  Reason: SuccessfulCreate
+  Timestamp: 2026-10-17 12:35:21 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: ReplicaSet
+    Name: web-7c6cdd646
+    apiVersion: apps/v1
+  Message: 'Created pod: web-7c6cdd646-4jqkc'
+  Namespace: dev
+  Reason: SuccessfulCreate
+  Timestamp: 2026-10-17 12:35:21 +0300 +03
+  Type: Normal
+- InvolvedObject:
+    Kind: Deployment
+    Name: web
+    apiVersion: apps/v1
+  Message: Scaled up replica set web-7c6cdd646 from 0 to 2
+  Namespace: dev
+  Reason: ScalingReplicaSet
+  Timestamp: 2026-10-17 12:35:21 +0300 +03
+  Type: Normal
+

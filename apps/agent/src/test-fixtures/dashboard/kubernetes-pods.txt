@@ -1,0 +1,6 @@
+NAMESPACE   APIVERSION   KIND   NAME                        READY   STATUS             RESTARTS        AGE     IP           NODE                       NOMINATED NODE   READINESS GATES   LABELS
+dev         v1           Pod    badimage-6f6d479d4c-pjhpd   0/1     ImagePullBackOff   0               5m50s   10.244.0.8   kodra-dash-control-plane   <none>           <none>            app=badimage,pod-template-hash=6f6d479d4c
+dev         v1           Pod    broken-b4c5b6f66-kvwxv      0/1     Error              6 (2m58s ago)   5m50s   10.244.0.7   kodra-dash-control-plane   <none>           <none>            app=broken,pod-template-hash=b4c5b6f66
+dev         v1           Pod    web-7c6cdd646-4jqkc         1/1     Running            0               5m51s   10.244.0.6   kodra-dash-control-plane   <none>           <none>            app=web,pod-template-hash=7c6cdd646
+dev         v1           Pod    web-7c6cdd646-5kkpt         1/1     Running            0               5m51s   10.244.0.5   kodra-dash-control-plane   <none>           <none>            app=web,pod-template-hash=7c6cdd646
+

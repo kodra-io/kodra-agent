@@ -13,6 +13,7 @@ import {
   type StatusView,
 } from './api.ts';
 import { ChatPage } from './chat.tsx';
+import { DashboardPage } from './dashboard.tsx';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon, type IconName } from './icons.tsx';
 import {
@@ -28,6 +29,7 @@ import { useTheme } from './theme.ts';
 
 const PAGES = [
   { path: '/', label: 'nav.overview', icon: 'overview', Page: OverviewPage },
+  { path: '/dashboard', label: 'nav.dashboard', icon: 'gauge', Page: DashboardPage },
   { path: '/chat', label: 'nav.chat', icon: 'chat', Page: ChatPage },
   { path: '/approvals', label: 'nav.approvals', icon: 'shield', Page: ApprovalsPage },
   { path: '/activity', label: 'nav.activity', icon: 'activity', Page: ActivityPage },
@@ -556,7 +558,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
         </button>
         <button
           type="button"
-          className="mt-3 w-full text-sm text-primary underline underline-offset-2"
+          className="mt-3 w-full text-sm text-primary-text underline underline-offset-2"
           onClick={() => {
             setWithToken(!withToken);
             setProblem(null);

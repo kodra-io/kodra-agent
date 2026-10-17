@@ -10,6 +10,12 @@ const PATHS = {
       <rect width="7" height="5" x="3" y="16" rx="1" />
     </>
   ),
+  gauge: (
+    <>
+      <path d="m12 14 4-4" />
+      <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+    </>
+  ),
   chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
   shield: (
     <>
