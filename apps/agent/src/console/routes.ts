@@ -1,4 +1,6 @@
+import { getModelProvider } from '@kodra-agent/connectors';
 import { auditHead } from '../audit.ts';
+import { modelOptions } from '../model-options.ts';
 import { ConnectorDashboard } from '../dashboard.ts';
 import type { PolicyGate } from './policy-gate.ts';
 import type { Runtime } from '../runtime.ts';
@@ -271,6 +273,91 @@ export function consoleApi(
     actions['settings/model-test'] = async ({ user, body }) => {
       if (!user.canApprove) return approverOnly;
       return { status: 200, body: await store.testModel(str(body['name'])) };
+    };
+    routes['settings/providers'] = async ({ user }) =>
+      user.canApprove ? store.providers() : new Forbidden(approverOnly.body.error);
+    const candidateOf = (body: Record<string, unknown>) => {
+      const strings = (v: unknown) =>
+        Object.fromEntries(
+          Object.entries(v && typeof v === 'object' ? v : {}).filter(
+            (e): e is [string, string] => typeof e[1] === 'string',
+          ),
+        );
+      return {
+        provider: str(body['provider']),
+        name: str(body['name']),
+        config: strings(body['config']),
+        secrets: strings(body['secrets']),
+      };
+    };
+    // Checks a provider before switching: its checks with the key, then its models.
+    actions['settings/provider-check'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      const c = await store.switchCandidate(candidateOf(body));
+      if (!c.ok) return { status: 400, body: { error: c.error, checks: c.checks ?? [] } };
+      const records = await readAudit(auditPath);
+      const manifestPrices = getModelProvider(c.model.provider)?.pricing?.models ?? {};
+      return {
+        status: 200,
+        body: {
+          checks: c.checks,
+          models: modelOptions({
+            provider: c.model.provider,
+            current: c.model.name,
+            prices: manifestPrices,
+            listed: c.listed,
+            records,
+            month: new Date().toISOString().slice(0, 7),
+          }),
+        },
+      };
+    };
+    /**
+     * Switches provider: checks again, tries the model once with the new key, then writes the
+     * key to .env and the config. Where data goes is a policy change: announced, or held for a
+     * second approver (the key is written only once it is approved).
+     */
+    actions['settings/provider-switch'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      const c = await store.switchCandidate(candidateOf(body));
+      if (!c.ok) return { status: 400, body: { error: c.error, checks: c.checks ?? [] } };
+      const tried = await store.testCandidate(c.model, c.secrets);
+      if (!tried.ok) {
+        return { status: 400, body: { error: `${c.model.name} did not answer: ${tried.error}` } };
+      }
+      const base = str(body['base']);
+      const preview = await store.preview(c.patch);
+      if (!preview.ok) return { status: 400, body: preview };
+      const save = async () => {
+        if (c.env.size > 0) await store.writeEnv(c.env);
+        return store.apply(c.patch, base, user.name);
+      };
+      const title = `switched the model to ${c.model.provider}/${c.model.name}`;
+      if (preview.policy && gate?.mode === 'second-approver') {
+        if (preview.base !== base) {
+          return { status: 409, body: { error: 'the settings changed meanwhile; review again' } };
+        }
+        const id = gate.hold(
+          user.name,
+          title,
+          preview.diff,
+          async () => {
+            const applied = await save();
+            if (applied === 'stale') return 'the settings changed after it was asked';
+            return applied.ok ? null : applied.errors.join('; ');
+          },
+          restart,
+        );
+        return { status: 202, body: { ...preview, pending: id } };
+      }
+      const result = await save();
+      if (result === 'stale') {
+        return { status: 409, body: { error: 'the settings changed meanwhile; review again' } };
+      }
+      if (!result.ok) return { status: 400, body: result };
+      if (result.policy) await gate?.announce(user.name, title, result.diff);
+      restart();
+      return { status: 200, body: { ...result, restarting: true } };
     };
     // A connection check only reads, so anyone signed in may run it.
     actions['settings/test'] = async ({ body }) => ({

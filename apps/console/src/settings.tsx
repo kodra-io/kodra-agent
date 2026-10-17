@@ -22,6 +22,7 @@ import { useLoad } from './load.ts';
 import { ConnectorTools, type PageProps } from './pages.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { PeoplePanel } from './people.tsx';
+import { ProviderSwitch } from './provider-switch.tsx';
 import { useStatus } from './status.ts';
 import { Badge, Ltr } from './ui.tsx';
 
@@ -354,6 +355,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
                 setSection('limits', c);
               }}
               onSignedOut={onSignedOut}
+              onSwitch={(action) => void restartThen(action)}
             />
           )}
           {tab === 'people' && me.canApprove && (
@@ -1209,6 +1211,7 @@ function LimitsEditor({
   onModel,
   onLimits,
   onSignedOut,
+  onSwitch,
 }: {
   view: SettingsView;
   patch: SettingsPatch;
@@ -1216,8 +1219,10 @@ function LimitsEditor({
   onModel: (change: NonNullable<SettingsPatch['model']>) => void;
   onLimits: (change: NonNullable<SettingsPatch['limits']>) => void;
   onSignedOut: () => void;
+  onSwitch: (action: Promise<unknown>) => void;
 }) {
   const { t } = useI18n();
+  const [switching, setSwitching] = useState(false);
   const limits = { ...view.limits, ...patch.limits };
   const budget = limits.monthlyBudgetUsd;
   return (
@@ -1233,6 +1238,43 @@ function LimitsEditor({
             onModel({ name });
           }}
         />
+        {canEdit &&
+          (switching ? (
+            <ProviderSwitch
+              current={view.model.provider}
+              base={view.base}
+              renderField={(field, value, onChange) => (
+                <FieldEditor
+                  field={field}
+                  value={value}
+                  disabled={false}
+                  onChange={(v) => {
+                    onChange(typeof v === 'string' ? v : '');
+                  }}
+                />
+              )}
+              onSwitch={(action) => {
+                setSwitching(false);
+                onSwitch(action);
+              }}
+              onCancel={() => {
+                setSwitching(false);
+              }}
+              onSignedOut={onSignedOut}
+            />
+          ) : (
+            <div>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center rounded-lg border border-line-strong bg-raised px-3 text-sm font-medium hover:bg-muted"
+                onClick={() => {
+                  setSwitching(true);
+                }}
+              >
+                {t('provider.open')}
+              </button>
+            </div>
+          ))}
       </Card>
       <Card title={t('settings.limits.perQuestion')}>
         <NumberField
@@ -1307,6 +1349,8 @@ function MoreAccess({ changes, view }: { changes: AccessChange[]; view: Settings
             return t('settings.more.destructive');
           case 'chat':
             return t('settings.more.chat');
+          case 'model':
+            return t('settings.more.model', { from: c.from, to: c.to });
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
