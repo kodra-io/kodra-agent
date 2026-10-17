@@ -142,7 +142,12 @@ A console approver can change them; everyone else sees them read-only.
   - **Test connection**: runs the same checks as `doctor`. Anyone signed in can run it.
 - **Approvals and policy:** approvers, how long a request stays open, and whether destructive
   actions are blocked.
-- **Model and limits:** the model name, the limits for each question, and the monthly budget.
+- **Model and limits:** the model, the limits for each question, and the monthly budget. The
+  model is picked from the models the agent's key can use (the provider's own model list;
+  Bedrock offers the known models), with list prices and this month's questions priced at
+  each. **Test** asks the model one tiny question (5 output tokens at most); saving a new
+  model does the same first and refuses one that does not answer, so a typo never stops the
+  agent. **Another model** takes any name.
 - **Console:** chat on or off. The console cannot turn itself off, and the last console
   approver cannot be removed here, so nobody locks themselves out.
 

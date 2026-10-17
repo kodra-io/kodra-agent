@@ -491,3 +491,19 @@ export interface DashboardView {
   updatedAt: string;
   connectors: { id: string; displayName: string; panels: PanelResult[] }[];
 }
+
+/** The model picker (GET /api/settings/models). */
+export interface ModelOptionsView {
+  provider: string;
+  current: string;
+  options: {
+    name: string;
+    price: { inputPerMTok: number; outputPerMTok: number } | null;
+    /** Whether the provider listed it for the agent's key; null when it has no list. */
+    available: boolean | null;
+    /** This month's usage priced at this model, in US dollars. */
+    monthCost: number | null;
+  }[];
+  listError: string | null;
+  month: string;
+}
