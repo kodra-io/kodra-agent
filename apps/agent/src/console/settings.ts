@@ -15,8 +15,16 @@ import {
 } from '@kodra-agent/schema';
 import { secretRefFor } from '@kodra-agent/templates';
 import { parseDocument } from 'yaml';
-import type { AuditLog } from '../audit.ts';
+import type { AuditLog, AuditRecord } from '../audit.ts';
 import { components, secretLabel } from '../config.ts';
+import { createModel } from '../llm.ts';
+import {
+  listProviderModels,
+  modelOptions,
+  testModel,
+  type ListContext,
+  type ModelOptionsView,
+} from '../model-options.ts';
 import { unifiedDiff } from '../diff.ts';
 import type { KubernetesFactory } from '../kubernetes.ts';
 import { probeIds, runProbe, type ProbeResult } from '../probes.ts';
@@ -230,7 +238,13 @@ export interface SettingsDeps {
   kubernetes: KubernetesFactory;
   probeTimeoutMs: number;
   now?: () => Date;
+  /** Tests swap the model (MockLanguageModel) and the providers' public hosts. */
+  createModel?: typeof createModel;
+  endpoints?: ListContext['endpoints'];
 }
+
+/** A model name as providers write them: letters, digits, and . _ - : / @. */
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/;
 
 export class SettingsStore {
   private readonly deps: SettingsDeps;
@@ -484,6 +498,69 @@ export class SettingsStore {
       detail: `replaced ${secretLabel(use)}`,
     });
     return result;
+  }
+
+  /** The model provider's component, with the secrets the agent started with. */
+  private async modelComponent() {
+    const config = this.parse(await this.text());
+    const comp = components(config).find((c) => c.manifest.category === 'model');
+    if (!comp) throw new Error('no model provider');
+    const { values } = await resolveAll(comp.secrets, {
+      env: this.deps.env,
+      redactor: this.deps.redactor,
+    });
+    return { config, comp, secrets: values };
+  }
+
+  /**
+   * The picker: models the key can use, with list prices and this month's usage priced at
+   * each. The provider's list is read with the agent's own key, which never leaves here.
+   */
+  async modelOptions(records: readonly AuditRecord[]): Promise<ModelOptionsView> {
+    const { config, comp, secrets } = await this.modelComponent();
+    const listed = await listProviderModels(comp, secrets, {
+      fetch: this.deps.fetch,
+      timeoutMs: this.deps.probeTimeoutMs,
+      ...(this.deps.endpoints ? { endpoints: this.deps.endpoints } : {}),
+    });
+    const current = config.spec.model.name;
+    const prices = { ...(comp.manifest.pricing?.models ?? {}) };
+    // The config's price override is for the model it runs.
+    if (config.spec.console.pricing) prices[current] = config.spec.console.pricing;
+    const view = modelOptions({
+      provider: comp.id,
+      current,
+      prices,
+      listed:
+        listed && 'error' in listed ? { error: this.deps.redactor.redact(listed.error) } : listed,
+      records,
+      month: (this.deps.now?.() ?? new Date()).toISOString().slice(0, 7),
+    });
+    return view;
+  }
+
+  /** One tiny call to `name` with the current provider and key, before it is saved. */
+  async testModel(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!MODEL_NAME.test(name)) return { ok: false, error: 'that is not a model name' };
+    const { config, secrets } = await this.modelComponent();
+    let model;
+    try {
+      model = (this.deps.createModel ?? createModel)({ ...config.spec.model, name }, secrets);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: this.deps.redactor.redact(message) };
+    }
+    return testModel(model, this.deps.redactor);
+  }
+
+  /** A new model name in a patch must answer first; null when there is none or it did. */
+  async checkModelChange(patch: SettingsPatch): Promise<string | null> {
+    const name = patch.model?.name;
+    if (name === undefined) return null;
+    const { config } = await this.modelComponent();
+    if (name === config.spec.model.name) return null;
+    const result = await this.testModel(name);
+    return result.ok ? null : `${name} did not answer: ${result.error}`;
   }
 
   /** The connector's checks, as `doctor` runs them, with the secrets the agent started with. */

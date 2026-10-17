@@ -20,6 +20,7 @@ import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
 import { ConnectorTools, type PageProps } from './pages.tsx';
+import { ModelPicker } from './model-picker.tsx';
 import { PeoplePanel } from './people.tsx';
 import { useStatus } from './status.ts';
 import { Badge, Ltr } from './ui.tsx';
@@ -352,6 +353,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
               onLimits={(c) => {
                 setSection('limits', c);
               }}
+              onSignedOut={onSignedOut}
             />
           )}
           {tab === 'people' && me.canApprove && (
@@ -1206,35 +1208,31 @@ function LimitsEditor({
   canEdit,
   onModel,
   onLimits,
+  onSignedOut,
 }: {
   view: SettingsView;
   patch: SettingsPatch;
   canEdit: boolean;
   onModel: (change: NonNullable<SettingsPatch['model']>) => void;
   onLimits: (change: NonNullable<SettingsPatch['limits']>) => void;
+  onSignedOut: () => void;
 }) {
   const { t } = useI18n();
-  const modelId = useId();
   const limits = { ...view.limits, ...patch.limits };
   const budget = limits.monthlyBudgetUsd;
   return (
     <div className="flex flex-col gap-4">
       <Card title={t('settings.limits.model')}>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={modelId} className="font-medium">
-            {t('settings.limits.modelName', { provider: view.model.provider })}
-          </label>
-          <input
-            id={modelId}
-            dir="ltr"
-            className={`${input} max-w-sm`}
-            value={patch.model?.name ?? view.model.name}
-            disabled={!canEdit}
-            onChange={(e) => {
-              onModel({ name: e.target.value });
-            }}
-          />
-        </div>
+        <ModelPicker
+          provider={view.model.provider}
+          current={view.model.name}
+          value={patch.model?.name ?? view.model.name}
+          canEdit={canEdit}
+          onSignedOut={onSignedOut}
+          onChange={(name) => {
+            onModel({ name });
+          }}
+        />
       </Card>
       <Card title={t('settings.limits.perQuestion')}>
         <NumberField

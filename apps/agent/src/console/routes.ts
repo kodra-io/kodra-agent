@@ -196,6 +196,9 @@ export function consoleApi(
       const patch = patchOf(body);
       if (!patch) return { status: 400, body: { error: 'send a patch' } };
       const base = str(body['base']);
+      // A new model is tried with one tiny call first, so a typo never stops the agent.
+      const modelProblem = await store.checkModelChange(patch);
+      if (modelProblem) return { status: 400, body: { error: modelProblem } };
       const preview = await store.preview(patch);
       if (preview.ok && preview.diff !== '' && preview.policy && gate?.mode === 'second-approver') {
         if (preview.base !== base) {
@@ -259,6 +262,15 @@ export function consoleApi(
       }
       restart();
       return { status: 200, body: { check: result, restarting: true } };
+    };
+    routes['settings/models'] = async ({ user }) =>
+      user.canApprove
+        ? store.modelOptions(await readAudit(auditPath))
+        : new Forbidden(approverOnly.body.error);
+    // A paid call, however small: approvers only.
+    actions['settings/model-test'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      return { status: 200, body: await store.testModel(str(body['name'])) };
     };
     // A connection check only reads, so anyone signed in may run it.
     actions['settings/test'] = async ({ body }) => ({

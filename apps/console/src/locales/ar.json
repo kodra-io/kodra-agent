@@ -402,5 +402,21 @@
   "dashboard.run.passed": "ناجح",
   "dashboard.run.failed": "فاشل",
   "dashboard.run.running": "جارٍ",
-  "dashboard.run.other": "أخرى"
+  "dashboard.run.other": "أخرى",
+  "model.intro": "النماذج التي يستطيع مفتاح {provider} استخدامها، مع أسعارها لكل مليون رمز. التكلفة هي أسئلة هذا الشهر محسوبة بسعر كل نموذج.",
+  "model.listError": "تعذرت قراءة قائمة المزوّد ({error})، لذا هذه هي النماذج التي تعرفها Kodra.",
+  "model.choose": "النموذج",
+  "model.current": "الحالي",
+  "model.notListed": "غير مدرج لمفتاحك",
+  "model.price": "{input} للإدخال، {output} للإخراج",
+  "model.monthSoFar": "هذا الشهر: {cost}",
+  "model.monthOnThis": "هذا الشهر عليه: {cost}",
+  "model.other": "نموذج آخر",
+  "model.otherName": "اسم النموذج",
+  "model.test": "اختبر {name}",
+  "model.testing": "جارٍ سؤال النموذج...",
+  "model.testOk": "أجاب. احفظ للتبديل.",
+  "model.testError": "لم يُجب: {error}",
+  "model.testFailed": "فشل الاختبار",
+  "model.saveNote": "عند الحفظ يُجرَّب النموذج الجديد بطلب صغير جدًا أولًا، ثم يُعاد تشغيل الوكيل عليه."
 }

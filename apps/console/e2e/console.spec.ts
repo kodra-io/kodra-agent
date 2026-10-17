@@ -189,6 +189,34 @@ test('sets a monthly budget', async ({ page, api }) => {
   ).toBe(true);
 });
 
+test('picks a model from the list, with prices and this month on each', async ({ page, api }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Model and limits' }).click();
+  const models = page.getByRole('radiogroup', { name: 'Model' });
+  await expect(models.getByRole('radio', { name: /claude-sonnet-5-5/ })).toBeChecked();
+  await expect(models).toContainText('This month: $12.40');
+  await expect(models).toContainText('This month on it: $24.80');
+  await expect(models).toContainText('$4.00 in, $20.00 out');
+  await expect(models).toContainText('Not listed for your key');
+
+  await models.getByRole('radio', { name: /claude-opus-5-5/ }).check();
+  await page.getByRole('button', { name: 'Test claude-opus-5-5' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'It answered' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Review changes' })).toContainText(
+    'name: claude-opus-5-5',
+  );
+
+  await models.getByRole('radio', { name: 'Another model' }).check();
+  await page.getByLabel('Model name').fill('claude-typo');
+  await page.getByRole('button', { name: 'Test claude-typo' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'did not answer' })).toContainText(
+    'not_found_error',
+  );
+  expect(api.some((a) => a.startsWith('BODY settings/model-test'))).toBe(true);
+  expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+});
+
 test('filters activity on the server', async ({ page, api }) => {
   await signIn(page);
   await page.getByRole('navigation').getByRole('link', { name: 'Activity' }).click();

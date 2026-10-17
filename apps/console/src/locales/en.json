@@ -402,5 +402,21 @@
   "dashboard.run.passed": "Passed",
   "dashboard.run.failed": "Failed",
   "dashboard.run.running": "Running",
-  "dashboard.run.other": "Other"
+  "dashboard.run.other": "Other",
+  "model.intro": "Models your {provider} key can use, with list prices per million tokens. The cost is this month's questions priced at each model.",
+  "model.listError": "The provider's list could not be read ({error}), so these are the models Kodra knows.",
+  "model.choose": "Model",
+  "model.current": "Current",
+  "model.notListed": "Not listed for your key",
+  "model.price": "{input} in, {output} out",
+  "model.monthSoFar": "This month: {cost}",
+  "model.monthOnThis": "This month on it: {cost}",
+  "model.other": "Another model",
+  "model.otherName": "Model name",
+  "model.test": "Test {name}",
+  "model.testing": "Asking the model...",
+  "model.testOk": "It answered. Save to switch.",
+  "model.testError": "It did not answer: {error}",
+  "model.testFailed": "the test failed",
+  "model.saveNote": "Saving tries the new model with one tiny call first, then restarts the agent on it."
 }
