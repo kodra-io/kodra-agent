@@ -1,6 +1,7 @@
 import { getConnector, getModelProvider } from '@kodra-agent/connectors';
 import {
   allApprovers,
+  CONSOLE_ADMIN,
   consoleApproverTokenEnv,
   isTokenApprover,
   type AccessLevel,
@@ -465,7 +466,12 @@ function readme(draft: AgentDraft): string {
         ? 'The console shows status, activity, usage, and approvals, and lets you chat with the agent. Changes still need an approver.'
         : 'The console shows status, activity, usage, and approvals. Chat is off.',
       '',
-      'Sign in as `admin` with the password `admin`. The console asks for a new password right away. To approve changes in the console as admin, add `console:admin` to the approvers.',
+      [
+        'Sign in as `admin` with the password `admin`. The console asks for a new password right away.',
+        allApprovers(effectivePolicy(draft)).includes(CONSOLE_ADMIN)
+          ? 'The admin (`console:admin`) can approve or deny changes in the console.'
+          : 'To approve changes in the console as admin, add `console:admin` to the approvers.',
+      ].join(' '),
       '',
       '`init` also creates one sign-in token per person or group (**Sign in with a token instead**):',
       '',
