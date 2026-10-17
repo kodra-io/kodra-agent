@@ -248,7 +248,33 @@ describe('model providers', () => {
     comp.settings['baseUrl'] = server.url;
     expect(await runProbe('ollama.list-models', ctxFor(comp, {}))).toEqual({
       status: 'pass',
-      message: 'Ollama answers',
+      message:
+        'Ollama answers (m is not loaded; its context window is checked on the first question)',
+    });
+  });
+
+  it('Ollama: fails when the model runs with a window too small for the agent', async () => {
+    let window = 4096;
+    server = await fakeServer({
+      '/api/tags': (_q, s) => {
+        json(s, 200, { models: [] });
+      },
+      '/api/ps': (_q, s) => {
+        json(s, 200, { models: [{ name: 'm', model: 'm', context_length: window }] });
+      },
+    });
+    const comp = byId(componentsFor(ollama('http://127.0.0.1:1')), 'ollama');
+    comp.settings['baseUrl'] = server.url;
+    expect(await runProbe('ollama.list-models', ctxFor(comp, {}))).toEqual({
+      status: 'fail',
+      message:
+        "Ollama runs m with 4,096 tokens of context, too few for the agent's instructions and tools",
+      hint: 'Set OLLAMA_CONTEXT_LENGTH to 65536 where Ollama runs, restart Ollama, and run doctor again.',
+    });
+    window = 65_536;
+    expect(await runProbe('ollama.list-models', ctxFor(comp, {}))).toEqual({
+      status: 'pass',
+      message: 'Ollama answers; m runs with 65,536 tokens of context',
     });
   });
 

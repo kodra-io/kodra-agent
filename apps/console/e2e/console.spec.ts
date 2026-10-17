@@ -214,6 +214,13 @@ test('picks a model from the list, with prices and this month on each', async ({
     'not_found_error',
   );
   expect(api.some((a) => a.startsWith('BODY settings/model-test'))).toBe(true);
+
+  // A model that answers, but with a window too small for the agent: said plainly.
+  await page.getByLabel('Model name').fill('local-small');
+  await page.getByRole('button', { name: 'Test local-small' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'OLLAMA_CONTEXT_LENGTH' })).toContainText(
+    'local-small runs with 4,096 tokens of context, and this agent needs about 52,000',
+  );
   expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
 });
 
@@ -247,11 +254,19 @@ test('switches the model provider: key checked, models listed, then switched', a
     'From now on, questions, logs, and tool output go to OpenAI.',
   );
   expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+  // A model whose window is too small: the switch stops once to say so.
+  await models.getByRole('radio', { name: 'gpt-5.1-mini', exact: true }).check();
+  await page.getByRole('button', { name: 'Switch to OpenAI, gpt-5.1-mini' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'OLLAMA_CONTEXT_LENGTH' })).toContainText(
+    'gpt-5.1-mini runs with 4,096 tokens of context',
+  );
+  await expect(page.getByRole('button', { name: 'Switch anyway' })).toBeVisible();
+  await models.getByRole('radio', { name: 'gpt-5.1', exact: true }).check();
   await page.getByRole('button', { name: 'Switch to OpenAI, gpt-5.1' }).click();
   await expect
     .poll(() => api.some((a) => a.startsWith('BODY settings/provider-switch')))
     .toBe(true);
-  const sent = api.find((a) => a.startsWith('BODY settings/provider-switch')) ?? '';
+  const sent = api.filter((a) => a.startsWith('BODY settings/provider-switch')).at(-1) ?? '';
   expect(sent).toContain('"provider":"openai"');
   expect(sent).toContain('"name":"gpt-5.1"');
   // The key is gone from the page once it is sent.

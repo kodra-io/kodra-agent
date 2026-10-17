@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { ContextWarning } from './api.ts';
 import { useI18n, type MessageKey } from './i18n.tsx';
 
 export function Page({
@@ -84,6 +85,20 @@ export function Table({ head, children }: { head: ReactNode[]; children: ReactNo
 export const Cell = ({ children, mono }: { children: ReactNode; mono?: boolean }) => (
   <td className={`px-3 py-2 align-top ${mono ? 'font-mono text-xs break-all' : ''}`}>{children}</td>
 );
+
+/** A model's context window is too small for the agent's prompt, and how to fix it. */
+export function ContextNote({ warning }: { warning: ContextWarning }) {
+  const { t, num } = useI18n();
+  return (
+    <p role="alert" className="rounded-lg border border-line bg-bad-tint p-3 text-sm text-bad-text">
+      {t('context.warning', {
+        model: warning.model,
+        window: num(warning.window),
+        needed: num(warning.needed),
+      })}
+    </p>
+  );
+}
 
 /** Technical values (names, ids, arguments) read left to right in both languages. */
 export const Ltr = ({ children }: { children: ReactNode }) => (

@@ -846,3 +846,46 @@ describe('traces (M14)', () => {
     expect(taskKind('drop table users')).toBe('other');
   });
 });
+
+describe('the model context window', () => {
+  it('refuses a question whose prompt cannot fit, without calling the model', async () => {
+    const { deps, model, audit } = await setup({ responses: [answer('should not run')] });
+    deps.contextWindow = () => Promise.resolve(64);
+    const result = await runTurn(deps, [], 'what pods are failing?', 'chat');
+    expect(result.stoppedBy).toBe('context');
+    expect(result.text).toMatch(/runs with 64 tokens of context/);
+    expect(result.text).toContain('OLLAMA_CONTEXT_LENGTH');
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect((await audit()).at(-1)?.['detail']).toMatch(
+      /^stopped: context; about \d+ tokens needed, 64 available$/,
+    );
+  });
+
+  it('answers when it fits, and flags an answer whose prompt filled the window', async () => {
+    // The window is unknown before the first call (the model was not loaded yet).
+    let calls = 0;
+    const filled = {
+      ...answer('Everything is fine.'),
+      usage: {
+        inputTokens: { total: 4096, noCache: 4096, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 5, text: 5, reasoning: undefined },
+      },
+    };
+    const { deps, audit } = await setup({ responses: [filled] });
+    deps.contextWindow = () => Promise.resolve(calls++ === 0 ? null : 4096);
+    const result = await runTurn(deps, [], 'hello', 'chat');
+    expect(result.text).toMatch(
+      /^Everything is fine\.\n\n\(This answer may be wrong: mock\/model runs with 4,096 tokens/,
+    );
+    const records = await audit();
+    expect(records.find((r) => r['event'] === 'model.call')?.['detail']).toContain(
+      'the prompt filled the context window',
+    );
+    expect(records.at(-1)?.['detail']).toMatch(/context window full$/);
+
+    // With room to spare, nothing is added.
+    const roomy = await setup({ responses: [answer('All good.')] });
+    roomy.deps.contextWindow = () => Promise.resolve(262_144);
+    expect((await runTurn(roomy.deps, [], 'hello', 'chat')).text).toBe('All good.');
+  });
+});

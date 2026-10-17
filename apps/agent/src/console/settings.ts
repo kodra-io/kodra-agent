@@ -20,6 +20,7 @@ import { parseDocument } from 'yaml';
 import type { AuditLog, AuditRecord } from '../audit.ts';
 import { components, secretLabel } from '../config.ts';
 import { createModel } from '../llm.ts';
+import { ollamaContext, type ContextWarning } from '../model-context.ts';
 import {
   listProviderModels,
   modelOptions,
@@ -287,6 +288,8 @@ export interface SettingsDeps {
   /** Tests swap the model (MockLanguageModel) and the providers' public hosts. */
   createModel?: typeof createModel;
   endpoints?: ListContext['endpoints'];
+  /** The agent's prompt size in tokens without a conversation, to check a model's window. */
+  promptSize?: () => number;
 }
 
 /** A model name as providers write them: letters, digits, and . _ - : / @. */
@@ -586,7 +589,9 @@ export class SettingsStore {
   }
 
   /** One tiny call to `name` with the current provider and key, before it is saved. */
-  async testModel(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  async testModel(
+    name: string,
+  ): Promise<{ ok: true; contextWarning?: ContextWarning } | { ok: false; error: string }> {
     if (!MODEL_NAME.test(name)) return { ok: false, error: 'that is not a model name' };
     const { config, secrets } = await this.modelComponent();
     let model;
@@ -596,7 +601,24 @@ export class SettingsStore {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, error: this.deps.redactor.redact(message) };
     }
-    return testModel(model, this.deps.redactor);
+    const result = await testModel(model, this.deps.redactor);
+    if (!result.ok) return result;
+    // The test call loaded the model, so Ollama can say which window it runs it with.
+    const warning = await this.contextWarning({ ...config.spec.model, name });
+    return warning ? { ok: true, contextWarning: warning } : { ok: true };
+  }
+
+  /**
+   * A model whose context window is smaller than the agent's prompt (Ollama, once the model is
+   * loaded), or null when it fits or cannot be known.
+   */
+  async contextWarning(model: AgentConfig['spec']['model']): Promise<ContextWarning | null> {
+    if (model.provider !== 'ollama' || !this.deps.promptSize) return null;
+    const needed = this.deps.promptSize();
+    const { loaded } = await ollamaContext(model.baseUrl, model.name, this.deps.fetch);
+    return loaded !== null && needed > loaded
+      ? { model: model.name, needed, window: loaded }
+      : null;
   }
 
   /** A new model name in a patch must answer first; null when there is none or it did. */

@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { dirname, join } from 'node:path';
 import pkg from '../../package.json' with { type: 'json' };
-import { formatUsage, runTurn } from '../agent.ts';
+import { formatUsage, runTurn, SYSTEM_PROMPT } from '../agent.ts';
+import { baselinePromptTokens } from '../model-context.ts';
 import {
   allApprovers,
   consoleApproverTokenEnv,
@@ -291,6 +292,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         fetch: ctx.fetch,
         kubernetes: ctx.kubernetes,
         probeTimeoutMs: ctx.probeTimeoutMs,
+        promptSize: () => baselinePromptTokens(SYSTEM_PROMPT, runtime.host.tools()),
       });
       // Sign-outs are kept next to the audit log, so a restart does not undo them.
       const sessions = new SessionRegistry({

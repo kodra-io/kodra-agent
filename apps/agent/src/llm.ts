@@ -43,7 +43,12 @@ export function createModel(
       })(model.name);
     case 'ollama':
       // Ollama's OpenAI-compatible endpoint, so no community provider package is needed.
-      return createOpenAICompatible({ name: 'ollama', baseURL: v1(model.baseUrl) })(model.name);
+      // includeUsage: token counts while streaming, for Usage, the budget, and the window check.
+      return createOpenAICompatible({
+        name: 'ollama',
+        baseURL: v1(model.baseUrl),
+        includeUsage: true,
+      })(model.name);
   }
 }
 

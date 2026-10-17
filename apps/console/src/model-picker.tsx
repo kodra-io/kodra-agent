@@ -1,8 +1,8 @@
 import { useCallback, useId, useState } from 'react';
-import { get, post, type ModelOptionsView } from './api.ts';
+import { get, post, type ContextWarning, type ModelOptionsView } from './api.ts';
 import { useI18n } from './i18n.tsx';
 import { useLoad } from './load.ts';
-import { Badge, Ltr } from './ui.tsx';
+import { Badge, ContextNote, Ltr } from './ui.tsx';
 
 const input =
   'h-10 w-full rounded-lg border border-line-strong bg-surface px-3 disabled:opacity-60';
@@ -11,7 +11,7 @@ const secondary =
 
 type TestState =
   | { name: string; state: 'running' }
-  | { name: string; state: 'ok' }
+  | { name: string; state: 'ok'; warning?: ContextWarning }
   | {
       name: string;
       state: 'failed';
@@ -49,12 +49,20 @@ export function ModelPicker({
 
   const runTest = async (name: string) => {
     setTest({ name, state: 'running' });
-    const result = await post<{ ok: boolean; error?: string }>('settings/model-test', {
-      name,
-    }).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    const result = await post<{ ok: boolean; error?: string; contextWarning?: ContextWarning }>(
+      'settings/model-test',
+      { name },
+    ).catch((e: unknown): { ok: boolean; error?: string; contextWarning?: ContextWarning } => ({
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    }));
     setTest(
       result.ok
-        ? { name, state: 'ok' }
+        ? {
+            name,
+            state: 'ok',
+            ...(result.contextWarning ? { warning: result.contextWarning } : {}),
+          }
         : { name, state: 'failed', error: result.error ?? t('model.testFailed') },
     );
   };
@@ -186,6 +194,9 @@ export function ModelPicker({
             )}
           </span>
         </div>
+      )}
+      {test?.name === value && test.state === 'ok' && test.warning && (
+        <ContextNote warning={test.warning} />
       )}
       {value !== current && <p className="text-sm text-ink-secondary">{t('model.saveNote')}</p>}
     </div>

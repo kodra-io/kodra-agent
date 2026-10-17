@@ -27,6 +27,7 @@ import { forgeFileReader } from './forge-files.ts';
 import { parseEnvFile } from './env-file.ts';
 import { fileLogger } from './io.ts';
 import { createModel } from './llm.ts';
+import { ollamaContext } from './model-context.ts';
 import { ConnectorHost, type ConnectorFailure, type ConnectorInput } from './mcp/host.ts';
 import { resolveAll } from './secrets.ts';
 
@@ -244,6 +245,18 @@ export async function startRuntime(
       label: `${named.provider}/${named.name}`,
     };
   }
+  // Ollama: the window it runs the model with, read again at most every 30 seconds (it changes
+  // when Ollama restarts with another OLLAMA_CONTEXT_LENGTH).
+  const ollama = config.spec.model.provider === 'ollama' ? config.spec.model : null;
+  let windowCache: { at: number; value: number | null } | null = null;
+  const contextWindow = ollama
+    ? async () => {
+        if (windowCache && Date.now() - windowCache.at < 30_000) return windowCache.value;
+        const { loaded } = await ollamaContext(ollama.baseUrl, ollama.name, ctx.fetch);
+        windowCache = { at: Date.now(), value: loaded };
+        return loaded;
+      }
+    : null;
   return {
     config,
     inputs,
@@ -263,6 +276,7 @@ export async function startRuntime(
     network: settings,
     metrics,
     deps: (approvals) => ({
+      ...(contextWindow ? { contextWindow } : {}),
       model,
       modelLabel,
       models,

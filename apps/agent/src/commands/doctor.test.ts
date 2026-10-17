@@ -48,7 +48,7 @@ describe('doctor', () => {
     expect(
       out.some((l) => /^PASS {4}config +kodra-agent\.yaml +valid \(kodra\.io\/v1alpha1\)$/.test(l)),
     ).toBe(true);
-    expect(out.some((l) => /^PASS {4}Ollama +ollama\.list-models +Ollama answers$/.test(l))).toBe(
+    expect(out.some((l) => /^PASS {4}Ollama +ollama\.list-models +Ollama answers/.test(l))).toBe(
       true,
     );
     expect(out.at(-1)).toMatch(/^\d+ passed, 0 failed, 0 skipped\.$/);

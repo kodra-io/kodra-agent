@@ -36,6 +36,14 @@ in `.env`.
 ## 3. Use a model you can reach
 
 - **Ollama** inside your network: `provider: ollama` with `baseUrl` pointing at it. No key.
+  Give it a context window big enough for the agent: its instructions and tool descriptions
+  alone can be tens of thousands of tokens with a few connectors on, and Ollama runs a model
+  with 4,096 by default, cutting off the start of a longer prompt without an error. Set
+  `OLLAMA_CONTEXT_LENGTH=65536` (or more) where Ollama runs and restart it. The agent checks:
+  `doctor` fails below 16,384, the console's model test and provider switch say when the
+  window is too small, and a question whose prompt cannot fit is refused rather than answered
+  from a cut-off prompt. From a container, reach Ollama on the host at
+  `http://host.docker.internal:11434`, not `localhost`.
 - **A gateway** to a hosted model: `provider: anthropic` or `openai` with `baseUrl` set to the
   gateway, through your proxy if it needs one (`docs/network.md`).
 
