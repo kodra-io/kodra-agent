@@ -433,5 +433,7 @@
   "provider.warnTitle": "From now on, questions, logs, and tool output go to {provider}.",
   "provider.switch": "Switch to {provider}, {model}",
   "provider.switchNote": "The agent asks the model one tiny question with the new key first, then saves the key to .env, keeps the old one, and restarts. Undo last change puts the old provider back.",
-  "settings.more.model": "Questions, logs, and tool output go to {to} instead of {from}."
+  "settings.more.model": "Questions, logs, and tool output go to {to} instead of {from}.",
+  "context.warning": "{model} runs with {window} tokens of context, and this agent needs about {needed} for its instructions and tools. Ollama cuts off the start of a longer prompt, so answers would be wrong. Set OLLAMA_CONTEXT_LENGTH to 65536 where Ollama runs and restart Ollama, or turn off connectors you do not need.",
+  "provider.switchAnyway": "Switch anyway"
 }

@@ -3,6 +3,7 @@ import { request as httpRequest } from 'node:http';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import type { Component } from './config.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
+import { ollamaContext, SMALL_CONTEXT } from './model-context.ts';
 
 export type ProbeStatus = 'pass' | 'fail' | 'skip';
 
@@ -232,9 +233,25 @@ export const probes: Record<string, Probe> = {
     const url = str(ctx.component.settings['baseUrl']);
     if (!url) return fail('no baseUrl configured');
     const out = await http(ctx, { url: joinUrl(url, '/api/tags') });
-    return out.ok
-      ? pass('Ollama answers')
-      : fail(out.reason, 'Check the Ollama address and that it is running.');
+    if (!out.ok) return fail(out.reason, 'Check the Ollama address and that it is running.');
+    // The window Ollama runs the model with: too small, and it silently cuts off the prompt.
+    const name = str(ctx.component.settings['name']);
+    if (!name) return pass('Ollama answers');
+    const { loaded } = await ollamaContext(url, name, ctx.fetch, ctx.timeoutMs);
+    if (loaded === null) {
+      return pass(
+        `Ollama answers (${name} is not loaded; its context window is checked on the first question)`,
+      );
+    }
+    if (loaded < SMALL_CONTEXT) {
+      return fail(
+        `Ollama runs ${name} with ${loaded.toLocaleString('en-US')} tokens of context, too few for the agent's instructions and tools`,
+        'Set OLLAMA_CONTEXT_LENGTH to 65536 where Ollama runs, restart Ollama, and run doctor again.',
+      );
+    }
+    return pass(
+      `Ollama answers; ${name} runs with ${loaded.toLocaleString('en-US')} tokens of context`,
+    );
   },
 
   'kubernetes.list-pods': async (ctx) => {

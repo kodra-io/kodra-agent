@@ -47,7 +47,10 @@ const ok = {
   warnings: [],
 };
 
-async function setup(env: Record<string, string> = { ANTHROPIC_API_KEY: OLD_KEY }) {
+async function setup(
+  env: Record<string, string> = { ANTHROPIC_API_KEY: OLD_KEY },
+  promptSize?: () => number,
+) {
   const dir = await tempDir();
   const configPath = join(dir, 'kodra-agent.yaml');
   const auditPath = join(dir, 'audit.jsonl');
@@ -81,6 +84,7 @@ async function setup(env: Record<string, string> = { ANTHROPIC_API_KEY: OLD_KEY 
     kubernetes: fakeKubernetes(),
     probeTimeoutMs: 2000,
     endpoints: { openai: server.url },
+    ...(promptSize ? { promptSize } : {}),
     createModel: (model, secrets) => {
       tried.push(
         `${model.provider}/${model.name} ${secrets['apiKey'] === NEW_KEY ? 'new-key' : 'other'}`,
@@ -206,5 +210,42 @@ describe('switching the model provider', () => {
     expect(anthropic?.secrets[0]).toMatchObject({ envVar: 'ANTHROPIC_API_KEY', set: true });
     expect(providers.find((p) => p.id === 'openai')?.secrets[0]?.set).toBe(false);
     expect(JSON.stringify(providers)).not.toContain(OLD_KEY);
+  });
+
+  it('warns when Ollama runs the model with a window smaller than the agent prompt', async () => {
+    const { store: sized } = await setup(undefined, () => 52_000);
+    let window = 4096;
+    const ollama = await fakeServer({
+      '/api/tags': (_req, res) => {
+        json(res, 200, { models: [{ name: 'gemma4:e4b' }] });
+      },
+      '/api/ps': (_req, res) => {
+        json(res, 200, { models: [{ name: 'gemma4:e4b', context_length: window }] });
+      },
+    });
+    try {
+      const model = {
+        provider: 'ollama' as const,
+        name: 'gemma4:e4b',
+        baseUrl: ollama.url,
+      };
+      expect(await sized.contextWarning(model)).toEqual({
+        model: 'gemma4:e4b',
+        needed: 52_000,
+        window: 4096,
+      });
+      window = 65_536;
+      expect(await sized.contextWarning(model)).toBeNull();
+      // Other providers are not checked.
+      expect(
+        await sized.contextWarning({
+          provider: 'anthropic',
+          name: 'claude-sonnet-5-5',
+          apiKey: '${env:ANTHROPIC_API_KEY}',
+        } as never),
+      ).toBeNull();
+    } finally {
+      await ollama.close();
+    }
   });
 });

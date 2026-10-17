@@ -848,6 +848,14 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         });
       }
       if (name === 'settings/provider-switch') {
+        if (body['name'] === 'gpt-5.1-mini' && body['acceptSmallContext'] !== true) {
+          return route.fulfill({
+            json: {
+              saved: false,
+              contextWarning: { model: 'gpt-5.1-mini', needed: 52_000, window: 4096 },
+            },
+          });
+        }
         restart();
         return route.fulfill({ json: { ok: true, restarting: true } });
       }
@@ -856,7 +864,12 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           json:
             body['name'] === 'claude-opus-5-5'
               ? { ok: true }
-              : { ok: false, error: 'model: not_found_error' },
+              : body['name'] === 'local-small'
+                ? {
+                    ok: true,
+                    contextWarning: { model: 'local-small', needed: 52_000, window: 4096 },
+                  }
+                : { ok: false, error: 'model: not_found_error' },
         });
       }
       if (name === 'settings/test') {

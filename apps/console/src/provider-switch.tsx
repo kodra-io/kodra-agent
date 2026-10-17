@@ -1,8 +1,15 @@
 import { useCallback, useId, useState, type ReactNode } from 'react';
-import { get, post, type ConfigField, type ModelOptionsView, type ProviderView } from './api.ts';
+import {
+  get,
+  post,
+  type ConfigField,
+  type ContextWarning,
+  type ModelOptionsView,
+  type ProviderView,
+} from './api.ts';
 import { useI18n } from './i18n.tsx';
 import { useLoad } from './load.ts';
-import { Badge, Ltr } from './ui.tsx';
+import { Badge, ContextNote, Ltr } from './ui.tsx';
 
 const input =
   'h-10 w-full rounded-lg border border-line-strong bg-surface px-3 disabled:opacity-60';
@@ -49,6 +56,7 @@ export function ProviderSwitch({
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [warning, setWarning] = useState<ContextWarning | null>(null);
   const money = (n: number) => num(n, { style: 'currency', currency: 'USD' });
 
   if (error) return <p role="alert">{t('app.error', { message: error })}</p>;
@@ -68,6 +76,7 @@ export function ProviderSwitch({
     setModel('');
     setCheck(null);
     setProblem(null);
+    setWarning(null);
   };
   const runCheck = async () => {
     setBusy(true);
@@ -83,6 +92,30 @@ export function ProviderSwitch({
     setBusy(false);
   };
   const needsKey = Boolean(key && !key.set && secret === '');
+  // A context window too small for the agent stops the switch once, to say so.
+  const runSwitch = async (acceptSmallContext: boolean) => {
+    setBusy(true);
+    setProblem(null);
+    let answer: { saved?: boolean; contextWarning?: ContextWarning };
+    try {
+      answer = await post('settings/provider-switch', {
+        ...candidate(),
+        base,
+        ...(acceptSmallContext ? { acceptSmallContext: true } : {}),
+      });
+    } catch (e) {
+      setBusy(false);
+      setProblem(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setBusy(false);
+    if (answer.saved === false && answer.contextWarning) {
+      setWarning(answer.contextWarning);
+      return;
+    }
+    setSecret('');
+    onSwitch(Promise.resolve(answer));
+  };
 
   return (
     <section
@@ -244,15 +277,26 @@ export function ProviderSwitch({
                   type="button"
                   className={primary}
                   disabled={busy || model === ''}
-                  onClick={() => {
-                    const action = post('settings/provider-switch', { ...candidate(), base });
-                    setSecret('');
-                    onSwitch(action);
-                  }}
+                  onClick={() => void runSwitch(false)}
                 >
                   {t('provider.switch', { provider: provider.name, model })}
                 </button>
                 <p className="mt-2 text-sm text-ink-secondary">{t('provider.switchNote')}</p>
+                {warning && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <ContextNote warning={warning} />
+                    <div>
+                      <button
+                        type="button"
+                        className={secondary}
+                        disabled={busy}
+                        onClick={() => void runSwitch(true)}
+                      >
+                        {t('provider.switchAnyway')}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

@@ -325,6 +325,11 @@ export function consoleApi(
       if (!tried.ok) {
         return { status: 400, body: { error: `${c.model.name} did not answer: ${tried.error}` } };
       }
+      // A window too small for the agent's prompt: say so, and switch only when confirmed.
+      const contextWarning = await store.contextWarning(c.model);
+      if (contextWarning && body['acceptSmallContext'] !== true) {
+        return { status: 200, body: { saved: false, contextWarning } };
+      }
       const base = str(body['base']);
       const preview = await store.preview(c.patch);
       if (!preview.ok) return { status: 400, body: preview };

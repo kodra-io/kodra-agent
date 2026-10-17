@@ -526,3 +526,10 @@ export interface ProviderView {
   config: Record<string, string>;
   writable: boolean;
 }
+
+/** A model whose context window is smaller than the agent's prompt (Ollama). */
+export interface ContextWarning {
+  model: string;
+  needed: number;
+  window: number;
+}

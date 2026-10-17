@@ -1,3 +1,4 @@
+import { contextAdvice, filledWindow, promptTokens } from './model-context.ts';
 import { NO_TRACER, taskKind, type AgentTracer, type TraceSpan } from './tracing.ts';
 import {
   dynamicTool,
@@ -94,6 +95,11 @@ export interface AgentDeps {
   paused?: () => string | null;
   /** OpenTelemetry spans (M14): names, durations, and counts only. */
   tracer?: AgentTracer;
+  /**
+   * The model's context window in tokens, when it can be known (Ollama: the window it loaded
+   * the model with), else null. A prompt that does not fit is refused instead of cut off.
+   */
+  contextWindow?: () => Promise<number | null>;
 }
 
 /**
@@ -469,7 +475,7 @@ export interface TurnUsage {
 export interface TurnResult {
   text: string;
   messages: ModelMessage[];
-  stoppedBy?: 'token-budget' | 'timeout' | 'step-limit' | 'user' | 'model-pin';
+  stoppedBy?: 'token-budget' | 'timeout' | 'step-limit' | 'user' | 'model-pin' | 'context';
   usage: TurnUsage;
   /** The model this conversation is pinned to: keep it for the next turn (M13). */
   pin: ModelPin | null;
@@ -674,6 +680,14 @@ export async function runTurn(
   });
   const tools = buildTools(deps, task, router, turnSpan);
   let stepLabel = current().label;
+  // The prompt against the model's window: a known window that is too small refuses the turn,
+  // and a call whose prompt filled the window (the model was not loaded yet) is flagged.
+  const needed = promptTokens(SYSTEM_PROMPT, messages, tools);
+  const windowOf = async () =>
+    deps.contextWindow ? await deps.contextWindow().catch(() => null) : null;
+  let contextWindow = await windowOf();
+  // Set inside onStep, which TypeScript cannot see from here.
+  let cutOff = false as boolean;
   // One span per model step: opened before the step (prepareStep), closed when it finishes.
   let stepSpan: TraceSpan | null = null;
   const openStep = (summary: boolean) => {
@@ -796,6 +810,23 @@ export async function runTurn(
     task,
     detail: `${String(userText.length)} chars`,
   });
+  if (contextWindow !== null && needed > contextWindow) {
+    const advice = contextAdvice(current().label, needed, contextWindow);
+    await deps.audit.append({
+      event: 'result',
+      actor,
+      task,
+      detail: `stopped: context; about ${String(needed)} tokens needed, ${String(contextWindow)} available`,
+    });
+    endTurn('context');
+    return {
+      text: `I cannot answer this one: ${advice}`,
+      messages,
+      stoppedBy: 'context',
+      usage,
+      pin,
+    };
+  }
   try {
     const result = await callModel({
       messages,
@@ -813,7 +844,14 @@ export async function runTurn(
         const u = stepUsage(step.usage);
         usage = addUsage(usage, u);
         closeStep(u, step.finishReason);
-        await logCall(u, step.finishReason);
+        // The model is loaded now, so its window can be read if it was not known before.
+        contextWindow ??= await windowOf();
+        const filled = contextWindow !== null && filledWindow(u.input, contextWindow);
+        cutOff ||= filled;
+        await logCall(
+          u,
+          filled ? `${step.finishReason}; the prompt filled the context window` : step.finishReason,
+        );
       },
     });
     // Set by the router during the call, which TypeScript cannot see from here.
@@ -855,11 +893,14 @@ export async function runTurn(
       text = `${summary.text}\n\n(Stopped at the ${STOP_LABEL[stoppedBy]} for one question. Ask a narrower question to go further.)`;
     }
 
+    if (cutOff && contextWindow !== null) {
+      text = `${text}\n\n(This answer may be wrong: ${contextAdvice(current().label, needed, contextWindow)})`;
+    }
     await deps.audit.append({
       event: 'result',
       actor,
       task,
-      detail: `${stoppedBy ? `stopped: ${stoppedBy}` : 'answered'}; ${formatUsage(usage)}`,
+      detail: `${stoppedBy ? `stopped: ${stoppedBy}` : 'answered'}; ${formatUsage(usage)}${cutOff ? '; context window full' : ''}`,
     });
     endTurn(stoppedBy ?? 'answered');
     return {
