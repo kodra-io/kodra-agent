@@ -15,6 +15,7 @@ Owner: Omar Al-Amad. Last updated 16 October 2026, at `a38c85d`.
 - **v0.3.1** (17 October 2026): console sign-in as `admin` with a password (`admin`/`admin` until changed). Tokens still work; user accounts come later.
 - **v0.3.2** (17 October 2026): the console Dashboard (Kubernetes pods, deployments, and warnings; GitLab CI pipelines; GitHub Actions runs), `console:admin` as a default approver in the configurator, and the console model picker (models the key can use, with prices and this month on each, tested before saving).
 - **v0.3.3** (17 October 2026): switching the model provider from the console (Anthropic, OpenAI, Azure OpenAI, Bedrock, Ollama), checked with the new key before anything is saved.
+- **v0.3.4** (17 October 2026): the Jenkins connector (jobs, builds, logs, a Jobs dashboard card), and a model context check: a prompt that does not fit the model's window is refused with how to fix it, instead of answered from a cut-off prompt.
 - **Next:** publish the configurator, test with our own setup, then design partners.
 - **Who it's for:** many kinds of organizations, from solo developers and startups to large and regulated companies. The same product serves all of them, configured through profiles (`starter`, `team`, `strict`) that set defaults and never limits. See SPEC section 5 and `docs/approvals.md`.
 
