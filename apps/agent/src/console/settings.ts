@@ -1,8 +1,10 @@
-import { policyDiffers } from './policy-gate.ts';
+import { modelDestination, policyDiffers } from './policy-gate.ts';
 import { createHash } from 'node:crypto';
 import {
   connectors as allConnectors,
   getConnector,
+  getModelProvider,
+  modelProviders,
   parseAgentConfig,
 } from '@kodra-agent/connectors';
 import {
@@ -55,7 +57,11 @@ export interface SettingsPatch {
     expiresAfterMinutes?: number;
     destructiveActions?: 'deny' | 'require-approval';
   };
-  model?: { name?: string };
+  /**
+   * The model's name; with `provider`, the whole model is replaced: that provider, its
+   * settings from `config`, and references to its secrets (the values go to .env).
+   */
+  model?: { name?: string; provider?: string; config?: Record<string, string> };
   limits?: {
     maxSteps?: number;
     tokenBudget?: number;
@@ -73,7 +79,9 @@ export type AccessChange =
   | { code: 'scope'; connector: string; field: string; added: string[] }
   | { code: 'approver'; approver: string }
   | { code: 'destructive' }
-  | { code: 'chat' };
+  | { code: 'chat' }
+  /** Questions, logs, and tool output now go to another model provider or endpoint. */
+  | { code: 'model'; from: string; to: string };
 
 export interface Preview {
   ok: boolean;
@@ -120,12 +128,27 @@ export function patchConfigText(text: string, patch: SettingsPatch): string {
   set(['spec', 'policy', 'approvals', 'approvers'], patch.policy?.approvers);
   set(['spec', 'policy', 'approvals', 'expiresAfterMinutes'], patch.policy?.expiresAfterMinutes);
   set(['spec', 'policy', 'destructiveActions'], patch.policy?.destructiveActions);
-  set(['spec', 'model', 'name'], patch.model?.name);
+  if (patch.model?.provider !== undefined) {
+    doc.setIn(['spec', 'model'], doc.createNode(modelNode(patch.model)));
+  } else set(['spec', 'model', 'name'], patch.model?.name);
   for (const key of ['maxSteps', 'tokenBudget', 'timeoutMinutes', 'monthlyBudgetUsd'] as const) {
     set(['spec', 'limits', key], patch.limits?.[key]);
   }
   set(['spec', 'console', 'chat'], patch.console?.chat);
   return doc.toString();
+}
+
+/** A whole spec.model for a provider switch: settings as given, secrets as references. */
+function modelNode(model: NonNullable<SettingsPatch['model']>): Record<string, unknown> {
+  const manifest = getModelProvider(model.provider ?? '');
+  if (!manifest) throw new Error(`unknown model provider ${String(model.provider)}`);
+  const node: Record<string, unknown> = { provider: manifest.id, name: model.name ?? '' };
+  for (const field of manifest.configFields) {
+    const value = model.config?.[field.key]?.trim();
+    if (value) node[field.key] = value;
+  }
+  for (const secret of manifest.secrets) node[secret.key] = secretRefFor(secret);
+  return node;
 }
 
 /** The paths a patch touches, for the audit log and the page. */
@@ -181,6 +204,9 @@ export function moreAccess(before: AgentConfig, after: AgentConfig): AccessChang
     out.push({ code: 'destructive' });
   }
   if (after.spec.console.chat && !before.spec.console.chat) out.push({ code: 'chat' });
+  if (modelDestination(after) !== modelDestination(before)) {
+    out.push({ code: 'model', from: modelDestination(before), to: modelDestination(after) });
+  }
   return out;
 }
 
@@ -225,6 +251,26 @@ export interface SettingsView {
   connectors: ConnectorSettings[];
   lastChange: { by: string; at: string; detail: string } | null;
   undoable: boolean;
+}
+
+/** A model provider the console can switch to (rendered from its manifest). */
+export interface ProviderView {
+  id: string;
+  name: string;
+  description: LocalizedText;
+  /** Where data goes, in the manifest's words. */
+  sends: LocalizedText[];
+  fields: ConfigField[];
+  secrets: {
+    key: string;
+    envVar: string;
+    description: LocalizedText;
+    howToCreate: LocalizedText;
+    /** Already in .env (switching back needs no new key). */
+    set: boolean;
+  }[];
+  config: Record<string, string>;
+  writable: boolean;
 }
 
 export interface SettingsDeps {
@@ -556,11 +602,142 @@ export class SettingsStore {
   /** A new model name in a patch must answer first; null when there is none or it did. */
   async checkModelChange(patch: SettingsPatch): Promise<string | null> {
     const name = patch.model?.name;
-    if (name === undefined) return null;
+    // A provider switch is checked as a whole (switchCandidate), with the new key.
+    if (name === undefined || patch.model?.provider !== undefined) return null;
     const { config } = await this.modelComponent();
     if (name === config.spec.model.name) return null;
     const result = await this.testModel(name);
     return result.ok ? null : `${name} did not answer: ${result.error}`;
+  }
+
+  /** The model providers the console can switch to, and whether each one's key is in .env. */
+  async providers(): Promise<ProviderView[]> {
+    const config = this.parse(await this.text());
+    const writable = this.editable(config) && this.backend.envWritable;
+    return modelProviders.map((m) => ({
+      id: m.id,
+      name: m.displayName,
+      description: m.description,
+      sends: m.permissionsSummary.always ?? [],
+      fields: m.configFields,
+      secrets: m.secrets.map((s) => ({
+        key: s.key,
+        envVar: s.envVar,
+        description: s.description,
+        howToCreate: s.howToCreate,
+        set: Boolean(this.deps.env[s.envVar]),
+      })),
+      // The current settings, so switching back starts from them.
+      config:
+        config.spec.model.provider === m.id
+          ? Object.fromEntries(
+              m.configFields.flatMap((f): [string, string][] => {
+                const v = (config.spec.model as Record<string, unknown>)[f.key];
+                return typeof v === 'string' ? [[f.key, v]] : [];
+              }),
+            )
+          : {},
+      writable,
+    }));
+  }
+
+  /**
+   * A provider switch, checked before anything is written: the new config parses, the
+   * provider's checks pass with the new key (or the one already in .env), and its model list
+   * is read. Typed secret values are registered with the redactor and only returned in `env`.
+   */
+  async switchCandidate(c: {
+    provider: string;
+    name: string;
+    config: Record<string, string>;
+    secrets: Record<string, string>;
+  }): Promise<
+    | { ok: false; error: string; checks?: { check: string; status: string; message: string }[] }
+    | {
+        ok: true;
+        patch: SettingsPatch;
+        env: Map<string, string>;
+        model: AgentConfig['spec']['model'];
+        secrets: Readonly<Record<string, string>>;
+        checks: { check: string; status: string; message: string }[];
+        listed: Awaited<ReturnType<typeof listProviderModels>>;
+      }
+  > {
+    const manifest = getModelProvider(c.provider);
+    if (!manifest) return { ok: false, error: 'unknown model provider' };
+    const text = await this.text();
+    const before = this.parse(text);
+    if (!this.editable(before)) return { ok: false, error: 'settings cannot be changed here' };
+    const env = new Map<string, string>();
+    for (const s of manifest.secrets) {
+      const typed = c.secrets[s.key]?.trim() ?? '';
+      if (typed !== '') {
+        if (typed.length < 4) return { ok: false, error: `${s.envVar}: that value is too short` };
+        this.deps.redactor.add(typed);
+        env.set(s.envVar, typed);
+      } else if (s.required && !this.deps.env[s.envVar]) {
+        return { ok: false, error: `${s.envVar} is needed` };
+      }
+    }
+    if (env.size > 0 && !this.backend.envWritable) {
+      return { ok: false, error: 'secrets cannot be changed here' };
+    }
+    const name = c.name.trim() || Object.keys(manifest.pricing?.models ?? {})[0] || 'model';
+    if (!MODEL_NAME.test(name)) return { ok: false, error: 'that is not a model name' };
+    const patch: SettingsPatch = { model: { provider: manifest.id, name, config: c.config } };
+    let next: AgentConfig;
+    try {
+      const parsed = parseAgentConfig(patchConfigText(text, patch));
+      if (!parsed.ok) {
+        return { ok: false, error: parsed.issues.map((i) => formatIssue(i)).join('; ') };
+      }
+      next = parsed.config;
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    const comp = components(next).find((x) => x.manifest.category === 'model');
+    if (!comp) return { ok: false, error: 'no model provider' };
+    const { values } = await resolveAll(comp.secrets, {
+      env: { ...this.deps.env, ...Object.fromEntries(env) },
+      redactor: this.deps.redactor,
+    });
+    const checks: { check: string; status: string; message: string }[] = [];
+    for (const id of probeIds(comp)) {
+      const r = await runProbe(id, {
+        component: comp,
+        secrets: values,
+        fetch: this.deps.fetch,
+        kubernetes: this.deps.kubernetes,
+        timeoutMs: this.deps.probeTimeoutMs,
+        ...(this.deps.endpoints ? { endpoints: this.deps.endpoints } : {}),
+      });
+      checks.push({ check: id, status: r.status, message: this.deps.redactor.redact(r.message) });
+    }
+    if (checks.some((x) => x.status === 'fail')) {
+      return { ok: false, error: 'the provider check failed', checks };
+    }
+    const listed = await listProviderModels(comp, values, {
+      fetch: this.deps.fetch,
+      timeoutMs: this.deps.probeTimeoutMs,
+      ...(this.deps.endpoints ? { endpoints: this.deps.endpoints } : {}),
+    });
+    return { ok: true, patch, env, model: next.spec.model, secrets: values, checks, listed };
+  }
+
+  /** The candidate's model answers one tiny question, with the candidate's key. */
+  async testCandidate(
+    model: AgentConfig['spec']['model'],
+    secrets: Readonly<Record<string, string>>,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    try {
+      return await testModel(
+        (this.deps.createModel ?? createModel)(model, secrets),
+        this.deps.redactor,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: this.deps.redactor.redact(message) };
+    }
   }
 
   /** The connector's checks, as `doctor` runs them, with the secrets the agent started with. */

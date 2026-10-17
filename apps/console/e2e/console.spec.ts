@@ -217,6 +217,47 @@ test('picks a model from the list, with prices and this month on each', async ({
   expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
 });
 
+test('switches the model provider: key checked, models listed, then switched', async ({
+  page,
+  api,
+}) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Model and limits' }).click();
+  await page.getByRole('button', { name: 'Change provider' }).click();
+  const providers = page.getByRole('radiogroup', { name: 'Model provider' });
+  await providers.getByRole('radio', { name: /OpenAI/ }).check();
+  const check = page.getByRole('button', { name: 'Check OpenAI' });
+  // No key in .env yet: it must be typed first.
+  await expect(check).toBeDisabled();
+  const key = page.getByLabel(/OpenAI API key/);
+  await expect(key).toHaveAttribute('type', 'password');
+
+  await key.fill('sk-wrong');
+  await check.click();
+  await expect(page.getByRole('alert')).toContainText('the provider check failed');
+
+  await key.fill('sk-e2e-openai-key');
+  await check.click();
+  await expect(page.getByRole('list', { name: 'Checks' })).toContainText('API key accepted');
+  const models = page.getByRole('radiogroup', { name: 'Model at the new provider' });
+  await expect(models.getByRole('radio', { name: 'gpt-5.1', exact: true })).toBeChecked();
+  await expect(models).toContainText('This month on it: $9.10');
+  await expect(page.getByRole('note')).toContainText(
+    'From now on, questions, logs, and tool output go to OpenAI.',
+  );
+  expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+  await page.getByRole('button', { name: 'Switch to OpenAI, gpt-5.1' }).click();
+  await expect
+    .poll(() => api.some((a) => a.startsWith('BODY settings/provider-switch')))
+    .toBe(true);
+  const sent = api.find((a) => a.startsWith('BODY settings/provider-switch')) ?? '';
+  expect(sent).toContain('"provider":"openai"');
+  expect(sent).toContain('"name":"gpt-5.1"');
+  // The key is gone from the page once it is sent.
+  await expect(page.getByLabel(/OpenAI API key/)).toHaveCount(0);
+});
+
 test('filters activity on the server', async ({ page, api }) => {
   await signIn(page);
   await page.getByRole('navigation').getByRole('link', { name: 'Activity' }).click();

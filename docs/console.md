@@ -148,6 +148,16 @@ A console approver can change them; everyone else sees them read-only.
   each. **Test** asks the model one tiny question (5 output tokens at most); saving a new
   model does the same first and refuses one that does not answer, so a typo never stops the
   agent. **Another model** takes any name.
+- **Change provider** (in Model and limits) switches to another model provider: Anthropic,
+  OpenAI, Azure OpenAI, Bedrock, or Ollama, drawn from their manifests. Fill the provider's
+  settings and paste its key (or leave it empty when the key is already in `.env`), then
+  **Check**: the provider's own check runs with that key and its models are listed with
+  prices. **Switch** asks the chosen model one tiny question with the new key, then writes
+  the key to `.env` (or the agent's Secret), keeps the old provider's key, rewrites
+  `spec.model` with a reference to the key (never the value), and restarts. **Undo last
+  change** puts the old provider back. Where the model sends data is a policy change: it is
+  announced on `team`, and on `strict` it waits for a second approver, with the key written
+  only once it is approved.
 - **Console:** chat on or off. The console cannot turn itself off, and the last console
   approver cannot be removed here, so nobody locks themselves out.
 

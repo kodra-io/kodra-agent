@@ -418,5 +418,20 @@
   "model.testOk": "It answered. Save to switch.",
   "model.testError": "It did not answer: {error}",
   "model.testFailed": "the test failed",
-  "model.saveNote": "Saving tries the new model with one tiny call first, then restarts the agent on it."
+  "model.saveNote": "Saving tries the new model with one tiny call first, then restarts the agent on it.",
+  "provider.open": "Change provider",
+  "provider.title": "Switch to another model provider",
+  "provider.choose": "Model provider",
+  "provider.keySet": "Already in .env",
+  "provider.keySetHint": "This key is already in .env. Leave the field empty to use it, or paste a new one.",
+  "provider.notWritable": "Keys cannot be saved here. On Kubernetes, the chart needs console.editSettings and an existingSecret.",
+  "provider.check": "Check {provider}",
+  "provider.cancel": "Cancel",
+  "provider.failed": "The check failed: {error}",
+  "provider.checks": "Checks",
+  "provider.model": "Model at the new provider",
+  "provider.warnTitle": "From now on, questions, logs, and tool output go to {provider}.",
+  "provider.switch": "Switch to {provider}, {model}",
+  "provider.switchNote": "The agent asks the model one tiny question with the new key first, then saves the key to .env, keeps the old one, and restarts. Undo last change puts the old provider back.",
+  "settings.more.model": "Questions, logs, and tool output go to {to} instead of {from}."
 }

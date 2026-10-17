@@ -8,10 +8,20 @@ import {
 import type { AuditLog } from '../audit.ts';
 import type { Redactor } from '../redactor.ts';
 
+/** Where a model sends data: the provider and its address. */
+export function modelDestination(c: AgentConfig): string {
+  const m = c.spec.model as Record<string, unknown>;
+  const where = ['baseUrl', 'endpoint', 'region']
+    .map((k) => m[k])
+    .find((v) => typeof v === 'string');
+  return typeof where === 'string' ? `${c.spec.model.provider} (${where})` : c.spec.model.provider;
+}
+
 /**
  * The parts of a config that decide who may change what (PLAN-v0.2 M11): the profile,
  * environments, approvers and approval rules, destructive actions, and each connector's
- * access and scope. A console save that changes any of them is a policy change.
+ * access and scope, and where the model sends data. A console save that changes any of them
+ * is a policy change.
  */
 export function policyDiffers(before: AgentConfig, after: AgentConfig): boolean {
   const part = (c: AgentConfig) =>
@@ -19,6 +29,8 @@ export function policyDiffers(before: AgentConfig, after: AgentConfig): boolean 
       profile: c.spec.profile,
       environments: c.spec.environments,
       policy: c.spec.policy,
+      // Where questions and tool output go (a provider switch).
+      model: modelDestination(c),
       connectors: Object.fromEntries(
         Object.entries(c.spec.connectors)
           .filter(([, e]) => e?.enabled)

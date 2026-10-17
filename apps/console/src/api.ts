@@ -397,7 +397,8 @@ export type AccessChange =
   | { code: 'scope'; connector: string; field: string; added: string[] }
   | { code: 'approver'; approver: string }
   | { code: 'destructive' }
-  | { code: 'chat' };
+  | { code: 'chat' }
+  | { code: 'model'; from: string; to: string };
 
 export interface SettingsPreview {
   ok: boolean;
@@ -506,4 +507,22 @@ export interface ModelOptionsView {
   }[];
   listError: string | null;
   month: string;
+}
+
+/** A model provider the console can switch to (GET /api/settings/providers). */
+export interface ProviderView {
+  id: string;
+  name: string;
+  description: Localized;
+  sends: Localized[];
+  fields: ConfigField[];
+  secrets: {
+    key: string;
+    envVar: string;
+    description: Localized;
+    howToCreate: Localized;
+    set: boolean;
+  }[];
+  config: Record<string, string>;
+  writable: boolean;
 }

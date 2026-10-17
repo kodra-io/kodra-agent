@@ -418,5 +418,20 @@
   "model.testOk": "أجاب. احفظ للتبديل.",
   "model.testError": "لم يُجب: {error}",
   "model.testFailed": "فشل الاختبار",
-  "model.saveNote": "عند الحفظ يُجرَّب النموذج الجديد بطلب صغير جدًا أولًا، ثم يُعاد تشغيل الوكيل عليه."
+  "model.saveNote": "عند الحفظ يُجرَّب النموذج الجديد بطلب صغير جدًا أولًا، ثم يُعاد تشغيل الوكيل عليه.",
+  "provider.open": "تغيير المزوّد",
+  "provider.title": "التبديل إلى مزوّد نماذج آخر",
+  "provider.choose": "مزوّد النماذج",
+  "provider.keySet": "موجود في .env",
+  "provider.keySetHint": "هذا المفتاح موجود في .env. اترك الحقل فارغًا لاستخدامه، أو الصق مفتاحًا جديدًا.",
+  "provider.notWritable": "لا يمكن حفظ المفاتيح هنا. على Kubernetes يحتاج المخطط إلى console.editSettings و existingSecret.",
+  "provider.check": "افحص {provider}",
+  "provider.cancel": "إلغاء",
+  "provider.failed": "فشل الفحص: {error}",
+  "provider.checks": "الفحوص",
+  "provider.model": "النموذج لدى المزوّد الجديد",
+  "provider.warnTitle": "من الآن، تذهب الأسئلة والسجلات ومخرجات الأدوات إلى {provider}.",
+  "provider.switch": "التبديل إلى {provider}، {model}",
+  "provider.switchNote": "يسأل الوكيل النموذج سؤالًا صغيرًا جدًا بالمفتاح الجديد أولًا، ثم يحفظ المفتاح في .env ويُبقي القديم، ويُعاد تشغيله. «تراجع عن آخر تغيير» يعيد المزوّد السابق.",
+  "settings.more.model": "تذهب الأسئلة والسجلات ومخرجات الأدوات إلى {to} بدلًا من {from}."
 }
