@@ -238,6 +238,31 @@ describe('model providers', () => {
     expect(server.requests[0]?.headers['api-key']).toBe('az');
   });
 
+  it('Jenkins accepts the API token only when it answers with that user', async () => {
+    server = await fakeServer({
+      '/me/api/json': (q, s) => {
+        const auth = q.headers['authorization'];
+        if (auth === `Basic ${Buffer.from('kodra:good-token').toString('base64')}`) {
+          json(s, 200, { id: 'kodra' });
+        } else if (auth === `Basic ${Buffer.from('kodra:anon-token').toString('base64')}`) {
+          // Jenkins answers some bad credentials as the anonymous user.
+          json(s, 200, { id: 'anonymous' });
+        } else json(s, 401, {});
+      },
+    });
+    const comp = byId(
+      componentsFor(
+        ollama('http://o:1'),
+        `    jenkins: {enabled: true, access: read-only, config: {url: '${server.url}', username: kodra, jobs: [team-a]}, secrets: {token: \${env:JENKINS_API_TOKEN}}}`,
+      ),
+      'jenkins',
+    );
+    const check = (token: string) => runProbe('jenkins.who-am-i', ctxFor(comp, { token }));
+    expect(await check('good-token')).toEqual({ status: 'pass', message: 'API token accepted' });
+    expect((await check('anon-token')).status).toBe('fail');
+    expect((await check('bad-token')).status).toBe('fail');
+  });
+
   it('Ollama answers on /api/tags', async () => {
     server = await fakeServer({
       '/api/tags': (_q, s) => {

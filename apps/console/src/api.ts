@@ -474,16 +474,22 @@ export interface RunsData {
   }[];
 }
 
+export interface JobsData {
+  kind: 'jobs';
+  counts: Record<RunState, number>;
+  jobs: { name: string; state: RunState; status: string; url: string | null }[];
+}
+
 export interface TargetResult {
   target: string | null;
-  data?: PodsData | DeploymentsData | EventsData | RunsData;
+  data?: PodsData | DeploymentsData | EventsData | RunsData | JobsData;
   error?: string;
 }
 
 export interface PanelResult {
   id: string;
   title: Localized;
-  view: 'pods' | 'deployments' | 'events' | 'runs';
+  view: 'pods' | 'deployments' | 'events' | 'runs' | 'jobs';
   results: TargetResult[];
   note?: 'no-targets' | 'unavailable';
 }

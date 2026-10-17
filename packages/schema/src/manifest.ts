@@ -199,6 +199,8 @@ const toolGuard = z.discriminatedUnion('kind', [
     setting: z.string().regex(KEY),
     /** When true, a call without the argument is blocked too. */
     required: z.boolean(),
+    /** Entries are prefixes too: `team-a` allows `team-a` and `team-a/anything`. */
+    prefix: z.boolean().optional(),
     /** The argument is a Kubernetes namespace, so it places the call in an environment. */
     scope: z.literal('namespace').optional(),
   }),
@@ -323,6 +325,18 @@ const dashboardView = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('pods') }),
   z.strictObject({ kind: z.literal('deployments') }),
   z.strictObject({ kind: z.literal('events') }),
+  /**
+   * A JSON list of jobs with a status word (like Jenkins colors), mapped to a state by
+   * `states`; unmapped words count as `other`. `scope` keeps only items whose field is in a
+   * list setting, or under one of its entries, like the connector's guards.
+   */
+  z.strictObject({
+    kind: z.literal('jobs'),
+    items: jsonPath.optional(),
+    fields: z.strictObject({ name: jsonPath, status: jsonPath, url: jsonPath }),
+    states: z.record(z.string(), z.enum(['passed', 'failed', 'running', 'other'])),
+    scope: z.strictObject({ field: jsonPath, setting: z.string().regex(KEY) }).optional(),
+  }),
   z.strictObject({
     kind: z.literal('runs'),
     /** Where the list is, when the output is an object rather than a list. */

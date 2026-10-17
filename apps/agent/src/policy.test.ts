@@ -1,6 +1,6 @@
 import type { AccessLevel, ToolGuard } from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
-import { decide, describeGuards, touchedBy, type Decision, type Risk } from './policy.ts';
+import { decide, describeGuards, inList, touchedBy, type Decision, type Risk } from './policy.ts';
 
 const base = {
   destructiveActions: 'deny' as const,
@@ -300,5 +300,43 @@ describe('touchedBy', () => {
 
   it('touches nothing when the arguments are missing', () => {
     expect(touchedBy(guards, {})).toEqual({ namespaces: [], repos: [] });
+  });
+});
+
+describe('arg-in-setting with prefix (Jenkins jobs and folders)', () => {
+  const guards: ToolGuard[] = [
+    { kind: 'arg-in-setting', arg: 'fullname', setting: 'jobs', required: true, prefix: true },
+  ];
+  const settings = { jobs: ['team-a', 'deploy-web'] };
+  const read = (fullname: string) =>
+    decide({
+      risk: 'read',
+      access: 'read-only',
+      destructiveActions: 'deny',
+      guards,
+      settings,
+      args: { fullname },
+    }).kind;
+
+  it('allows a listed job and anything under a listed folder', () => {
+    expect(read('deploy-web')).toBe('allow');
+    expect(read('team-a')).toBe('allow');
+    expect(read('team-a/api/main')).toBe('allow');
+  });
+
+  it('refuses other jobs, look-alikes, and paths that step outside a folder', () => {
+    for (const fullname of [
+      'deploy-web-2',
+      'team-ab/api',
+      'team-b/api',
+      'team-a/../team-b',
+      'team-a/./x',
+      'team-a//x',
+      'team-a%2F..%2Fteam-b',
+      'team-a\\..\\team-b',
+    ]) {
+      expect(read(fullname), fullname).toBe('block');
+    }
+    expect(inList('deploy-web/x', ['deploy-web'], false)).toBe(false);
   });
 });

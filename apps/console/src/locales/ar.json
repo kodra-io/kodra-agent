@@ -370,7 +370,7 @@
   "dashboard.intro": "ما يراه الوكيل في أدواتك الآن. للقراءة فقط، ويُحدَّث مرة في الدقيقة على الأكثر.",
   "dashboard.updated": "آخر تحديث {time}",
   "dashboard.summary": "ملخص",
-  "dashboard.none": "لا توجد لوحة معلومات لأي من الأدوات المتصلة بعد. تتوفر لـ Kubernetes و GitLab CI و GitHub Actions.",
+  "dashboard.none": "لا توجد لوحة معلومات لأي من الأدوات المتصلة بعد. تتوفر لـ Kubernetes و GitLab CI و GitHub Actions و Jenkins.",
   "dashboard.tile.podsRunning": "حاويات تعمل",
   "dashboard.tile.podsFailing": "حاويات متعثرة",
   "dashboard.tile.deploymentsReady": "عمليات نشر جاهزة",
@@ -435,5 +435,7 @@
   "provider.switchNote": "يسأل الوكيل النموذج سؤالًا صغيرًا جدًا بالمفتاح الجديد أولًا، ثم يحفظ المفتاح في .env ويُبقي القديم، ويُعاد تشغيله. «تراجع عن آخر تغيير» يعيد المزوّد السابق.",
   "settings.more.model": "تذهب الأسئلة والسجلات ومخرجات الأدوات إلى {to} بدلًا من {from}.",
   "context.warning": "يعمل {model} بسياق من {window} رمزًا، ويحتاج هذا الوكيل إلى نحو {needed} لتعليماته وأدواته. يقطع Ollama بداية الطلب الأطول، فتكون الإجابات خاطئة. اضبط OLLAMA_CONTEXT_LENGTH على 65536 حيث يعمل Ollama وأعد تشغيله، أو أوقف الموصلات التي لا تحتاجها.",
-  "provider.switchAnyway": "بدّل على أي حال"
+  "provider.switchAnyway": "بدّل على أي حال",
+  "dashboard.jobs.none": "لم يُعثر على أي من المهام المدرجة.",
+  "dashboard.jobs.openLabel": "فتح المهمة {name}"
 }

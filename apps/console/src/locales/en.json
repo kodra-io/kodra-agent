@@ -370,7 +370,7 @@
   "dashboard.intro": "What the agent can see in your tools right now. Read only, refreshed at most once a minute.",
   "dashboard.updated": "Updated {time}",
   "dashboard.summary": "Summary",
-  "dashboard.none": "None of the connected tools has a dashboard yet. Kubernetes, GitLab CI, and GitHub Actions do.",
+  "dashboard.none": "None of the connected tools has a dashboard yet. Kubernetes, GitLab CI, GitHub Actions, and Jenkins do.",
   "dashboard.tile.podsRunning": "Pods running",
   "dashboard.tile.podsFailing": "Pods failing",
   "dashboard.tile.deploymentsReady": "Deployments ready",
@@ -435,5 +435,7 @@
   "provider.switchNote": "The agent asks the model one tiny question with the new key first, then saves the key to .env, keeps the old one, and restarts. Undo last change puts the old provider back.",
   "settings.more.model": "Questions, logs, and tool output go to {to} instead of {from}.",
   "context.warning": "{model} runs with {window} tokens of context, and this agent needs about {needed} for its instructions and tools. Ollama cuts off the start of a longer prompt, so answers would be wrong. Set OLLAMA_CONTEXT_LENGTH to 65536 where Ollama runs and restart Ollama, or turn off connectors you do not need.",
-  "provider.switchAnyway": "Switch anyway"
+  "provider.switchAnyway": "Switch anyway",
+  "dashboard.jobs.none": "None of the listed jobs were found.",
+  "dashboard.jobs.openLabel": "Open job {name}"
 }

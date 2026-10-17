@@ -7,13 +7,14 @@ import {
   type ParseResult,
 } from '@kodra-agent/schema';
 import aws from './aws/manifest.ts';
-import { azure, azureDevops, bitbucket, gcp, jenkins, teams } from './coming-soon.ts';
+import { azure, azureDevops, bitbucket, gcp, teams } from './coming-soon.ts';
 import docker from './docker/manifest.ts';
 import githubActions from './github-actions/manifest.ts';
 import github from './github/manifest.ts';
 import gitlabCi from './gitlab-ci/manifest.ts';
 import gitlab from './gitlab/manifest.ts';
 import grafana from './grafana/manifest.ts';
+import jenkins from './jenkins/manifest.ts';
 import kubernetes from './kubernetes/manifest.ts';
 import { anthropic, azureOpenai, bedrock, ollama, openai } from './models.ts';
 import prometheus from './prometheus/manifest.ts';

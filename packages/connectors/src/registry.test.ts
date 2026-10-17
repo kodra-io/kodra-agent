@@ -23,13 +23,14 @@ describe('connector registry', () => {
         'gitlab',
         'gitlab-ci',
         'grafana',
+        'jenkins',
         'kubernetes',
         'prometheus',
         'slack',
       ].sort(),
     );
     expect(comingSoon.sort()).toEqual(
-      ['azure', 'azure-devops', 'bitbucket', 'gcp', 'jenkins', 'teams'].sort(),
+      ['azure', 'azure-devops', 'bitbucket', 'gcp', 'teams'].sort(),
     );
     expect(modelProviders.map((p) => p.id)).toEqual([
       'anthropic',

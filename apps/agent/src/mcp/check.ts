@@ -41,6 +41,12 @@ export const DUMMY_CASES: {
   },
   { id: 'prometheus', access: 'read-only', settings: { url: 'http://127.0.0.1:1' }, secrets: {} },
   {
+    id: 'jenkins',
+    access: 'read-write-approved',
+    settings: { url: 'http://127.0.0.1:1', username: 'kodra', jobs: ['team-a'] },
+    secrets: { token: 'jenkins-dummy-not-used' },
+  },
+  {
     id: 'aws',
     access: 'read-only',
     settings: { region: 'eu-central-1' },

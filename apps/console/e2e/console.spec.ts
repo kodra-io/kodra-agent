@@ -595,7 +595,8 @@ test('the dashboard shows what the connectors see, as plain text', async ({ page
   await expect(tiles).toContainText('Pods running5');
   await expect(tiles).toContainText('Pods failing1');
   await expect(tiles).toContainText('Deployments ready2 of 3');
-  await expect(tiles).toContainText('Failed runs1');
+  // Pipelines and Jenkins jobs count together.
+  await expect(tiles).toContainText('Failed runs2');
 
   const pods = page.getByRole('article', { name: 'Pods' });
   await expect(pods.getByText('CrashLoopBackOff')).toBeVisible();
@@ -618,6 +619,14 @@ test('the dashboard shows what the connectors see, as plain text', async ({ page
   await expect(open).toHaveAttribute('href', /^https:\/\/gitlab\.com\//);
   // A run without a web link has no link.
   await expect(pipelines.getByRole('link', { name: 'Open run 500' })).toHaveCount(0);
+
+  const jobs = page.getByRole('article', { name: 'Jobs' });
+  await expect(jobs).toContainText('1 failed');
+  await expect(jobs.getByRole('link', { name: 'Open job deploy-web' })).toHaveAttribute(
+    'rel',
+    'noopener noreferrer',
+  );
+  await expect(jobs.getByRole('link', { name: 'Open job team-a/api' })).toHaveCount(0);
 
   await expect(page.getByRole('article', { name: 'Workflow runs' })).toContainText(
     'Nothing is listed for this connector yet.',

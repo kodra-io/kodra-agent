@@ -41,6 +41,23 @@ export interface PolicyInput {
 }
 
 /**
+ * Whether a value is in a list setting. With `prefix`, an entry also covers what is under it
+ * (`team-a` covers `team-a/api`); such values must be plain paths, so `team-a/../other` or
+ * an encoded slash cannot step outside an entry.
+ */
+export function inList(value: string, list: readonly string[], prefix: boolean): boolean {
+  if (list.includes(value)) return true;
+  if (!prefix) return false;
+  const segments = value.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..') || /[\\%]/.test(value))
+    return false;
+  return list.some((entry) => {
+    const base = entry.replace(/\/+$/, '');
+    return base !== '' && value.startsWith(`${base}/`);
+  });
+}
+
+/**
  * The single place that decides whether a tool call may run (SPEC section 8):
  * read runs; write needs approval with read-write access, else blocked; destructive is
  * blocked unless policy allows it with approval; anything unclassified is blocked.
@@ -154,9 +171,9 @@ function checkGuard(guard: ToolGuard, input: PolicyInput): string | null {
       const value = args[guard.arg];
       if (isBlank(value)) return guard.required ? `${guard.arg} is required` : null;
       const list = listSetting(settings, guard.setting);
-      return typeof value === 'string' && list.includes(value)
+      return typeof value === 'string' && inList(value, list, guard.prefix === true)
         ? null
-        : `${guard.arg} must be one of the configured ${guard.setting}: ${list.join(', ') || 'none'}`;
+        : `${guard.arg} must be ${guard.prefix ? 'one of, or under one of,' : 'one of'} the configured ${guard.setting}: ${list.join(', ') || 'none'}`;
     }
     case 'repo-in-setting': {
       const repo = repoFrom(args, guard.repoArg, guard.ownerArg);
@@ -233,7 +250,7 @@ export function describeGuards(
       case 'arg-in-setting': {
         const list = listSetting(settings, guard.setting);
         out.push(
-          `${guard.arg} ${guard.required ? 'is required and ' : ''}must be one of: ${list.join(', ') || 'none configured'}`,
+          `${guard.arg} ${guard.required ? 'is required and ' : ''}must be ${guard.prefix ? 'one of, or under one of' : 'one of'}: ${list.join(', ') || 'none configured'}`,
         );
         break;
       }

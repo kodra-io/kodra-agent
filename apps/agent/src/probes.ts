@@ -254,6 +254,27 @@ export const probes: Record<string, Probe> = {
     );
   },
 
+  'jenkins.who-am-i': async (ctx) => {
+    const token = needSecret(ctx, 'token');
+    if (typeof token !== 'string') return token;
+    const url = str(ctx.component.settings['url']);
+    const user = str(ctx.component.settings['username']);
+    if (!url || !user) return fail('no url or username configured');
+    const out = await http(ctx, {
+      url: joinUrl(url, '/me/api/json?tree=id'),
+      headers: { authorization: `Basic ${Buffer.from(`${user}:${token}`).toString('base64')}` },
+    });
+    if (!out.ok) return fail(out.reason, authHint(out.status, 'API token'));
+    const id = (out.json as { id?: unknown } | null)?.id;
+    // Jenkins answers anonymous requests too: only the user's own id proves the token.
+    return id === user
+      ? pass('API token accepted')
+      : fail(
+          'Jenkins did not accept the API token for that user',
+          'Check the username and create a new API token.',
+        );
+  },
+
   'kubernetes.list-pods': async (ctx) => {
     const namespaces = list(ctx.component.settings['namespaces']);
     if (namespaces.length === 0) return skip('no namespaces configured');
