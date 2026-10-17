@@ -56,13 +56,6 @@ export const teams = comingSoon(
   ),
 );
 
-export const jenkins = comingSoon(
-  'jenkins',
-  'Jenkins',
-  'cicd',
-  t('Read Jenkins jobs and build logs.', 'قراءة مهام Jenkins وسجلات البناء.'),
-);
-
 export const azureDevops = comingSoon(
   'azure-devops',
   'Azure DevOps',

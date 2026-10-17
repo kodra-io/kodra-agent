@@ -10,6 +10,7 @@ import {
   runState,
   type DeploymentsData,
   type EventsData,
+  type JobsData,
   type PodsData,
   type RunsData,
 } from './dashboard.ts';
@@ -77,6 +78,45 @@ const runsView = (manifest: string): DashboardView => {
   if (!view) throw new Error(`no dashboard in ${manifest}`);
   return view;
 };
+
+describe('dashboard readers: Jenkins jobs', () => {
+  const view = getConnector('jenkins')?.dashboard?.[0]?.view;
+  if (view?.kind !== 'jobs') throw new Error('no Jenkins jobs card');
+
+  it('reads the real job list: colors to states, failed first', () => {
+    // Recorded from mcp-jenkins 3.5.0 on Jenkins LTS: one passing and one failing job.
+    const data = parseView(view, fixture('jenkins-items.json'), {
+      jobs: ['api-tests', 'deploy-web'],
+    }) as JobsData;
+    expect(data.counts).toEqual({ passed: 1, failed: 1, running: 0, other: 0 });
+    expect(data.jobs.map((j) => [j.name, j.state, j.status])).toEqual([
+      ['deploy-web', 'failed', 'red'],
+      ['api-tests', 'passed', 'blue'],
+    ]);
+    expect(data.jobs[0]?.url).toBe('http://localhost:18080/job/deploy-web/');
+  });
+
+  it('keeps only the listed jobs and folders, like the guards', () => {
+    const items = JSON.stringify([
+      {
+        fullname: 'team-a/api',
+        color: 'blue_anime',
+        url: 'https://ci.example.com/job/team-a/job/api/',
+      },
+      { fullname: 'team-a/web', color: 'notbuilt', url: 'javascript:alert(1)' },
+      { fullname: 'team-ab/secret', color: 'red', url: 'https://ci.example.com/x' },
+      { fullname: 'team-b/payroll', color: 'red', url: 'https://ci.example.com/y' },
+    ]);
+    const data = parseView(view, items, { jobs: ['team-a'] }) as JobsData;
+    expect(data.jobs.map((j) => [j.name, j.state])).toEqual([
+      ['team-a/api', 'running'],
+      ['team-a/web', 'other'],
+    ]);
+    expect(data.jobs[1]?.url).toBeNull();
+    // Nothing listed: nothing shown.
+    expect((parseView(view, items, {}) as JobsData).jobs).toEqual([]);
+  });
+});
 
 describe('dashboard readers', () => {
   it('reads pods from the real table: running, failing, and restarts', () => {

@@ -446,14 +446,70 @@
               "properties": {
                 "enabled": {
                   "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "read-write-approved"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Jenkins address."
+                    },
+                    "username": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[^\\s/]{1,100}$",
+                      "description": "Jenkins user the API token belongs to."
+                    },
+                    "jobs": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[^\\s/][^\\n]{0,199}$"
+                      },
+                      "description": "Jobs the agent may work with, by full name. A folder covers every job under it."
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "username",
+                    "jobs"
+                  ],
+                  "additionalProperties": false
+                },
+                "secrets": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                      "description": "Jenkins API token. Usually ${env:JENKINS_API_TOKEN}."
+                    }
+                  },
+                  "required": [
+                    "token"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
-                "enabled"
+                "enabled",
+                "config",
+                "secrets"
               ],
               "additionalProperties": false,
               "title": "Jenkins",
-              "description": "Read Jenkins jobs and build logs."
+              "description": "Read Jenkins jobs, builds, and console logs. With write access, stop a build after approval."
             },
             "azure-devops": {
               "type": "object",

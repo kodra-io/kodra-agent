@@ -2,7 +2,7 @@ import type { DashboardPanel, DashboardView, LocalizedText, Manifest } from '@ko
 import { parse as parseYaml } from 'yaml';
 import { policyInputFor } from './agent.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
-import { decide, type SelfTarget } from './policy.ts';
+import { decide, inList, type SelfTarget } from './policy.ts';
 import type { Redactor } from './redactor.ts';
 
 /**
@@ -57,7 +57,14 @@ export interface RunsData {
   }[];
 }
 
-export type PanelData = PodsData | DeploymentsData | EventsData | RunsData;
+export interface JobsData {
+  kind: 'jobs';
+  counts: Record<RunState, number>;
+  /** Failed first, then running, then the rest; by name. */
+  jobs: { name: string; state: RunState; status: string; url: string | null }[];
+}
+
+export type PanelData = PodsData | DeploymentsData | EventsData | RunsData | JobsData;
 
 export interface TargetResult {
   /** The namespace, project, or repo; null for a card without forEach. */
@@ -163,7 +170,7 @@ export class ConnectorDashboard {
       );
       const text = this.deps.redactor.redact(result.text);
       if (result.isError) return { target, error: clip(text) || 'the tool failed' };
-      const data = parseView(view, text);
+      const data = parseView(view, text, hosted.settings);
       return data ? { target, data } : { target, error: 'could not read the output' };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -193,7 +200,11 @@ function callsFor(
   });
 }
 
-export function parseView(view: DashboardView, text: string): PanelData | null {
+export function parseView(
+  view: DashboardView,
+  text: string,
+  settings: Readonly<Record<string, unknown>> = {},
+): PanelData | null {
   switch (view.kind) {
     case 'pods':
       return podsData(parseTable(text));
@@ -203,7 +214,54 @@ export function parseView(view: DashboardView, text: string): PanelData | null {
       return eventsData(text);
     case 'runs':
       return runsData(view, text);
+    case 'jobs':
+      return jobsData(view, text, settings);
   }
+}
+
+const JOB_ORDER: Record<RunState, number> = { failed: 0, running: 1, passed: 2, other: 3 };
+
+function jobsData(
+  view: Extract<DashboardView, { kind: 'jobs' }>,
+  text: string,
+  settings: Readonly<Record<string, unknown>>,
+): JobsData | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const list = view.items ? pick(parsed, view.items) : parsed;
+  if (!Array.isArray(list)) return null;
+  // Only what the connector is scoped to, by the same rule as its guards.
+  const scope = view.scope;
+  const allowed = scope
+    ? (Array.isArray(settings[scope.setting]) ? (settings[scope.setting] as unknown[]) : []).filter(
+        (v): v is string => typeof v === 'string',
+      )
+    : null;
+  const counts: Record<RunState, number> = { passed: 0, failed: 0, running: 0, other: 0 };
+  const jobs = (list as unknown[])
+    .filter((item) => {
+      if (!scope || !allowed) return true;
+      const value = str(pick(item, scope.field));
+      return value !== '' && inList(value, allowed, true);
+    })
+    .map((item) => {
+      const status = str(pick(item, view.fields.status));
+      const state = view.states[status] ?? 'other';
+      counts[state] += 1;
+      const url = str(pick(item, view.fields.url));
+      return {
+        name: clip(str(pick(item, view.fields.name)), 200),
+        state,
+        status: clip(status, 40),
+        url: /^https?:\/\//i.test(url) ? clip(url, 500) : null,
+      };
+    })
+    .sort((a, b) => JOB_ORDER[a.state] - JOB_ORDER[b.state] || a.name.localeCompare(b.name));
+  return { kind: 'jobs', counts, jobs: jobs.slice(0, MAX_ROWS * 3) };
 }
 
 /**

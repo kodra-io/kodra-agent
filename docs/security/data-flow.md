@@ -122,6 +122,21 @@ Reviewed manifest: `gitlab@15e1cd27df2b`
 
 Reviewed manifest: `gitlab-ci@4daa8ae5c78e`
 
+### Jenkins
+
+- **Server:** `mcp-jenkins` from PyPI ([decision](../connectors/jenkins.md)).
+- **Sends to:** your Jenkins at `url`, with the configured user and API token.
+- **Secrets:** `token` (a Jenkins API token), passed to the server as an environment variable.
+- **Reads:** jobs, builds, console logs, test reports, and artifacts of the configured `jobs`
+  (or under a listed folder); the job list, queue, nodes, and plugins the token's user can see.
+- **Writes, after approval:** stopping a build of a listed job. Starting builds and answering
+  pipeline inputs are destructive: blocked unless `destructiveActions: require-approval`.
+  Groovy scripts and job or node config.xml are never exposed.
+- **Console dashboard:** the listed jobs and their last result, read with the same read tool
+  and shown only in the console. Never sent to the model, and not audited (nothing changes).
+
+Reviewed manifest: `jenkins@bfdaa531f01b`
+
 ### Docker
 
 - **Server:** none. `ship` runs the `docker` CLI against the Docker socket.

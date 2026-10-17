@@ -14,6 +14,8 @@ const CANNOT_REACH_SELF: Record<string, string> = {
   gitlab: 'GitLab projects only',
   'github-actions': 'runs workflows in GitHub, not in the cluster',
   'gitlab-ci': 'runs pipelines in GitLab, not in the cluster',
+  jenkins:
+    'stops or starts builds of listed jobs in Jenkins; Groovy and config.xml tools are hidden',
   grafana: 'Grafana dashboards, alerting, and data sources only',
   aws: 'the EKS server runs without --allow-write and refuses its writes; CloudWatch writes only cancel queries',
 };

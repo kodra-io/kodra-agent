@@ -204,6 +204,41 @@ const fixtures: Record<string, unknown> = {
         ],
       },
       {
+        id: 'jenkins',
+        displayName: 'Jenkins',
+        panels: [
+          {
+            id: 'jobs',
+            title: { en: 'Jobs', ar: 'المهام' },
+            view: 'jobs',
+            results: [
+              {
+                target: null,
+                data: {
+                  kind: 'jobs',
+                  counts: { passed: 1, failed: 1, running: 1, other: 0 },
+                  jobs: [
+                    {
+                      name: 'deploy-web',
+                      state: 'failed',
+                      status: 'red',
+                      url: 'https://jenkins.example.com/job/deploy-web/',
+                    },
+                    { name: 'team-a/api', state: 'running', status: 'blue_anime', url: null },
+                    {
+                      name: 'api-tests',
+                      state: 'passed',
+                      status: 'blue',
+                      url: 'https://jenkins.example.com/job/api-tests/',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
         id: 'github-actions',
         displayName: 'GitHub Actions',
         panels: [

@@ -4,6 +4,7 @@ import {
   type DashboardView,
   type DeploymentsData,
   type EventsData,
+  type JobsData,
   type PanelResult,
   type PodsData,
   type RunsData,
@@ -21,11 +22,11 @@ const REFRESH_MS = 60_000;
 const RUN_TONE = { passed: 'ok', failed: 'bad', running: 'accent', other: 'plain' } as const;
 
 /** Every result of one kind, across a card's targets. */
-function dataOf<K extends 'pods' | 'deployments' | 'events' | 'runs'>(
+function dataOf<K extends 'pods' | 'deployments' | 'events' | 'runs' | 'jobs'>(
   view: DashboardView,
   kind: K,
 ) {
-  type D = Extract<PodsData | DeploymentsData | EventsData | RunsData, { kind: K }>;
+  type D = Extract<PodsData | DeploymentsData | EventsData | RunsData | JobsData, { kind: K }>;
   return view.connectors
     .flatMap((c) => c.panels)
     .flatMap((p) => p.results)
@@ -91,7 +92,11 @@ function Headline({ view }: { view: DashboardView }) {
   const { t, num } = useI18n();
   const pods = dataOf(view, 'pods');
   const deployments = dataOf(view, 'deployments');
-  const runs = dataOf(view, 'runs');
+  // Pipelines, workflow runs, and jobs count together as runs.
+  const runs: { counts: Record<RunState, number> }[] = [
+    ...dataOf(view, 'runs'),
+    ...dataOf(view, 'jobs'),
+  ];
   const sum = <T,>(list: T[], f: (x: T) => number) => list.reduce((n, x) => n + f(x), 0);
   const tiles: { label: MessageKey; value: string; tone: 'ok' | 'bad' | 'plain' }[] = [];
   if (pods.length > 0) {
@@ -164,6 +169,7 @@ function PanelCard({ panel }: { panel: PanelResult }) {
       {panel.view === 'deployments' && <Deployments results={panel.results} />}
       {panel.view === 'events' && <Events results={panel.results} />}
       {panel.view === 'runs' && <Runs results={panel.results} />}
+      {panel.view === 'jobs' && <Jobs results={panel.results} />}
     </article>
   );
 }
@@ -336,6 +342,55 @@ function Events({ results }: { results: TargetResult[] }) {
                 )}
               </span>
               <span className="break-words text-ink-secondary">{w.message}</span>
+            </li>
+          ))}
+        </Rows>
+      )}
+      <Errors results={results} />
+    </>
+  );
+}
+
+function Jobs({ results }: { results: TargetResult[] }) {
+  const { t, num } = useI18n();
+  const state = (s: RunState): MessageKey => `dashboard.run.${s}`;
+  const list = results.map((r) => r.data).filter((d): d is JobsData => d?.kind === 'jobs');
+  const counts = { passed: 0, failed: 0, running: 0, other: 0 };
+  for (const d of list) for (const k of Object.keys(counts) as RunState[]) counts[k] += d.counts[k];
+  const jobs = list.flatMap((d) => d.jobs);
+  return (
+    <>
+      {list.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <Badge tone="ok">{t('dashboard.runs.passed', { n: num(counts.passed) })}</Badge>
+          <Badge tone={counts.failed > 0 ? 'bad' : 'plain'}>
+            {t('dashboard.runs.failed', { n: num(counts.failed) })}
+          </Badge>
+          <Badge tone="accent">{t('dashboard.runs.running', { n: num(counts.running) })}</Badge>
+        </div>
+      )}
+      {list.length > 0 && jobs.length === 0 && (
+        <p className="text-sm text-ink-secondary">{t('dashboard.jobs.none')}</p>
+      )}
+      {jobs.length > 0 && (
+        <Rows>
+          {jobs.map((job) => (
+            <li key={job.name} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge tone={RUN_TONE[job.state]}>{t(state(job.state))}</Badge>
+                <Ltr>{job.name}</Ltr>
+              </span>
+              {job.url && (
+                <a
+                  href={job.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary-text underline underline-offset-2"
+                  aria-label={t('dashboard.jobs.openLabel', { name: job.name })}
+                >
+                  {t('dashboard.runs.open')}
+                </a>
+              )}
             </li>
           ))}
         </Rows>

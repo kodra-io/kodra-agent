@@ -1,0 +1,16 @@
+[
+  {
+    "class_": "hudson.model.FreeStyleProject",
+    "name": "api-tests",
+    "url": "http://localhost:18080/job/api-tests/",
+    "fullname": "api-tests",
+    "color": "blue"
+  },
+  {
+    "class_": "hudson.model.FreeStyleProject",
+    "name": "deploy-web",
+    "url": "http://localhost:18080/job/deploy-web/",
+    "fullname": "deploy-web",
+    "color": "red"
+  }
+]
