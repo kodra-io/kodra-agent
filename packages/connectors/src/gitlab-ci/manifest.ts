@@ -60,6 +60,20 @@ export default defineManifest({
   },
   guards: Object.fromEntries(EXPOSED.map((name) => [name, inGitlabProjects])),
   hiddenTools: [...GITLAB_CI_HIDDEN],
+  // The console dashboard: the latest pipelines of each GitLab project.
+  dashboard: [
+    {
+      id: 'pipelines',
+      title: t('Pipelines', 'خطوط الإنتاج'),
+      tool: 'list_pipelines',
+      args: { per_page: 20 },
+      forEach: { setting: 'projects', from: 'gitlab', arg: 'project_id' },
+      view: {
+        kind: 'runs',
+        fields: { id: 'id', ref: 'ref', status: ['status'], url: 'web_url', at: 'created_at' },
+      },
+    },
+  ],
   runtime: {
     type: 'mcp-stdio',
     source: GITLAB_SERVER,

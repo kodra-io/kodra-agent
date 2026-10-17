@@ -1,4 +1,5 @@
 import { auditHead } from '../audit.ts';
+import { ConnectorDashboard } from '../dashboard.ts';
 import type { PolicyGate } from './policy-gate.ts';
 import type { Runtime } from '../runtime.ts';
 import type { ConsoleApprovals } from './approvals.ts';
@@ -59,6 +60,16 @@ export function consoleApi(
   const auditPath = runtime.config.spec.audit.path;
   const model = `${runtime.config.spec.model.provider}/${runtime.config.spec.model.name}`;
   const text = (q: URLSearchParams, key: string) => q.get(key) ?? undefined;
+  // The dashboard only reads, so it never asks for approval.
+  const deps = runtime.deps({
+    request: () => Promise.resolve({ decision: 'denied', by: 'dashboard' }),
+  });
+  const dashboard = new ConnectorDashboard({
+    host: deps.host,
+    redactor: deps.redactor,
+    policy: { destructiveActions: deps.policy.destructiveActions, self: deps.policy.self ?? null },
+    manifests: runtime.inputs.map((i) => i.component.manifest),
+  });
 
   const routes: Record<string, ApiRoute> = {
     status: async () => ({
@@ -71,6 +82,7 @@ export function consoleApi(
       auditHead: await auditHead(auditPath),
     }),
     connectors: () => connectorViews(runtime),
+    dashboard: () => dashboard.view(),
     activity: async ({ query: q }) => {
       const limit = Number(q.get('limit') ?? '100');
       return activity(await readAudit(auditPath), {

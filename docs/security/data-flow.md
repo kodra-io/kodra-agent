@@ -94,7 +94,9 @@ Reviewed manifest: `github@dbd071da3c11`
 - **Runs, reruns, or cancels workflows:** classified destructive, because a workflow can
   deploy. Blocked unless `destructiveActions: require-approval`, and then only after approval.
 
-Reviewed manifest: `github-actions@55c971450379`
+- **Console dashboard:** The latest workflow runs per repo (status, branch, link), read with the same read tool and shown only in the console. Never sent to the model, and not audited (nothing changes).
+
+Reviewed manifest: `github-actions@13a106b833a8`
 
 ### GitLab
 
@@ -116,7 +118,9 @@ Reviewed manifest: `gitlab@15e1cd27df2b`
   can deploy. Blocked unless `destructiveActions: require-approval`, and then only after
   approval.
 
-Reviewed manifest: `gitlab-ci@3e6118bf64af`
+- **Console dashboard:** The latest pipelines per project (status, ref, link), read with the same read tool and shown only in the console. Never sent to the model, and not audited (nothing changes).
+
+Reviewed manifest: `gitlab-ci@4daa8ae5c78e`
 
 ### Docker
 
@@ -142,7 +146,9 @@ Reviewed manifest: `docker@34bd0adb3e3c`
   objects. Creating, changing, deleting, and exec are classified destructive: blocked unless
   `destructiveActions: require-approval`.
 
-Reviewed manifest: `kubernetes@7ec08be6d8cf`
+- **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, read with the same read tool and shown only in the console. Never sent to the model, and not audited (nothing changes).
+
+Reviewed manifest: `kubernetes@b4fdf1b34ff9`
 
 ### Prometheus
 

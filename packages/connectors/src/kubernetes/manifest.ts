@@ -158,6 +158,31 @@ export default defineManifest({
       { kind: 'not-self', namespaceArg: 'namespace', resourceArg: 'resource' },
     ],
   },
+  // The console dashboard: read-only, per listed namespace (docs/console.md).
+  dashboard: [
+    {
+      id: 'pods',
+      title: t('Pods', 'الحاويات (Pods)'),
+      tool: 'pods_list_in_namespace',
+      forEach: { setting: 'namespaces', arg: 'namespace' },
+      view: { kind: 'pods' },
+    },
+    {
+      id: 'deployments',
+      title: t('Deployments', 'عمليات النشر'),
+      tool: 'resources_list',
+      args: { apiVersion: 'apps/v1', kind: 'Deployment' },
+      forEach: { setting: 'namespaces', arg: 'namespace' },
+      view: { kind: 'deployments' },
+    },
+    {
+      id: 'warnings',
+      title: t('Recent warnings', 'التحذيرات الأخيرة'),
+      tool: 'events_list',
+      forEach: { setting: 'namespaces', arg: 'namespace' },
+      view: { kind: 'events' },
+    },
+  ],
   runtime: {
     type: 'mcp-stdio',
     source: {

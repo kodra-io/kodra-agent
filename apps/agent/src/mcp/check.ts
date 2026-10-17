@@ -71,7 +71,7 @@ export interface ServerCheck {
   exposed: string[];
 }
 
-function component(id: string, settings: Record<string, unknown>): Component {
+export function component(id: string, settings: Record<string, unknown>): Component {
   const manifest = getConnector(id);
   if (!manifest) throw new Error(`unknown connector ${id}`);
   return { id, displayName: manifest.displayName, manifest, settings, secrets: [] };

@@ -1,0 +1,5 @@
+NAMESPACE   APIVERSION   KIND         NAME       READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                 SELECTOR       LABELS
+dev         apps/v1      Deployment   badimage   0/1     1            0           5m51s   nginx        nginx:does-not-exist   app=badimage   app=badimage
+dev         apps/v1      Deployment   broken     0/1     1            0           5m51s   busybox      busybox:1.36           app=broken     app=broken
+dev         apps/v1      Deployment   web        2/2     2            2           5m52s   nginx        nginx:1.27-alpine      app=web        app=web
+

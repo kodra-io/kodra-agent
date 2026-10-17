@@ -106,6 +106,30 @@ How the console is protected:
 Conversations live in memory, up to 20, and are gone when the agent restarts. The audit log
 keeps the record of every question, tool call, and decision.
 
+## Dashboard
+
+The **Dashboard** page shows what the agent can see in your tools right now:
+
+| Connector      | Cards                                                                                                                                    |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Kubernetes     | Pods by state (running, failing, pending) with restarts; deployments ready against desired; recent warning events. Per listed namespace. |
+| GitLab CI      | The latest 20 pipelines per project: passed, failed, running, with links.                                                                |
+| GitHub Actions | The latest 20 workflow runs per repo: passed, failed, running, with links.                                                               |
+
+How it works:
+
+- Each card is a read tool listed in the connector's manifest (`dashboard`), called without
+  the model. It goes through the same policy check as the agent's calls (classification and
+  guards, such as the namespace list), and the output is redacted before it is read. A
+  manifest test refuses a card on anything but a read tool.
+- Only parsed fields reach the page, and they are shown as text. Links are kept only when
+  they are `http(s)` links.
+- The agent refreshes at most once a minute, whoever is looking; the page asks again every
+  minute while it is open. A target that fails shows why (for example, a token without
+  access).
+- Dashboard reads are not audited: nothing changes and no model is involved. The agent's own
+  tool calls are audited as before.
+
 ## Settings
 
 **Settings** shows what the agent can reach, who approves its changes, and its limits.

@@ -47,6 +47,28 @@ export default defineManifest({
     get_job_logs: inGithubRepos,
     actions_run_trigger: inGithubRepos,
   },
+  // The console dashboard: the latest workflow runs of each GitHub repo.
+  dashboard: [
+    {
+      id: 'runs',
+      title: t('Workflow runs', 'تشغيلات سير العمل'),
+      tool: 'actions_list',
+      args: { method: 'list_workflow_runs', perPage: 20 },
+      forEach: { setting: 'repos', from: 'github', arg: 'owner', repoArg: 'repo' },
+      view: {
+        kind: 'runs',
+        items: 'workflow_runs',
+        fields: {
+          id: 'id',
+          name: 'name',
+          ref: 'head_branch',
+          status: ['conclusion', 'status'],
+          url: 'html_url',
+          at: 'created_at',
+        },
+      },
+    },
+  ],
   runtime: {
     type: 'mcp-stdio',
     source: GITHUB_SERVER,

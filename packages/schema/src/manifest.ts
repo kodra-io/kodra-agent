@@ -311,6 +311,63 @@ const runtime = z.union([
   z.strictObject({ type: z.literal('builtin'), module: z.string() }),
 ]);
 
+/** A dotted path into a JSON item, like `status` or `user.name`. */
+const jsonPath = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/);
+
+/**
+ * How the console dashboard reads a tool's output. Each kind is generic, never per
+ * connector: `pods` and `deployments` read a kubectl-style table, `events` a YAML list of
+ * Kubernetes events, and `runs` a JSON list of pipeline or workflow runs.
+ */
+const dashboardView = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('pods') }),
+  z.strictObject({ kind: z.literal('deployments') }),
+  z.strictObject({ kind: z.literal('events') }),
+  z.strictObject({
+    kind: z.literal('runs'),
+    /** Where the list is, when the output is an object rather than a list. */
+    items: jsonPath.optional(),
+    fields: z.strictObject({
+      id: jsonPath,
+      /** The workflow's name, when there is one. */
+      name: jsonPath.optional(),
+      ref: jsonPath,
+      /** Checked in order; the first that is set wins (a conclusion, then a status). */
+      status: z.array(jsonPath).min(1),
+      url: jsonPath,
+      at: jsonPath,
+    }),
+  }),
+]);
+export type DashboardView = z.infer<typeof dashboardView>;
+
+/**
+ * A card on the console dashboard: one read-only tool call (or one per entry of a setting),
+ * made without the model, through the same policy checks and redaction as the agent's.
+ */
+const dashboardPanel = z.strictObject({
+  id: z.string().regex(KEY),
+  title: localizedText,
+  tool: z.string().min(1),
+  /** Fixed arguments. */
+  args: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  /**
+   * Calls the tool once per entry of a list setting (this connector's, or `from` one it
+   * requires), passing the entry as `arg`. `owner/repo` entries can be split into two args.
+   */
+  forEach: z
+    .strictObject({
+      setting: z.string().regex(KEY),
+      from: z.string().regex(ID).optional(),
+      arg: z.string().min(1),
+      /** For `owner/repo` entries: the arg for the repo name (`arg` gets the owner). */
+      repoArg: z.string().min(1).optional(),
+    })
+    .optional(),
+  view: dashboardView,
+});
+export type DashboardPanel = z.infer<typeof dashboardPanel>;
+
 /** US dollars per million tokens. */
 export const modelPrice = z.strictObject({
   inputPerMTok: z.number().nonnegative(),
@@ -353,6 +410,8 @@ export const manifestSchema = z
     defaultBranchLookup: z.enum(['github', 'gitlab']).optional(),
     /** Source-control tools a proposed change can preview, by tool name. */
     changeSteps: z.record(z.string(), changeStep).optional(),
+    /** Cards on the console dashboard, each from one read tool. */
+    dashboard: z.array(dashboardPanel).optional(),
     /**
      * Model providers: list prices per model, for the console's estimated cost. Dated and
      * sourced, because prices change; the config can override them (spec.console.pricing).
@@ -393,6 +452,16 @@ export const manifestSchema = z
           code: 'custom',
           path: ['changeSteps', tool],
           message: `${tool} is not in tools`,
+        });
+      }
+    }
+    for (const [i, panel] of (m.dashboard ?? []).entries()) {
+      // The dashboard never changes anything: its tools must be classified as reads.
+      if (m.tools[panel.tool] !== 'read') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['dashboard', i, 'tool'],
+          message: `${panel.tool} is not a read tool of this connector`,
         });
       }
     }
