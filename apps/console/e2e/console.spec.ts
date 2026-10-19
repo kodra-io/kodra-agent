@@ -26,16 +26,17 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   await expect(page.getByText('anthropic/claude-sonnet-5-5')).toBeVisible();
   await expect(page.getByText('2 h 3 min')).toBeVisible();
-  const connectors = page
-    .getByRole('region', { name: 'Connectors' })
+  const systems = page
+    .getByRole('region', { name: /^Systems/ })
     .getByRole('listitem')
     .filter({ hasText: 'Kubernetes' });
-  await expect(connectors).toContainText('Not available');
-  // The dashboard: approvals waiting, investigations, changes, and spend against the budget.
-  await expect(page.getByText('PodCrashLooping, ')).toBeVisible();
-  await expect(page.getByText('3 approved, 1 denied')).toBeVisible();
-  // The spend tile: the amount, then the budget it counts against.
-  await expect(page.getByText('$12.40of $40.00')).toBeVisible();
+  await expect(systems).toContainText('Offline');
+  // Key numbers: investigations, changes, and spend against the budget.
+  const kpis = page.getByRole('list', { name: 'Key numbers' });
+  await expect(kpis.getByText('PodCrashLooping, ')).toBeVisible();
+  await expect(kpis).toContainText('3 approved, 1 denied');
+  await expect(kpis).toContainText('$12.40');
+  await expect(kpis).toContainText('of $40.00');
   await expect(page.getByRole('progressbar', { name: 'Budget used' })).toHaveAttribute(
     'aria-valuenow',
     '31',
@@ -80,33 +81,41 @@ test('admin signs in with admin/admin and must set a new password first', async 
   expect(api.join('\n')).not.toContain(ADMIN_PASSWORD);
 });
 
-test.describe('the welcome briefing', () => {
+test.describe('the operations center', () => {
   test.use({ timezoneId: 'UTC' });
 
-  test('greets by the time of day and lists what needs you, most urgent first', async ({
+  test('shows the clock, the posture, key numbers, the queue worst first, and each system', async ({
     page,
     api,
   }) => {
     await page.clock.setFixedTime(new Date('2026-10-19T08:30:00Z'));
     await signIn(page, APPROVER_TOKEN);
-    const welcome = page.getByRole('region', { name: 'Good morning, Omar' });
-    await expect(welcome).toBeVisible();
-    await expect(welcome).toContainText('Monday, October 19');
-    await expect(welcome).toContainText('6 things need you.');
+    const ops = page.getByRole('region', { name: 'Good morning, Omar' });
+    await expect(ops).toContainText('Operations center');
+    await expect(ops).toContainText('Monday, October 19, 2026');
+    await expect(ops.locator('time')).toHaveText('08:30:00');
+    await expect(ops).toContainText('Attention required');
     expect(api).toContain('GET dashboard');
 
-    const items = welcome.getByRole('list', { name: 'What needs you' }).getByRole('listitem');
-    await expect(items).toHaveText([
-      /approvals? (is|are) waiting for a decision/,
-      '1 pod is failing in dev',
-      '1 deployment is not fully ready',
-      '2 recent pipeline runs or jobs failed',
-      'Kubernetes is not available',
-    ]);
-    await expect(welcome).toContainText('And 1 more on the other pages.');
-    await expect(welcome).toContainText('$12.40 of $40.00 spent this month');
+    const kpis = ops.getByRole('list', { name: 'Key numbers' });
+    await expect(kpis).toContainText('Pods up5/71 failing');
+    await expect(kpis).toContainText('Deployments ready2/3');
+    await expect(kpis).toContainText('Failed runs2');
 
-    await items.filter({ hasText: 'pod is failing' }).getByRole('link').click();
+    const queue = ops.getByRole('region', { name: /^Attention queue/ }).getByRole('listitem');
+    await expect(queue).toHaveText([
+      'Critical1 pod is failing in dev',
+      'CriticalKubernetes is not available',
+      /^Action\d+ approvals? (is|are) waiting for a decision$/,
+      'Warning1 deployment is not fully ready',
+      'Warning2 recent pipeline runs or jobs failed',
+      'Info1 alert was investigated today',
+    ]);
+
+    const systems = ops.getByRole('region', { name: /^Systems/ }).getByRole('listitem');
+    await expect(systems).toHaveText(['GitLabConnectedOK', 'KubernetesNot runningOffline']);
+
+    await queue.filter({ hasText: 'pod is failing' }).getByRole('link').click();
     await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
   });
 
@@ -114,8 +123,8 @@ test.describe('the welcome briefing', () => {
     await page.clock.setFixedTime(new Date('2026-10-19T19:00:00Z'));
     await signIn(page);
     // The shared token has no name to greet.
-    const welcome = page.getByRole('region', { name: 'Good evening' });
-    await welcome.getByRole('link', { name: 'Ask the agent for a full briefing' }).click();
+    const ops = page.getByRole('region', { name: 'Good evening' });
+    await ops.getByRole('link', { name: 'Request a full briefing' }).click();
     await expect(page.getByLabel('Message')).toHaveValue(/^Give me a briefing on what is going on/);
     // Nothing is sent until the person sends it.
     expect(api.some((line) => line.startsWith('BODY chat '))).toBe(false);
@@ -128,13 +137,14 @@ test.describe('the welcome briefing', () => {
     await expect(page.getByLabel('Message')).toHaveValue('');
   });
 
-  test('greets in Arabic, right to left', async ({ page }) => {
+  test('works in Arabic, right to left', async ({ page }) => {
     await page.clock.setFixedTime(new Date('2026-10-19T14:00:00Z'));
     await signIn(page, APPROVER_TOKEN);
     await page.getByRole('button', { name: 'Switch to Arabic' }).click();
-    const welcome = page.getByRole('region', { name: 'مساء الخير يا Omar' });
-    await expect(welcome).toContainText('أمور تحتاج إليك: 6');
-    await expect(welcome).toContainText('Pods متعثرة في dev: 1');
+    const ops = page.getByRole('region', { name: 'مساء الخير يا Omar' });
+    await expect(ops).toContainText('مركز العمليات');
+    await expect(ops).toContainText('يتطلب تدخلًا');
+    await expect(ops).toContainText('Pods متعثرة في dev: 1');
     expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
   });
 });

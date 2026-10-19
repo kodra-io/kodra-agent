@@ -7,7 +7,7 @@ blocked unless you allowed them.
 
 | Page           | What it shows                                                                                                                                  |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Overview       | A welcome briefing (below), then model, version, where the agent runs, uptime, Slack and alert monitoring, connectors                          |
+| Overview       | The operations center (below), then model, version, where the agent runs, uptime, Slack and alert monitoring, connectors                       |
 | Chat           | Conversations with the agent: each tool call live, with its risk and state, approval requests inline, and the answer with its token usage      |
 | Connectors     | Each connector's access, the tools the model can use with their risk and limits, and for an unavailable connector the reason and how to fix it |
 | Activity       | The audit log, filtered by event, decision, connector, and text. Secrets are already removed                                                   |
@@ -230,14 +230,19 @@ without them it is read-only.
 
 ## Pausing changes
 
-**The welcome briefing** at the top of Overview greets you by the time of day (and by name
-when you signed in as `console:<name>`) and lists what needs someone, most urgent first:
-paused changes, approvals waiting, the budget near or over its limit, failing pods,
-deployments that are not ready, failed pipeline runs or jobs, connectors that are down, and
-today's investigations. Each line opens the page with the detail. It is built from the
-agent's status, its records, and the dashboard's read tools, never the model, so it costs
-nothing and sends nothing to the model. **Ask the agent for a full briefing** opens Chat
-with that question ready; nothing is sent until you send it.
+**The operations center** at the top of Overview is a control-room panel: a greeting by the
+time of day (by name for `console:<name>`), a live clock, and the overall posture (all
+systems normal, degraded, or attention required). Below it are key numbers (approvals
+waiting, pods up, deployments ready, failed runs, investigations, changes this week, spend
+against the budget), the attention queue, and a light for each connected system.
+
+The queue lists what needs someone, worst first, each tagged critical, action, warning, or
+info: failing pods, connectors down, the budget used up, approvals waiting, a pause,
+deployments not ready, failed runs or jobs, the budget near its limit, and today's
+investigations. Each line opens the page with the detail. It is built from the agent's
+status, its records, and the dashboard's read tools, never the model, so it costs nothing
+and sends nothing to the model. **Request a full briefing** opens Chat with that question
+ready; nothing is sent until you send it.
 
 **Pause all changes** (on Overview, and **Pause agent** in the sidebar) stops the agent from
 changing anything, right away:

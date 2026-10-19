@@ -1,4 +1,4 @@
-import type { DashboardView, OverviewView, RunState, StatusView } from './api.ts';
+import type { DashboardView, OverviewView, StatusView } from './api.ts';
 import type { MessageKey } from './i18n.tsx';
 
 /** Morning until noon, afternoon until 6 pm, evening after that (and before 5 am). */
@@ -16,10 +16,15 @@ export function nameOf(user: string): string | null {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-/** One line of the briefing: a message, the page with the detail, and its place in line. */
+/** How bad a line is: something broken, a decision someone owes, a risk, or a note. */
+export type Severity = 'critical' | 'action' | 'warning' | 'info';
+const SEVERITY_ORDER: readonly Severity[] = ['critical', 'action', 'warning', 'info'];
+
+/** One line of the attention queue: a message, its severity, and the page with the detail. */
 export interface BriefingItem {
   key: MessageKey;
   vars: Record<string, string | number>;
+  severity: Severity;
   to: string | null;
 }
 
@@ -30,14 +35,18 @@ export interface BriefingInput {
   dashboard: DashboardView | null;
 }
 
+/** The whole picture: `critical` when anything is broken, `degraded` when anything needs someone. */
+export type Posture = 'nominal' | 'degraded' | 'critical';
+
 export interface Briefing {
-  /** Things someone should look at, most urgent first. */
+  posture: Posture;
+  /** What needs someone, worst first. */
   attention: BriefingItem[];
   /** How many there were before the list was cut to `MAX_ITEMS`. */
   total: number;
 }
 
-export const MAX_ITEMS = 5;
+export const MAX_ITEMS = 6;
 /** The budget line shows from this share of the monthly budget. */
 export const BUDGET_NEAR = 0.8;
 
@@ -46,26 +55,63 @@ function counted(base: string, n: number): MessageKey {
   return `${base}.${n === 1 ? 'one' : 'other'}` as MessageKey;
 }
 
-function dashboardTotals(dashboard: DashboardView | null) {
-  const totals = { podsFailing: 0, notReady: 0, failedRuns: 0, failingIn: new Set<string>() };
+/** The dashboard's numbers added up across connectors and targets. */
+export interface Totals {
+  podsRunning: number;
+  podsFailing: number;
+  podsTotal: number;
+  deploymentsReady: number;
+  deploymentsTotal: number;
+  runsPassed: number;
+  runsFailed: number;
+  runsRunning: number;
+  /** Namespaces with a failing pod. */
+  failingIn: string[];
+  /** Whether any card had numbers at all. */
+  seen: { pods: boolean; deployments: boolean; runs: boolean };
+}
+
+export function totalsOf(dashboard: DashboardView | null): Totals {
+  const t: Totals = {
+    podsRunning: 0,
+    podsFailing: 0,
+    podsTotal: 0,
+    deploymentsReady: 0,
+    deploymentsTotal: 0,
+    runsPassed: 0,
+    runsFailed: 0,
+    runsRunning: 0,
+    failingIn: [],
+    seen: { pods: false, deployments: false, runs: false },
+  };
+  const failingIn = new Set<string>();
   for (const connector of dashboard?.connectors ?? []) {
     for (const panel of connector.panels) {
       for (const result of panel.results) {
         const data = result.data;
         if (!data) continue;
         if (data.kind === 'pods') {
-          totals.podsFailing += data.counts.failing;
-          if (data.counts.failing > 0 && result.target) totals.failingIn.add(result.target);
+          const c = data.counts;
+          t.seen.pods = true;
+          t.podsRunning += c.running;
+          t.podsFailing += c.failing;
+          t.podsTotal += c.running + c.pending + c.failing;
+          if (c.failing > 0 && result.target) failingIn.add(result.target);
         } else if (data.kind === 'deployments') {
-          totals.notReady += Math.max(0, data.total - data.ready);
+          t.seen.deployments = true;
+          t.deploymentsReady += data.ready;
+          t.deploymentsTotal += data.total;
         } else if (data.kind === 'runs' || data.kind === 'jobs') {
-          const counts: Record<RunState, number> = data.counts;
-          totals.failedRuns += counts.failed;
+          t.seen.runs = true;
+          t.runsPassed += data.counts.passed;
+          t.runsFailed += data.counts.failed;
+          t.runsRunning += data.counts.running;
         }
       }
     }
   }
-  return totals;
+  t.failingIn = [...failingIn].sort();
+  return t;
 }
 
 /**
@@ -74,12 +120,15 @@ function dashboardTotals(dashboard: DashboardView | null) {
  */
 export function briefing({ status, pending, overview, dashboard }: BriefingInput): Briefing {
   const items: BriefingItem[] = [];
-  if (status?.paused)
-    items.push({ key: 'welcome.paused', vars: { who: status.paused.by }, to: null });
+  const add = (item: BriefingItem) => items.push(item);
+  if (status?.paused) {
+    add({ key: 'welcome.paused', vars: { who: status.paused.by }, severity: 'warning', to: null });
+  }
   if (pending > 0) {
-    items.push({
+    add({
       key: counted('welcome.approvals', pending),
       vars: { n: pending },
+      severity: 'action',
       to: '/approvals',
     });
   }
@@ -87,58 +136,119 @@ export function briefing({ status, pending, overview, dashboard }: BriefingInput
   if (budget?.limit && budget.spent !== null) {
     const share = budget.spent / budget.limit;
     if (budget.over || share >= 1) {
-      items.push({ key: 'welcome.budgetOver', vars: {}, to: '/usage' });
+      add({ key: 'welcome.budgetOver', vars: {}, severity: 'critical', to: '/usage' });
     } else if (share >= BUDGET_NEAR) {
-      items.push({
+      add({
         key: 'welcome.budgetNear',
         vars: { share: Math.round(share * 100) },
+        severity: 'warning',
         to: '/usage',
       });
     }
   }
-  const totals = dashboardTotals(dashboard);
-  if (totals.podsFailing > 0) {
-    const where = [...totals.failingIn].sort().join(', ');
-    items.push({
-      key: counted(where ? 'welcome.podsFailingIn' : 'welcome.podsFailing', totals.podsFailing),
-      vars: { n: totals.podsFailing, where },
+  const t = totalsOf(dashboard);
+  if (t.podsFailing > 0) {
+    const where = t.failingIn.join(', ');
+    add({
+      key: counted(where ? 'welcome.podsFailingIn' : 'welcome.podsFailing', t.podsFailing),
+      vars: { n: t.podsFailing, where },
+      severity: 'critical',
       to: '/dashboard',
     });
   }
-  if (totals.notReady > 0) {
-    items.push({
-      key: counted('welcome.notReady', totals.notReady),
-      vars: { n: totals.notReady },
+  const notReady = Math.max(0, t.deploymentsTotal - t.deploymentsReady);
+  if (notReady > 0) {
+    add({
+      key: counted('welcome.notReady', notReady),
+      vars: { n: notReady },
+      severity: 'warning',
       to: '/dashboard',
     });
   }
-  if (totals.failedRuns > 0) {
-    items.push({
-      key: counted('welcome.runsFailed', totals.failedRuns),
-      vars: { n: totals.failedRuns },
+  if (t.runsFailed > 0) {
+    add({
+      key: counted('welcome.runsFailed', t.runsFailed),
+      vars: { n: t.runsFailed },
+      severity: 'warning',
       to: '/dashboard',
     });
   }
   const down = (status?.connectors ?? []).filter((c) => !c.available).map((c) => c.name);
   if (down.length > 0) {
-    items.push({
+    add({
       key: counted('welcome.connectorsDown', down.length),
       vars: { n: down.length, names: down.join(', ') },
+      severity: 'critical',
       to: '/settings',
     });
   }
   if (overview && overview.investigationsToday > 0) {
-    items.push({
+    add({
       key: counted('welcome.investigations', overview.investigationsToday),
       vars: { n: overview.investigationsToday },
+      severity: 'info',
       to: '/investigations',
     });
   }
-  return { attention: items.slice(0, MAX_ITEMS), total: items.length };
+  // Worst first; within a severity, the order above.
+  const ranked = items
+    .map((item, i) => ({ item, i }))
+    .sort(
+      (a, b) =>
+        SEVERITY_ORDER.indexOf(a.item.severity) - SEVERITY_ORDER.indexOf(b.item.severity) ||
+        a.i - b.i,
+    )
+    .map(({ item }) => item);
+  const posture: Posture = ranked.some((i) => i.severity === 'critical')
+    ? 'critical'
+    : ranked.some((i) => i.severity !== 'info')
+      ? 'degraded'
+      : 'nominal';
+  return { posture, attention: ranked.slice(0, MAX_ITEMS), total: ranked.length };
 }
 
-/** The sentence over the list. */
-export function headlineFor(total: number): MessageKey {
-  if (total === 0) return 'welcome.allQuiet';
-  return counted('welcome.needsYou', total);
+/** One connected system on the status board. */
+export interface SystemState {
+  id: string;
+  name: string;
+  state: 'ok' | 'warn' | 'down';
+  metric: { key: MessageKey; vars: Record<string, string | number> };
+}
+
+/** Each connector's light: down when it did not start, amber when its cards show trouble. */
+export function systemsOf(status: StatusView, dashboard: DashboardView | null): SystemState[] {
+  return status.connectors.map((c) => {
+    if (!c.available) {
+      return {
+        id: c.id,
+        name: c.name,
+        state: 'down',
+        metric: { key: 'welcome.sys.offline', vars: {} },
+      };
+    }
+    const own = dashboard?.connectors.find((d) => d.id === c.id);
+    if (!own) {
+      return {
+        id: c.id,
+        name: c.name,
+        state: 'ok',
+        metric: { key: 'welcome.sys.online', vars: {} },
+      };
+    }
+    const t = totalsOf({ updatedAt: '', connectors: [own] });
+    const unreadable = own.panels.some((p) => p.results.some((r) => r.error));
+    const trouble =
+      t.podsFailing > 0 ||
+      t.runsFailed > 0 ||
+      t.deploymentsReady < t.deploymentsTotal ||
+      unreadable;
+    const metric: SystemState['metric'] = t.seen.pods
+      ? { key: 'welcome.sys.pods', vars: { up: t.podsRunning, total: t.podsTotal } }
+      : t.seen.runs
+        ? { key: 'welcome.sys.runs', vars: { failed: t.runsFailed, passed: t.runsPassed } }
+        : unreadable
+          ? { key: 'welcome.sys.unreadable', vars: {} }
+          : { key: 'welcome.sys.online', vars: {} };
+    return { id: c.id, name: c.name, state: trouble ? 'warn' : 'ok', metric };
+  });
 }

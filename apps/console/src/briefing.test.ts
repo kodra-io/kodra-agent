@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DashboardView, OverviewView, StatusView } from './api.ts';
-import { briefing, greetingFor, headlineFor, MAX_ITEMS, nameOf } from './briefing.ts';
+import { briefing, greetingFor, MAX_ITEMS, nameOf, systemsOf, totalsOf } from './briefing.ts';
 import en from './locales/en.json';
 
 const status: StatusView = {
@@ -109,11 +109,10 @@ describe('greeting', () => {
 describe('briefing', () => {
   it('is quiet when nothing needs anyone', () => {
     const b = briefing({ status, pending: 0, overview, dashboard: null });
-    expect(b).toEqual({ attention: [], total: 0 });
-    expect(headlineFor(b.total)).toBe('welcome.allQuiet');
+    expect(b).toEqual({ posture: 'nominal', attention: [], total: 0 });
   });
 
-  it('puts what needs a person first, then what the connectors see', () => {
+  it('ranks the queue worst first: broken, then decisions owed, then risks, then notes', () => {
     const b = briefing({
       status: {
         ...status,
@@ -123,37 +122,62 @@ describe('briefing', () => {
       overview: { ...overview, investigationsToday: 2 },
       dashboard,
     });
+    expect(b.posture).toBe('critical');
     expect(b.total).toBe(6);
-    expect(keys(b)).toEqual([
-      'welcome.approvals.one',
-      'welcome.podsFailingIn.other',
-      'welcome.notReady.other',
-      'welcome.runsFailed.one',
-      'welcome.connectorsDown.one',
+    expect(b.attention.map((i) => [i.severity, i.key])).toEqual([
+      ['critical', 'welcome.podsFailingIn.other'],
+      ['critical', 'welcome.connectorsDown.one'],
+      ['action', 'welcome.approvals.one'],
+      ['warning', 'welcome.notReady.other'],
+      ['warning', 'welcome.runsFailed.one'],
+      ['info', 'welcome.investigations.other'],
     ]);
-    expect(b.attention).toHaveLength(MAX_ITEMS);
-    expect(b.attention[1]).toEqual({
-      key: 'welcome.podsFailingIn.other',
-      vars: { n: 2, where: 'dev' },
-      to: '/dashboard',
-    });
-    expect(b.attention[4]?.vars).toEqual({ n: 1, names: 'AWS' });
-    expect(headlineFor(b.total)).toBe('welcome.needsYou.other');
+    expect(b.attention[0]).toMatchObject({ vars: { n: 2, where: 'dev' }, to: '/dashboard' });
+    expect(b.attention[1]?.vars).toEqual({ n: 1, names: 'AWS' });
   });
 
-  it('leads with a pause, and warns about the budget near and over the limit', () => {
+  it('cuts the queue to MAX_ITEMS and keeps the count', () => {
+    const many = {
+      ...status,
+      paused: { by: 'console:omar', at: '' },
+      budget: { month: '2026-10', limit: 40, spent: 41, over: true },
+      connectors: [{ id: 'aws', name: 'AWS', available: false }],
+    };
+    const b = briefing({
+      status: many,
+      pending: 3,
+      overview: { ...overview, investigationsToday: 1 },
+      dashboard,
+    });
+    expect(b.total).toBe(8);
+    expect(b.attention).toHaveLength(MAX_ITEMS);
+    expect(b.attention.at(-1)?.severity).toBe('warning');
+  });
+
+  it('is degraded, not critical, when only decisions or risks are open', () => {
+    expect(briefing({ status, pending: 2, overview, dashboard: null }).posture).toBe('degraded');
+    // Investigations alone are a note.
+    const noted = { ...overview, investigationsToday: 1 };
+    expect(briefing({ status, pending: 0, overview: noted, dashboard: null }).posture).toBe(
+      'nominal',
+    );
+  });
+
+  it('flags a pause, and the budget near and over the limit', () => {
     const paused = { ...status, paused: { by: 'console:omar', at: '2026-10-19T07:00:00.000Z' } };
     expect(keys(briefing({ status: paused, pending: 0, overview, dashboard: null }))).toEqual([
       'welcome.paused',
     ]);
     const near = { ...status, budget: { month: '2026-10', limit: 40, spent: 34, over: false } };
-    const b = briefing({ status: near, pending: 0, overview, dashboard: null });
-    expect(b.attention).toEqual([{ key: 'welcome.budgetNear', vars: { share: 85 }, to: '/usage' }]);
-    const over = { ...status, budget: { month: '2026-10', limit: 40, spent: 41, over: true } };
-    expect(keys(briefing({ status: over, pending: 0, overview, dashboard: null }))).toEqual([
-      'welcome.budgetOver',
+    expect(briefing({ status: near, pending: 0, overview, dashboard: null }).attention).toEqual([
+      { key: 'welcome.budgetNear', vars: { share: 85 }, severity: 'warning', to: '/usage' },
     ]);
-    // No limit, or no price: nothing to say about the budget.
+    const over = { ...status, budget: { month: '2026-10', limit: 40, spent: 41, over: true } };
+    const b = briefing({ status: over, pending: 0, overview, dashboard: null });
+    expect(b.attention.map((i) => [i.severity, i.key])).toEqual([
+      ['critical', 'welcome.budgetOver'],
+    ]);
+    // No price: nothing to say about the budget.
     const unpriced = {
       ...status,
       budget: { month: '2026-10', limit: 40, spent: null, over: false },
@@ -175,7 +199,12 @@ describe('briefing', () => {
       ],
     };
     expect(briefing({ status, pending: 0, overview, dashboard: untargeted }).attention).toEqual([
-      { key: 'welcome.podsFailing.other', vars: { n: 2, where: '' }, to: '/dashboard' },
+      {
+        key: 'welcome.podsFailing.other',
+        vars: { n: 2, where: '' },
+        severity: 'critical',
+        to: '/dashboard',
+      },
     ]);
   });
 
@@ -187,6 +216,44 @@ describe('briefing', () => {
       dashboard,
     });
     for (const item of b.attention) expect(Object.keys(en)).toContain(item.key);
-    for (const n of [0, 1, 2]) expect(Object.keys(en)).toContain(headlineFor(n));
+    for (const s of systemsOf(status, dashboard)) expect(Object.keys(en)).toContain(s.metric.key);
+  });
+});
+
+describe('totals and systems', () => {
+  it('adds the dashboard up across connectors and namespaces', () => {
+    expect(totalsOf(dashboard)).toMatchObject({
+      podsRunning: 2,
+      podsFailing: 2,
+      podsTotal: 4,
+      deploymentsReady: 1,
+      deploymentsTotal: 3,
+      runsPassed: 3,
+      runsFailed: 1,
+      failingIn: ['dev'],
+      seen: { pods: true, deployments: true, runs: true },
+    });
+    expect(totalsOf(null).seen).toEqual({ pods: false, deployments: false, runs: false });
+  });
+
+  it('lights each system: down when it did not start, amber on trouble, green otherwise', () => {
+    const board = systemsOf(
+      {
+        ...status,
+        connectors: [
+          { id: 'kubernetes', name: 'Kubernetes', available: true },
+          { id: 'gitlab-ci', name: 'GitLab CI', available: true },
+          { id: 'gitlab', name: 'GitLab', available: true },
+          { id: 'aws', name: 'AWS', available: false },
+        ],
+      },
+      dashboard,
+    );
+    expect(board.map((s) => [s.name, s.state, s.metric.key, s.metric.vars])).toEqual([
+      ['Kubernetes', 'warn', 'welcome.sys.pods', { up: 2, total: 4 }],
+      ['GitLab CI', 'warn', 'welcome.sys.runs', { failed: 1, passed: 3 }],
+      ['GitLab', 'ok', 'welcome.sys.online', {}],
+      ['AWS', 'down', 'welcome.sys.offline', {}],
+    ]);
   });
 });
