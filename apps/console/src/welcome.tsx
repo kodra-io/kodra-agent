@@ -14,7 +14,7 @@ import {
 } from './briefing.ts';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
-import { Ltr } from './ui.tsx';
+import { Badge, Ltr } from './ui.tsx';
 
 function useClock(): Date {
   const [now, setNow] = useState(() => new Date());
@@ -61,49 +61,25 @@ function Count({ value, format }: { value: number; format: (n: number) => string
   return format(Number.isInteger(value) ? Math.round(shown) : shown);
 }
 
-const POSTURE: Record<
-  Posture,
-  { label: MessageKey; className: string; dot: string; ring: string }
-> = {
-  nominal: {
-    label: 'welcome.posture.nominal',
-    className: 'border-cyan-400/40 bg-cyan-400/10 text-cyan-200',
-    dot: 'bg-cyan-300',
-    ring: 'text-cyan-300',
-  },
-  degraded: {
-    label: 'welcome.posture.degraded',
-    className: 'border-amber-300/40 bg-amber-300/10 text-amber-200',
-    dot: 'kodra-pulse bg-amber-300 text-amber-300',
-    ring: 'text-amber-300',
-  },
-  critical: {
-    label: 'welcome.posture.critical',
-    className: 'border-red-400/50 bg-red-500/15 text-red-200',
-    dot: 'kodra-pulse bg-red-400 text-red-400',
-    ring: 'text-red-400',
-  },
+type Tone = 'ok' | 'warn' | 'bad' | 'accent' | 'plain';
+
+const POSTURE: Record<Posture, { label: MessageKey; tone: Tone; ring: string }> = {
+  nominal: { label: 'welcome.posture.nominal', tone: 'ok', ring: 'text-ok' },
+  degraded: { label: 'welcome.posture.degraded', tone: 'warn', ring: 'text-warn' },
+  critical: { label: 'welcome.posture.critical', tone: 'bad', ring: 'text-bad' },
 };
 
-const SEVERITY: Record<Severity, string> = {
-  critical: 'border-red-400/50 bg-red-500/15 text-red-200',
-  action: 'border-cyan-400/50 bg-cyan-400/10 text-cyan-200',
-  warning: 'border-amber-300/40 bg-amber-300/10 text-amber-200',
-  info: 'border-slate-400/40 bg-slate-400/10 text-slate-200',
+const SEVERITY: Record<Severity, Tone> = {
+  critical: 'bad',
+  action: 'accent',
+  warning: 'warn',
+  info: 'plain',
 };
 
-const LIGHT: Record<SystemState['state'], { dot: string; text: string; label: MessageKey }> = {
-  ok: { dot: 'bg-emerald-400', text: 'text-emerald-300', label: 'welcome.state.ok' },
-  warn: {
-    dot: 'kodra-pulse bg-amber-300 text-amber-300',
-    text: 'text-amber-200',
-    label: 'welcome.state.warn',
-  },
-  down: {
-    dot: 'kodra-pulse bg-red-400 text-red-400',
-    text: 'text-red-300',
-    label: 'welcome.state.down',
-  },
+const LIGHT: Record<SystemState['state'], { dot: string; tone: Tone; label: MessageKey }> = {
+  ok: { dot: 'bg-ok', tone: 'ok', label: 'welcome.state.ok' },
+  warn: { dot: 'kodra-beat bg-warn text-warn', tone: 'warn', label: 'welcome.state.warn' },
+  down: { dot: 'kodra-beat bg-bad text-bad', tone: 'bad', label: 'welcome.state.down' },
 };
 
 /**
@@ -170,35 +146,31 @@ export function Welcome({
   return (
     <section
       aria-labelledby="welcome-title"
-      className="kodra-ops relative isolate overflow-hidden rounded-2xl border border-cyan-400/20 text-slate-100 shadow-2xl shadow-cyan-950/40"
+      className="overflow-hidden rounded-xl border border-line bg-raised"
     >
       {/* Header: who, the posture, and the clock in its ring. */}
-      <div className="kodra-boot flex flex-wrap items-center justify-between gap-4 border-b border-cyan-400/15 px-5 py-4 md:px-7">
+      <div className="kodra-boot flex flex-wrap items-center justify-between gap-4 border-b border-line px-5 py-4 md:px-6">
         <div className="min-w-0">
-          <p className="flex items-center gap-2.5 text-xs font-semibold tracking-[0.2em] text-cyan-300 uppercase">
-            <span className="inline-flex items-center gap-1.5 rounded border border-red-400/50 bg-red-500/15 px-1.5 py-0.5 tracking-widest text-red-200">
-              <span aria-hidden="true" className="kodra-live size-1.5 rounded-full bg-red-400" />
-              {t('welcome.live')}
+          <p className="flex items-center gap-2 text-xs font-semibold tracking-[0.14em] text-primary-text uppercase">
+            <span aria-hidden="true" className="kodra-live size-2 rounded-full bg-ok" />
+            {t('welcome.live')}
+            <span aria-hidden="true" className="text-line-strong">
+              /
             </span>
             {t('welcome.opsTitle')}
           </p>
-          <h2 id="welcome-title" className="mt-2 text-2xl font-bold md:text-3xl">
+          <h2 id="welcome-title" className="mt-1.5 text-2xl font-bold md:text-[1.7rem]">
             {name ? t('welcome.greetingName', { greeting, name }) : greeting}
           </h2>
-          <p className="mt-1 text-sm text-slate-300">{date}</p>
+          <p className="mt-0.5 text-sm text-ink-secondary">{date}</p>
         </div>
         <div className="flex items-center gap-4">
-          <span
-            className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-bold tracking-widest uppercase ${p.className}`}
-          >
-            <span aria-hidden="true" className={`size-2 rounded-full ${p.dot}`} />
-            {t(p.label)}
-          </span>
-          <div className="relative grid size-40 shrink-0 place-items-center">
+          <Badge tone={p.tone}>{t(p.label)}</Badge>
+          <div className="relative grid size-32 shrink-0 place-items-center">
             <StatusRing className={p.ring} />
             <time
               dateTime={now.toISOString()}
-              className="kodra-glow relative font-mono text-xl font-semibold tracking-wider text-white tabular-nums"
+              className="relative font-mono text-lg font-semibold tabular-nums"
               dir="ltr"
             >
               {clock}
@@ -210,7 +182,7 @@ export function Welcome({
       {/* Key numbers. */}
       <ul
         aria-label={t('welcome.kpis')}
-        className="kodra-boot kodra-boot-2 flex flex-wrap gap-px border-b border-cyan-400/15 bg-cyan-400/15"
+        className="kodra-boot kodra-boot-2 flex flex-wrap gap-3 border-b border-line bg-surface p-4 md:px-6"
       >
         <Kpi
           label={t('overview.approvalsWaiting')}
@@ -302,7 +274,7 @@ export function Welcome({
                   aria-valuenow={Math.round(spentShare * 100)}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  className="block h-1.5 overflow-hidden rounded-full bg-cyan-950"
+                  className="block h-1.5 overflow-hidden rounded-full bg-muted"
                 >
                   <Fill share={spentShare} over={budget.over} />
                 </span>
@@ -315,16 +287,16 @@ export function Welcome({
       </ul>
 
       {/* The queue and the systems board. */}
-      <div className="grid gap-px bg-cyan-400/15 lg:grid-cols-[3fr_2fr]">
+      <div className="grid divide-line max-lg:divide-y lg:grid-cols-[3fr_2fr] lg:divide-x rtl:lg:divide-x-reverse">
         <section
           aria-labelledby="queue-title"
-          className="kodra-ops-panel kodra-frame kodra-boot kodra-boot-3 min-w-0 p-5 md:p-6"
+          className="kodra-boot kodra-boot-3 min-w-0 p-5 md:p-6"
         >
           <PanelTitle id="queue-title" count={total}>
             {t('welcome.queue')}
           </PanelTitle>
           {attention.length === 0 ? (
-            <p className="mt-4 flex items-center gap-2.5 text-emerald-300">
+            <p className="mt-4 flex items-center gap-2.5 text-ok-text">
               <Icon name="check" size={16} />
               {t('welcome.queueEmpty')}
             </p>
@@ -333,31 +305,31 @@ export function Welcome({
               {attention.map((item) => {
                 const row = (
                   <>
-                    <span
-                      className={`w-[5.5rem] shrink-0 rounded border px-1.5 py-0.5 text-center text-[11px] font-bold tracking-wider uppercase ${SEVERITY[item.severity]}`}
-                    >
-                      {t(`welcome.sev.${item.severity}`)}
+                    <span className="w-[5.5rem] shrink-0 text-center">
+                      <Badge tone={SEVERITY[item.severity]}>
+                        {t(`welcome.sev.${item.severity}`)}
+                      </Badge>
                     </span>
-                    <span className="min-w-0 flex-1">
+                    <span className="min-w-0 flex-1 text-sm">
                       <bdi dir="auto">{t(item.key, item.vars)}</bdi>
                     </span>
                     {item.to && (
                       <Icon
                         name="chevronRight"
                         size={16}
-                        className="shrink-0 text-slate-400 group-hover:text-cyan-200 rtl:-scale-x-100"
+                        className="shrink-0 text-ink-secondary group-hover:text-primary-text rtl:-scale-x-100"
                       />
                     )}
                   </>
                 );
                 const rowClass =
-                  'flex items-center gap-3 rounded-lg border border-cyan-400/15 bg-slate-950/50 px-3 py-2.5';
+                  'flex items-center gap-3 rounded-lg border border-line bg-raised px-3 py-2.5';
                 return (
                   <li key={item.key}>
                     {item.to ? (
                       <a
                         href={item.to}
-                        className={`group ${rowClass} hover:border-cyan-400/50 hover:bg-cyan-400/5`}
+                        className={`group ${rowClass} hover:border-line-strong hover:bg-muted`}
                         onClick={(e) => {
                           e.preventDefault();
                           if (item.to) go(item.to);
@@ -374,7 +346,7 @@ export function Welcome({
             </ol>
           )}
           {total > attention.length && (
-            <p className="mt-2 text-sm text-slate-300">
+            <p className="mt-2 text-sm text-ink-secondary">
               {t('welcome.more', { n: total - attention.length })}
             </p>
           )}
@@ -382,12 +354,12 @@ export function Welcome({
 
         <section
           aria-labelledby="systems-title"
-          className="kodra-ops-panel kodra-frame kodra-boot kodra-boot-3 min-w-0 p-5 md:p-6"
+          className="kodra-boot kodra-boot-3 min-w-0 p-5 md:p-6"
         >
           <PanelTitle id="systems-title" count={systems.length}>
             {t('welcome.systems')}
           </PanelTitle>
-          <ul className="mt-3 flex flex-col divide-y divide-cyan-400/10">
+          <ul className="mt-3 flex flex-col divide-y divide-line">
             {systems.map((s) => {
               const light = LIGHT[s.state];
               return (
@@ -398,11 +370,11 @@ export function Welcome({
                   />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="font-semibold">{s.name}</span>
-                    <span className="text-xs text-slate-300">{t(s.metric.key, s.metric.vars)}</span>
+                    <span className="text-xs text-ink-secondary">
+                      {t(s.metric.key, s.metric.vars)}
+                    </span>
                   </span>
-                  <span className={`text-xs font-bold tracking-widest uppercase ${light.text}`}>
-                    {t(light.label)}
-                  </span>
+                  <Badge tone={light.tone}>{t(light.label)}</Badge>
                 </li>
               );
             })}
@@ -411,8 +383,8 @@ export function Welcome({
       </div>
 
       {/* Status line. */}
-      <div className="kodra-boot kodra-boot-4 flex flex-wrap items-center justify-between gap-3 border-t border-cyan-400/15 px-5 py-3.5 md:px-7">
-        <p className="font-mono text-xs text-slate-300">
+      <div className="kodra-boot kodra-boot-4 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-5 py-3 md:px-6">
+        <p className="font-mono text-xs text-ink-secondary">
           <Ltr>{status.model}</Ltr> · <Ltr>{`v${status.version}`}</Ltr> · {t('overview.uptime')}{' '}
           {uptime}
           {overview?.auditHead && (
@@ -429,7 +401,7 @@ export function Welcome({
         {chat && (
           <a
             href="/chat"
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-cyan-400/60 bg-cyan-400/10 px-3.5 text-sm font-semibold text-cyan-100 shadow-[0_0_18px_-4px] shadow-cyan-400/50 hover:bg-cyan-400/20"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-semibold text-white hover:bg-primary-deep"
             onClick={(e) => {
               e.preventDefault();
               askInChat(t('welcome.briefingPrompt'));
@@ -449,10 +421,10 @@ function PanelTitle({ id, count, children }: { id: string; count: number; childr
   return (
     <h3
       id={id}
-      className="flex items-center gap-2 text-xs font-bold tracking-[0.18em] text-slate-300 uppercase"
+      className="flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-ink-secondary uppercase"
     >
       {children}
-      <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 font-mono text-[11px] tracking-normal text-cyan-100">
+      <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[11px] tracking-normal text-ink">
         {count}
       </span>
     </h3>
@@ -460,11 +432,11 @@ function PanelTitle({ id, count, children }: { id: string; count: number; childr
 }
 
 const KPI_TONE = {
-  plain: 'text-white',
-  ok: 'text-emerald-300',
-  action: 'text-cyan-300',
-  warning: 'text-amber-200',
-  critical: 'text-red-300',
+  plain: 'text-ink',
+  ok: 'text-ok-text',
+  action: 'text-primary-text',
+  warning: 'text-warn-text',
+  critical: 'text-bad-text',
 };
 
 function Kpi({
@@ -479,16 +451,10 @@ function Kpi({
   sub?: ReactNode;
 }) {
   return (
-    <li className="kodra-ops-panel flex min-w-0 flex-[1_1_9.5rem] flex-col gap-1 px-4 py-3.5">
-      <span className="text-[11px] font-semibold tracking-wider text-slate-300 uppercase">
-        {label}
-      </span>
-      <span
-        className={`kodra-glow font-mono text-2xl font-semibold tabular-nums ${KPI_TONE[tone]}`}
-      >
-        {value}
-      </span>
-      {sub && <span className="text-xs text-slate-300">{sub}</span>}
+    <li className="flex min-w-0 flex-[1_1_8.5rem] flex-col gap-1 rounded-lg border border-line bg-raised px-4 py-3">
+      <span className="text-xs font-medium text-ink-secondary">{label}</span>
+      <span className={`text-2xl font-bold tabular-nums ${KPI_TONE[tone]}`}>{value}</span>
+      {sub && <span className="text-xs text-ink-secondary">{sub}</span>}
     </li>
   );
 }
@@ -499,49 +465,40 @@ function Fill({ share, over }: { share: number; over: boolean }) {
   useEffect(() => {
     if (ref.current) ref.current.style.width = `${String(Math.round(share * 100))}%`;
   }, [share]);
-  return <span ref={ref} className={`block h-1.5 ${over ? 'bg-red-400' : 'bg-cyan-400'}`} />;
+  return <span ref={ref} className={`block h-1.5 ${over ? 'bg-bad' : 'bg-primary'}`} />;
 }
 
 /**
- * The posture as a HUD ring around the clock: a ring that draws itself, a tick scale, and two
- * thin arcs turning slowly. Its color (`currentColor`) follows the posture.
+ * The posture as a ring around the clock: a ring that draws itself, a tick scale, and one thin
+ * arc turning slowly. Its color (`currentColor`) follows the posture.
  */
 function StatusRing({ className }: { className: string }) {
   return (
     <svg
       aria-hidden="true"
       viewBox="0 0 120 120"
-      className={`kodra-glow-line absolute inset-0 size-full ${className}`}
+      className={`absolute inset-0 size-full ${className}`}
       fill="none"
       stroke="currentColor"
     >
-      <circle cx="60" cy="60" r="54" strokeWidth="1" opacity="0.18" />
+      <circle cx="60" cy="60" r="54" strokeWidth="1.5" opacity="0.15" />
       <circle
         className="kodra-ring-draw"
         cx="60"
         cy="60"
         r="54"
-        strokeWidth="2.5"
+        strokeWidth="3"
         strokeLinecap="round"
         transform="rotate(-90 60 60)"
       />
-      <circle cx="60" cy="60" r="47" strokeWidth="3" strokeDasharray="0.8 4.1" opacity="0.4" />
+      <circle cx="60" cy="60" r="47" strokeWidth="2.5" strokeDasharray="0.8 4.1" opacity="0.35" />
       <circle
         className="kodra-spin"
         cx="60"
         cy="60"
         r="58.5"
         strokeWidth="1"
-        strokeDasharray="70 297"
-        opacity="0.8"
-      />
-      <circle
-        className="kodra-spin-back"
-        cx="60"
-        cy="60"
-        r="42"
-        strokeWidth="1"
-        strokeDasharray="38 226"
+        strokeDasharray="60 307"
         opacity="0.6"
       />
     </svg>

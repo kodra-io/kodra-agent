@@ -51,6 +51,7 @@ const TONES = {
   accent: 'bg-primary-tint text-primary-text',
   ok: 'bg-ok-tint text-ok-text',
   bad: 'bg-bad-tint text-bad-text',
+  warn: 'bg-warn-tint text-warn-text',
   plain: 'border border-line bg-raised text-ink',
 };
 
