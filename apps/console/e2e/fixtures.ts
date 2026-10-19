@@ -1159,3 +1159,17 @@ export async function signIn(page: Page, token = TOKEN) {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
 }
+
+/**
+ * Waits for the one-off animations (the operations center's boot and count-up) to finish, so
+ * axe reads colors at full opacity. Looping ones (the status ring's arcs) are left running.
+ */
+export async function settled(page: Page) {
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity),
+  );
+  // The count-up runs on animation frames, not CSS: it is done within 0.7 s.
+  await page.waitForTimeout(800);
+}

@@ -6,6 +6,7 @@ import {
   expect,
   HOSTILE,
   NEW_TOKEN,
+  settled,
   signIn,
   test,
   TOKEN,
@@ -145,7 +146,22 @@ test.describe('the operations center', () => {
     await expect(ops).toContainText('مركز العمليات');
     await expect(ops).toContainText('يتطلب تدخلًا');
     await expect(ops).toContainText('Pods متعثرة في dev: 1');
+    await settled(page);
     expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+  });
+
+  test('boots with motion, and holds still with reduced motion', async ({ page }) => {
+    await signIn(page, APPROVER_TOKEN);
+    const ops = page.getByRole('region', { name: /Omar$/ });
+    const running = () =>
+      ops.evaluate((el) => el.getAnimations({ subtree: true }).map((a) => a.playState));
+    await expect.poll(running).toContain('running');
+    await expect(ops.getByRole('list', { name: 'Key numbers' })).toContainText('$12.40');
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload();
+    await expect(ops.getByRole('list', { name: 'Key numbers' })).toContainText('Pods up5/7');
+    expect(await running()).toEqual([]);
   });
 });
 
@@ -720,6 +736,7 @@ test('has no accessibility violations, in both themes', async ({ page }) => {
   for (const name of ['Overview', 'Dashboard', 'Approvals']) {
     await page.getByRole('navigation').getByRole('link', { name }).click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await settled(page);
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.map((v) => `dark ${name}: ${v.id}`)).toEqual([]);
   }
@@ -740,6 +757,7 @@ test('has no accessibility violations, in both themes', async ({ page }) => {
       await page.getByRole('button', { name: 'Send' }).click();
       await expect(page.getByRole('log').getByRole('group')).toBeVisible();
     }
+    await settled(page);
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.map((v) => `${name}: ${v.id}`)).toEqual([]);
   }

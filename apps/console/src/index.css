@@ -118,13 +118,16 @@ body {
 }
 
 /*
- * The Overview operations center: a dark control-room panel in both themes, with a faint
- * grid and a glow at the top. Text on it is slate-300 and lighter (7:1 and up).
+ * The Overview operations center: a dark control-room panel in both themes, cyan as its one
+ * accent, a faint grid, and corner brackets on the panels. Text on it is slate-300 and
+ * lighter (7:1 and up). Every animation starts from its final state's opposite, so with
+ * reduced motion (animation: none) everything simply shows.
  */
 .kodra-ops {
   background:
-    radial-gradient(60rem 18rem at 50% -6rem, rgb(56 189 248 / 0.16), transparent 70%),
-    linear-gradient(180deg, #0b1324 0%, #070c18 100%);
+    radial-gradient(60rem 20rem at 85% -8rem, rgb(34 211 238 / 0.16), transparent 70%),
+    radial-gradient(40rem 16rem at 0% 110%, rgb(59 130 246 / 0.1), transparent 70%),
+    linear-gradient(180deg, #071226 0%, #030915 100%);
 }
 
 .kodra-ops::before {
@@ -133,14 +136,46 @@ body {
   inset: 0;
   z-index: -1;
   background-image:
-    linear-gradient(rgb(148 163 184 / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(148 163 184 / 0.06) 1px, transparent 1px);
+    linear-gradient(rgb(34 211 238 / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(34 211 238 / 0.06) 1px, transparent 1px);
   background-size: 28px 28px;
-  mask-image: linear-gradient(to bottom, black, transparent 70%);
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
 }
 
 .kodra-ops-panel {
-  background: rgb(9 15 29 / 0.92);
+  background: rgb(5 13 28 / 0.78);
+  backdrop-filter: blur(6px);
+}
+
+/* HUD corner brackets. */
+.kodra-frame {
+  position: relative;
+}
+
+.kodra-frame::after {
+  --kodra-bracket: rgb(34 211 238 / 0.6);
+  content: '';
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) top left / 14px 1px,
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) top left / 1px 14px,
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) top right / 14px 1px,
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) top right / 1px 14px,
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) bottom left / 14px 1px,
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) bottom left / 1px 14px,
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) bottom right / 14px 1px,
+    linear-gradient(var(--kodra-bracket), var(--kodra-bracket)) bottom right / 1px 14px;
+  background-repeat: no-repeat;
+}
+
+.kodra-glow {
+  text-shadow: 0 0 14px color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.kodra-glow-line {
+  filter: drop-shadow(0 0 4px currentColor);
 }
 
 @keyframes kodra-live {
@@ -157,10 +192,126 @@ body {
   animation: kodra-live 1.6s ease-in-out infinite;
 }
 
+/* Boot: the panels power on one after another. */
+@keyframes kodra-boot {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: brightness(1.8);
+  }
+}
+
+.kodra-boot {
+  animation: kodra-boot 0.45s ease-out both;
+}
+
+.kodra-boot-2 {
+  animation-delay: 0.08s;
+}
+
+.kodra-boot-3 {
+  animation-delay: 0.16s;
+}
+
+.kodra-boot-4 {
+  animation-delay: 0.24s;
+}
+
+/* The attention queue slides in row by row, from the start side. */
+@keyframes kodra-slide {
+  from {
+    opacity: 0;
+    transform: translateX(var(--kodra-slide, -10px));
+  }
+}
+
+.kodra-stagger {
+  --kodra-slide: -10px;
+}
+
+[dir='rtl'] .kodra-stagger {
+  --kodra-slide: 10px;
+}
+
+.kodra-stagger > * {
+  animation: kodra-slide 0.4s ease-out 0.25s both;
+}
+
+.kodra-stagger > :nth-child(2) {
+  animation-delay: 0.31s;
+}
+
+.kodra-stagger > :nth-child(3) {
+  animation-delay: 0.37s;
+}
+
+.kodra-stagger > :nth-child(4) {
+  animation-delay: 0.43s;
+}
+
+.kodra-stagger > :nth-child(5) {
+  animation-delay: 0.49s;
+}
+
+.kodra-stagger > :nth-child(n + 6) {
+  animation-delay: 0.55s;
+}
+
+/* The status ring draws itself, then two thin arcs turn slowly around it. */
+@keyframes kodra-draw {
+  from {
+    stroke-dashoffset: 340;
+  }
+}
+
+.kodra-ring-draw {
+  stroke-dasharray: 340;
+  stroke-dashoffset: 0;
+  animation: kodra-draw 1.1s ease-out 0.1s both;
+}
+
+@keyframes kodra-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.kodra-spin,
+.kodra-spin-back {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: kodra-spin 36s linear infinite;
+}
+
+.kodra-spin-back {
+  animation-duration: 24s;
+  animation-direction: reverse;
+}
+
+/* A soft glow pulse on lights that need someone. */
+@keyframes kodra-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+.kodra-pulse {
+  animation: kodra-pulse 1.8s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kodra-dot,
   .kodra-caret,
-  .kodra-live {
+  .kodra-live,
+  .kodra-boot,
+  .kodra-stagger > *,
+  .kodra-ring-draw,
+  .kodra-spin,
+  .kodra-spin-back,
+  .kodra-pulse {
     animation: none;
   }
 }
