@@ -26,13 +26,16 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   await expect(page.getByText('anthropic/claude-sonnet-5-5')).toBeVisible();
   await expect(page.getByText('2 h 3 min')).toBeVisible();
-  const connectors = page.getByRole('listitem').filter({ hasText: 'Kubernetes' });
+  const connectors = page
+    .getByRole('region', { name: 'Connectors' })
+    .getByRole('listitem')
+    .filter({ hasText: 'Kubernetes' });
   await expect(connectors).toContainText('Not available');
   // The dashboard: approvals waiting, investigations, changes, and spend against the budget.
   await expect(page.getByText('PodCrashLooping, ')).toBeVisible();
   await expect(page.getByText('3 approved, 1 denied')).toBeVisible();
-  await expect(page.getByText('$12.40')).toBeVisible();
-  await expect(page.getByText('of $40.00')).toBeVisible();
+  // The spend tile: the amount, then the budget it counts against.
+  await expect(page.getByText('$12.40of $40.00')).toBeVisible();
   await expect(page.getByRole('progressbar', { name: 'Budget used' })).toHaveAttribute(
     'aria-valuenow',
     '31',
@@ -75,6 +78,65 @@ test('admin signs in with admin/admin and must set a new password first', async 
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   expect(api).toContain('POST password');
   expect(api.join('\n')).not.toContain(ADMIN_PASSWORD);
+});
+
+test.describe('the welcome briefing', () => {
+  test.use({ timezoneId: 'UTC' });
+
+  test('greets by the time of day and lists what needs you, most urgent first', async ({
+    page,
+    api,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-10-19T08:30:00Z'));
+    await signIn(page, APPROVER_TOKEN);
+    const welcome = page.getByRole('region', { name: 'Good morning, Omar' });
+    await expect(welcome).toBeVisible();
+    await expect(welcome).toContainText('Monday, October 19');
+    await expect(welcome).toContainText('6 things need you.');
+    expect(api).toContain('GET dashboard');
+
+    const items = welcome.getByRole('list', { name: 'What needs you' }).getByRole('listitem');
+    await expect(items).toHaveText([
+      /approvals? (is|are) waiting for a decision/,
+      '1 pod is failing in dev',
+      '1 deployment is not fully ready',
+      '2 recent pipeline runs or jobs failed',
+      'Kubernetes is not available',
+    ]);
+    await expect(welcome).toContainText('And 1 more on the other pages.');
+    await expect(welcome).toContainText('$12.40 of $40.00 spent this month');
+
+    await items.filter({ hasText: 'pod is failing' }).getByRole('link').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  });
+
+  test('asks the agent for a full briefing in a new conversation', async ({ page, api }) => {
+    await page.clock.setFixedTime(new Date('2026-10-19T19:00:00Z'));
+    await signIn(page);
+    // The shared token has no name to greet.
+    const welcome = page.getByRole('region', { name: 'Good evening' });
+    await welcome.getByRole('link', { name: 'Ask the agent for a full briefing' }).click();
+    await expect(page.getByLabel('Message')).toHaveValue(/^Give me a briefing on what is going on/);
+    // Nothing is sent until the person sends it.
+    expect(api.some((line) => line.startsWith('BODY chat '))).toBe(false);
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByRole('log')).toContainText('Give me a briefing');
+
+    // Back on Chat later, it opens as usual, not on a new briefing.
+    await page.getByRole('navigation').getByRole('link', { name: 'Usage' }).click();
+    await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
+    await expect(page.getByLabel('Message')).toHaveValue('');
+  });
+
+  test('greets in Arabic, right to left', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-19T14:00:00Z'));
+    await signIn(page, APPROVER_TOKEN);
+    await page.getByRole('button', { name: 'Switch to Arabic' }).click();
+    const welcome = page.getByRole('region', { name: 'مساء الخير يا Omar' });
+    await expect(welcome).toContainText('أمور تحتاج إليك: 6');
+    await expect(welcome).toContainText('Pods متعثرة في dev: 1');
+    expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+  });
 });
 
 test('shows why a connector is not available, and the tools it gives', async ({ page }) => {

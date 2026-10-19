@@ -10,6 +10,7 @@ import {
   type ConversationSummary,
 } from './api.ts';
 import { ApprovalCard } from './approval.tsx';
+import { clearAsk, peekAsk } from './ask.ts';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
 import { MarkdownText } from './markdown.tsx';
@@ -112,10 +113,16 @@ function buildTurns(events: readonly ChatEvent[]) {
 export function ChatPage({ onSignedOut, me }: PageProps) {
   const { t, time } = useI18n();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(() => readStore(OPEN_KEY));
+  const [ask] = useState(peekAsk);
+  useEffect(clearAsk, []);
+  const [selected, setSelected] = useState<string | null>(() => {
+    if (ask === null) return readStore(OPEN_KEY);
+    writeStore(OPEN_KEY, null);
+    return null;
+  });
   const [events, setEvents] = useState<ChatEvent[]>([]);
   const [draft, setDraft] = useState('');
-  const [text, setText] = useState('');
+  const [text, setText] = useState(ask ?? '');
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);

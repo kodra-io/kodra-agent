@@ -19,6 +19,7 @@ import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
 import { useStatus } from './status.ts';
 import { Badge, Cell, Ltr, Page, Table } from './ui.tsx';
+import { Welcome } from './welcome.tsx';
 
 /** Who is signed in: `console` (the shared token) or `console:<name>`. */
 export interface Me {
@@ -29,6 +30,10 @@ export interface Me {
 export interface PageProps {
   onSignedOut: () => void;
   me: Me;
+  /** Opens another page of the console. */
+  go: (path: string) => void;
+  /** Whether this session has the Chat page. */
+  chat: boolean;
 }
 
 function uptime(seconds: number, t: ReturnType<typeof useI18n>['t']): string {
@@ -40,7 +45,7 @@ function uptime(seconds: number, t: ReturnType<typeof useI18n>['t']): string {
   return t('overview.minutes', { n: Math.max(m, 0) });
 }
 
-export function OverviewPage({ onSignedOut, me }: PageProps) {
+export function OverviewPage({ onSignedOut, me, go, chat }: PageProps) {
   const { t, has, num, time } = useI18n();
   const { status, pending, refresh } = useStatus();
   const load = useCallback(() => get<OverviewView>('overview'), []);
@@ -69,10 +74,15 @@ export function OverviewPage({ onSignedOut, me }: PageProps) {
     >
       {status && (
         <div className="flex flex-col gap-6">
-          <p className="-mt-4 text-ink-secondary">
-            <Ltr>{status.model}</Ltr> · {t('overview.version')} <Ltr>{status.version}</Ltr> ·{' '}
-            {t('overview.uptime')} {uptime(status.uptimeSeconds, t)}
-          </p>
+          <Welcome
+            user={me.user}
+            status={status}
+            pending={pending}
+            overview={data}
+            uptime={uptime(status.uptimeSeconds, t)}
+            go={go}
+            chat={chat}
+          />
 
           <section
             aria-labelledby="state-title"
