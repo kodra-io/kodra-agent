@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import type { DashboardView, OverviewView, StatusView } from './api.ts';
-import { briefing, greetingFor, MAX_ITEMS, nameOf, systemsOf, totalsOf } from './briefing.ts';
+import {
+  briefing,
+  greetingFor,
+  MAX_ITEMS,
+  nameOf,
+  runsToday,
+  systemsOf,
+  totalsOf,
+} from './briefing.ts';
 import en from './locales/en.json';
+
+/** An ISO time for a day of October 2026 in the machine's own time zone. */
+const local = (day: number, hour: number, minute = 0) =>
+  new Date(2026, 9, day, hour, minute).toISOString();
 
 const status: StatusView = {
   version: '0.3.5',
@@ -73,6 +85,13 @@ const dashboard: DashboardView = {
               data: {
                 kind: 'runs',
                 counts: { passed: 3, failed: 1, running: 0, other: 0 },
+                recent: [
+                  { at: local(19, 9), state: 'failed' },
+                  { at: local(19, 0, 30), state: 'passed' },
+                  { at: local(18, 23, 30), state: 'passed' },
+                  { at: local(18, 10), state: 'passed' },
+                ],
+                full: false,
                 runs: [],
               },
             },
@@ -220,6 +239,102 @@ describe('briefing', () => {
   });
 });
 
+/** The Kubernetes connector with two listed databases: one degraded, one unreadable. */
+const withDatabases = (db: 'ok' | 'down'): DashboardView => ({
+  ...dashboard,
+  connectors: [
+    {
+      id: 'kubernetes',
+      displayName: 'Kubernetes',
+      panels: [
+        {
+          id: 'databases',
+          title: { en: 'Databases', ar: 'قواعد البيانات' },
+          view: 'workload',
+          results: [
+            {
+              target: 'prod/mariadb',
+              data: {
+                kind: 'workload',
+                name: 'mariadb',
+                state: db,
+                ready: db === 'ok' ? 2 : 0,
+                total: 2,
+                restarts: 4,
+                pods: [],
+              },
+            },
+            { target: 'prod/redis', error: 'pods is forbidden' },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+describe('pipelines today and databases', () => {
+  it("counts today's runs in the viewer's day, and says when there may be more", () => {
+    // The runs are in local time: 00:30 counts, 23:30 the evening before does not.
+    const at = new Date(2026, 9, 19, 12);
+    expect(runsToday(dashboard, at)).toEqual({
+      ran: 2,
+      passed: 1,
+      failed: 1,
+      running: 0,
+      atLeast: false,
+    });
+    expect(runsToday(null, at)).toBeNull();
+    // A full page, all of it from today: older runs of today may be cut off.
+    const gitlab = dashboard.connectors[1];
+    const pipelines = gitlab?.panels[0];
+    const result = pipelines?.results[0];
+    if (!gitlab || !pipelines || result?.data?.kind !== 'runs') throw new Error('fixture');
+    const busy: DashboardView = {
+      ...dashboard,
+      connectors: [
+        {
+          ...gitlab,
+          panels: [
+            {
+              ...pipelines,
+              results: [
+                {
+                  ...result,
+                  data: { ...result.data, recent: result.data.recent.slice(0, 2), full: true },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(runsToday(busy, at)).toMatchObject({ ran: 2, atLeast: true });
+  });
+
+  it('lights each database, and puts one that is down or not ready in the queue', () => {
+    const down = withDatabases('down');
+    expect(totalsOf(down).databases).toEqual([
+      { target: 'prod/mariadb', state: 'down', ready: 0, total: 2, restarts: 4 },
+      { target: 'prod/redis', state: 'unknown', ready: 0, total: 0, restarts: 0 },
+    ]);
+    const b = briefing({ status, pending: 0, overview, dashboard: down });
+    expect(b.posture).toBe('critical');
+    expect(b.attention.map((i) => [i.severity, i.key, i.vars])).toEqual([
+      ['critical', 'welcome.databasesDown.one', { n: 1, names: 'prod/mariadb' }],
+      ['warning', 'welcome.databasesDegraded.one', { n: 1, names: 'prod/redis' }],
+    ]);
+    expect(systemsOf(status, down).map((s) => [s.name, s.state, s.metric.key])).toEqual([
+      ['GitLab', 'ok', 'welcome.sys.online'],
+      // A database the card cannot read does not make Kubernetes itself look broken.
+      ['Kubernetes', 'ok', 'welcome.sys.online'],
+      ['prod/mariadb', 'down', 'welcome.sys.db'],
+      ['prod/redis', 'warn', 'welcome.sys.unreadable'],
+    ]);
+    const ok = briefing({ status, pending: 0, overview, dashboard: withDatabases('ok') });
+    expect(ok.attention.map((i) => i.key)).toEqual(['welcome.databasesDegraded.one']);
+  });
+});
+
 describe('totals and systems', () => {
   it('adds the dashboard up across connectors and namespaces', () => {
     expect(totalsOf(dashboard)).toMatchObject({
@@ -233,7 +348,12 @@ describe('totals and systems', () => {
       failingIn: ['dev'],
       seen: { pods: true, deployments: true, runs: true },
     });
-    expect(totalsOf(null).seen).toEqual({ pods: false, deployments: false, runs: false });
+    expect(totalsOf(null).seen).toEqual({
+      pods: false,
+      deployments: false,
+      runs: false,
+      databases: false,
+    });
   });
 
   it('lights each system: down when it did not start, amber on trouble, green otherwise', () => {

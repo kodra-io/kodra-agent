@@ -448,6 +448,17 @@ export interface PodsData {
   pods: { namespace: string; name: string; status: string; ready: string; restarts: number }[];
 }
 
+/** One named workload's pods, like a database listed as namespace/name. */
+export interface WorkloadData {
+  kind: 'workload';
+  name: string;
+  state: 'ok' | 'degraded' | 'down';
+  ready: number;
+  total: number;
+  restarts: number;
+  pods: { name: string; status: string; ready: string; restarts: number }[];
+}
+
 export interface DeploymentsData {
   kind: 'deployments';
   ready: number;
@@ -463,6 +474,10 @@ export interface EventsData {
 export interface RunsData {
   kind: 'runs';
   counts: Record<RunState, number>;
+  /** Every listed run's start and state, to count today in the viewer's time zone. */
+  recent: { at: string; state: RunState }[];
+  /** The tool returned a full page: older runs exist that were not listed. */
+  full: boolean;
   runs: {
     id: string;
     name: string | null;
@@ -482,14 +497,14 @@ export interface JobsData {
 
 export interface TargetResult {
   target: string | null;
-  data?: PodsData | DeploymentsData | EventsData | RunsData | JobsData;
+  data?: PodsData | WorkloadData | DeploymentsData | EventsData | RunsData | JobsData;
   error?: string;
 }
 
 export interface PanelResult {
   id: string;
   title: Localized;
-  view: 'pods' | 'deployments' | 'events' | 'runs' | 'jobs';
+  view: 'pods' | 'workload' | 'deployments' | 'events' | 'runs' | 'jobs';
   results: TargetResult[];
   note?: 'no-targets' | 'unavailable';
 }

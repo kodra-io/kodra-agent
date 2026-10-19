@@ -6,6 +6,7 @@ import {
   briefing,
   greetingFor,
   nameOf,
+  runsToday,
   systemsOf,
   totalsOf,
   type Posture,
@@ -135,6 +136,8 @@ export function Welcome({
   const name = nameOf(user);
   const { posture, attention, total } = briefing({ status, pending, overview, dashboard });
   const totals = totalsOf(dashboard);
+  const today = runsToday(dashboard, now);
+  const dbReady = totals.databases.filter((d) => d.state === 'ok').length;
   const systems = systemsOf(status, dashboard);
   const budget = status.budget;
   const money = (n: number) => num(n, { style: 'currency', currency: 'USD' });
@@ -182,7 +185,7 @@ export function Welcome({
       {/* Key numbers. */}
       <ul
         aria-label={t('welcome.kpis')}
-        className="kodra-boot kodra-boot-2 flex flex-wrap gap-3 border-b border-line bg-surface p-4 md:px-6"
+        className="kodra-boot kodra-boot-2 grid grid-cols-2 gap-3 border-b md:grid-cols-4 border-line bg-surface p-4 md:px-6"
       >
         <Kpi
           label={t('overview.approvalsWaiting')}
@@ -215,15 +218,44 @@ export function Welcome({
             tone={totals.deploymentsReady < totals.deploymentsTotal ? 'warning' : 'ok'}
           />
         )}
-        {totals.seen.runs && (
+        {today && (
           <Kpi
-            label={t('welcome.kpi.runs')}
-            value={<Count value={totals.runsFailed} format={num} />}
-            tone={totals.runsFailed > 0 ? 'warning' : 'ok'}
-            sub={t('welcome.kpi.runsSub', {
-              passed: totals.runsPassed,
-              running: totals.runsRunning,
+            label={t('welcome.kpi.today')}
+            value={
+              <>
+                <Count value={today.ran} format={num} />
+                {today.atLeast && '+'}
+              </>
+            }
+            tone={today.failed > 0 ? 'warning' : today.ran > 0 ? 'ok' : 'plain'}
+            sub={t('welcome.kpi.todaySub', {
+              passed: today.passed,
+              failed: today.failed,
+              running: today.running,
             })}
+          />
+        )}
+        {totals.seen.databases && (
+          <Kpi
+            label={t('welcome.kpi.databases')}
+            value={
+              <>
+                <Count value={dbReady} format={num} />/
+                <Count value={totals.databases.length} format={num} />
+              </>
+            }
+            tone={
+              totals.databases.some((d) => d.state === 'down')
+                ? 'critical'
+                : dbReady < totals.databases.length
+                  ? 'warning'
+                  : 'ok'
+            }
+            sub={
+              dbReady === totals.databases.length
+                ? t('welcome.kpi.databasesOk')
+                : t('welcome.kpi.databasesOff', { n: totals.databases.length - dbReady })
+            }
           />
         )}
         <Kpi
@@ -369,7 +401,9 @@ export function Welcome({
                     className={`size-2.5 shrink-0 rounded-full ${light.dot}`}
                   />
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="font-semibold">{s.name}</span>
+                    <span className="font-semibold">
+                      <bdi dir="auto">{s.name}</bdi>
+                    </span>
                     <span className="text-xs text-ink-secondary">
                       {t(s.metric.key, s.metric.vars)}
                     </span>
@@ -451,7 +485,7 @@ function Kpi({
   sub?: ReactNode;
 }) {
   return (
-    <li className="flex min-w-0 flex-[1_1_8.5rem] flex-col gap-1 rounded-lg border border-line bg-raised px-4 py-3">
+    <li className="flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-raised px-4 py-3">
       <span className="text-xs font-medium text-ink-secondary">{label}</span>
       <span className={`text-2xl font-bold tabular-nums ${KPI_TONE[tone]}`}>{value}</span>
       {sub && <span className="text-xs text-ink-secondary">{sub}</span>}

@@ -67,8 +67,18 @@ export interface Totals {
   runsRunning: number;
   /** Namespaces with a failing pod. */
   failingIn: string[];
+  /** The listed databases (workload cards), by `namespace/name`; `unknown` when unreadable. */
+  databases: Database[];
   /** Whether any card had numbers at all. */
-  seen: { pods: boolean; deployments: boolean; runs: boolean };
+  seen: { pods: boolean; deployments: boolean; runs: boolean; databases: boolean };
+}
+
+export interface Database {
+  target: string;
+  state: 'ok' | 'degraded' | 'down' | 'unknown';
+  ready: number;
+  total: number;
+  restarts: number;
 }
 
 export function totalsOf(dashboard: DashboardView | null): Totals {
@@ -82,13 +92,30 @@ export function totalsOf(dashboard: DashboardView | null): Totals {
     runsFailed: 0,
     runsRunning: 0,
     failingIn: [],
-    seen: { pods: false, deployments: false, runs: false },
+    databases: [],
+    seen: { pods: false, deployments: false, runs: false, databases: false },
   };
   const failingIn = new Set<string>();
   for (const connector of dashboard?.connectors ?? []) {
     for (const panel of connector.panels) {
       for (const result of panel.results) {
         const data = result.data;
+        if (panel.view === 'workload') {
+          t.seen.databases = true;
+          const target = result.target ?? (data?.kind === 'workload' ? data.name : '');
+          t.databases.push(
+            data?.kind === 'workload'
+              ? {
+                  target,
+                  state: data.state,
+                  ready: data.ready,
+                  total: data.total,
+                  restarts: data.restarts,
+                }
+              : { target, state: 'unknown', ready: 0, total: 0, restarts: 0 },
+          );
+          continue;
+        }
         if (!data) continue;
         if (data.kind === 'pods') {
           const c = data.counts;
@@ -112,6 +139,48 @@ export function totalsOf(dashboard: DashboardView | null): Totals {
   }
   t.failingIn = [...failingIn].sort();
   return t;
+}
+
+/** Pipeline runs that started today, in the viewer's time zone. */
+export interface RunsToday {
+  ran: number;
+  passed: number;
+  failed: number;
+  running: number;
+  /** A project listed a full page of today's runs: there may be more than counted. */
+  atLeast: boolean;
+}
+
+const sameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+export function runsToday(dashboard: DashboardView | null, now: Date): RunsToday | null {
+  const today: RunsToday = { ran: 0, passed: 0, failed: 0, running: 0, atLeast: false };
+  let seen = false;
+  for (const connector of dashboard?.connectors ?? []) {
+    for (const panel of connector.panels) {
+      for (const { data } of panel.results) {
+        if (data?.kind !== 'runs') continue;
+        seen = true;
+        const recent = data.recent;
+        const own = recent.filter((r) => {
+          const at = new Date(r.at);
+          return !Number.isNaN(at.getTime()) && sameDay(at, now);
+        });
+        today.ran += own.length;
+        for (const r of own) {
+          if (r.state === 'passed') today.passed += 1;
+          else if (r.state === 'failed') today.failed += 1;
+          else if (r.state === 'running') today.running += 1;
+        }
+        // Every listed run is from today and the page was full: older ones were cut off.
+        if (data.full && recent.length > 0 && own.length === recent.length) today.atLeast = true;
+      }
+    }
+  }
+  return seen ? today : null;
 }
 
 /**
@@ -173,6 +242,26 @@ export function briefing({ status, pending, overview, dashboard }: BriefingInput
       to: '/dashboard',
     });
   }
+  const dbDown = t.databases.filter((d) => d.state === 'down').map((d) => d.target);
+  if (dbDown.length > 0) {
+    add({
+      key: counted('welcome.databasesDown', dbDown.length),
+      vars: { n: dbDown.length, names: dbDown.join(', ') },
+      severity: 'critical',
+      to: '/dashboard',
+    });
+  }
+  const dbOff = t.databases
+    .filter((d) => d.state === 'degraded' || d.state === 'unknown')
+    .map((d) => d.target);
+  if (dbOff.length > 0) {
+    add({
+      key: counted('welcome.databasesDegraded', dbOff.length),
+      vars: { n: dbOff.length, names: dbOff.join(', ') },
+      severity: 'warning',
+      to: '/dashboard',
+    });
+  }
   const down = (status?.connectors ?? []).filter((c) => !c.available).map((c) => c.name);
   if (down.length > 0) {
     add({
@@ -215,8 +304,29 @@ export interface SystemState {
   metric: { key: MessageKey; vars: Record<string, string | number> };
 }
 
-/** Each connector's light: down when it did not start, amber when its cards show trouble. */
+/**
+ * Each connector's light (down when it did not start, amber when its cards show trouble),
+ * then one per listed database.
+ */
 export function systemsOf(status: StatusView, dashboard: DashboardView | null): SystemState[] {
+  const databases = totalsOf(dashboard).databases.map((d): SystemState => ({
+    id: `db:${d.target}`,
+    name: d.target,
+    state: d.state === 'ok' ? 'ok' : d.state === 'down' ? 'down' : 'warn',
+    metric:
+      d.state === 'unknown'
+        ? { key: 'welcome.sys.unreadable', vars: {} }
+        : d.total === 0
+          ? { key: 'welcome.sys.dbNoPods', vars: {} }
+          : {
+              key: 'welcome.sys.db',
+              vars: { ready: d.ready, total: d.total, restarts: d.restarts },
+            },
+  }));
+  return [...connectorsOf(status, dashboard), ...databases];
+}
+
+function connectorsOf(status: StatusView, dashboard: DashboardView | null): SystemState[] {
   return status.connectors.map((c) => {
     if (!c.available) {
       return {
@@ -235,8 +345,10 @@ export function systemsOf(status: StatusView, dashboard: DashboardView | null): 
         metric: { key: 'welcome.sys.online', vars: {} },
       };
     }
-    const t = totalsOf({ updatedAt: '', connectors: [own] });
-    const unreadable = own.panels.some((p) => p.results.some((r) => r.error));
+    // Databases have their own lights.
+    const cards = { ...own, panels: own.panels.filter((p) => p.view !== 'workload') };
+    const t = totalsOf({ updatedAt: '', connectors: [cards] });
+    const unreadable = cards.panels.some((p) => p.results.some((r) => r.error));
     const trouble =
       t.podsFailing > 0 ||
       t.runsFailed > 0 ||

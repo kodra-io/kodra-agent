@@ -101,20 +101,27 @@ test.describe('the operations center', () => {
     const kpis = ops.getByRole('list', { name: 'Key numbers' });
     await expect(kpis).toContainText('Pods up5/71 failing');
     await expect(kpis).toContainText('Deployments ready2/3');
-    await expect(kpis).toContainText('Failed runs2');
+    await expect(kpis).toContainText('Pipelines today31 passed, 1 failed, 1 running');
+    await expect(kpis).toContainText('Databases ready0/11 not fully ready');
 
-    const queue = ops.getByRole('region', { name: /^Attention queue/ }).getByRole('listitem');
+    const queueRegion = ops.getByRole('region', { name: /^Attention queue/ });
+    const queue = queueRegion.getByRole('listitem');
     await expect(queue).toHaveText([
       'Critical1 pod is failing in dev',
       'CriticalKubernetes is not available',
       /^Action\d+ approvals? (is|are) waiting for a decision$/,
       'Warning1 deployment is not fully ready',
       'Warning2 recent pipeline runs or jobs failed',
-      'Info1 alert was investigated today',
+      'WarningDatabase prod/mariadb is not fully ready',
     ]);
+    await expect(queueRegion).toContainText('And 1 more');
 
     const systems = ops.getByRole('region', { name: /^Systems/ }).getByRole('listitem');
-    await expect(systems).toHaveText(['GitLabConnectedOK', 'KubernetesNot runningOffline']);
+    await expect(systems).toHaveText([
+      'GitLabConnectedOK',
+      'KubernetesNot runningOffline',
+      'prod/mariadb1 of 2 pods ready, 3 restartsDegraded',
+    ]);
 
     await queue.filter({ hasText: 'pod is failing' }).getByRole('link').click();
     await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
@@ -707,6 +714,10 @@ test('the dashboard shows what the connectors see, as plain text', async ({ page
   await expect(open).toHaveAttribute('href', /^https:\/\/gitlab\.com\//);
   // A run without a web link has no link.
   await expect(pipelines.getByRole('link', { name: 'Open run 500' })).toHaveCount(0);
+
+  // Databases listed as namespace/name: each one's pods ready and restarts.
+  const databases = page.getByRole('article', { name: 'Databases' });
+  await expect(databases).toContainText('prod/mariadb1 of 2 pods ready3 restartsDegraded');
 
   const jobs = page.getByRole('article', { name: 'Jobs' });
   await expect(jobs).toContainText('1 failed');

@@ -88,6 +88,21 @@ export default defineManifest({
       ),
       example: ['payments'],
     },
+    {
+      kind: 'string-list',
+      key: 'databases',
+      required: false,
+      description: t(
+        'Database workloads to watch on the console Overview, as namespace/name (a StatefulSet or Deployment). The namespace must be in the list above. Leave empty to show no databases.',
+        'أحمال قواعد البيانات التي تُراقب في صفحة النظرة العامة، بصيغة namespace/name (StatefulSet أو Deployment). يجب أن تكون مساحة الأسماء في القائمة أعلاه. اتركها فارغة لعدم عرض قواعد بيانات.',
+      ),
+      pattern: PATTERNS.k8sWorkload,
+      patternHint: t(
+        'use namespace/name, like prod/mariadb',
+        'استخدم الصيغة namespace/name، مثل prod/mariadb',
+      ),
+      example: ['payments/postgres'],
+    },
   ],
   secrets: [
     {
@@ -181,6 +196,14 @@ export default defineManifest({
       tool: 'events_list',
       forEach: { setting: 'namespaces', arg: 'namespace' },
       view: { kind: 'events' },
+    },
+    {
+      // The pods of each listed database workload: ready, restarts, and status.
+      id: 'databases',
+      title: t('Databases', 'قواعد البيانات'),
+      tool: 'pods_list_in_namespace',
+      forEach: { setting: 'databases', arg: 'namespace', scoped: true },
+      view: { kind: 'workload' },
     },
   ],
   runtime: {
