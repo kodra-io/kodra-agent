@@ -319,10 +319,12 @@ const jsonPath = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9
 /**
  * How the console dashboard reads a tool's output. Each kind is generic, never per
  * connector: `pods` and `deployments` read a kubectl-style table, `events` a YAML list of
- * Kubernetes events, and `runs` a JSON list of pipeline or workflow runs.
+ * Kubernetes events, and `runs` a JSON list of pipeline or workflow runs. `workload` reads a
+ * pods table and keeps the pods of one named workload (a `scoped` forEach entry).
  */
 const dashboardView = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('pods') }),
+  z.strictObject({ kind: z.literal('workload') }),
   z.strictObject({ kind: z.literal('deployments') }),
   z.strictObject({ kind: z.literal('events') }),
   /**
@@ -376,6 +378,11 @@ const dashboardPanel = z.strictObject({
       arg: z.string().min(1),
       /** For `owner/repo` entries: the arg for the repo name (`arg` gets the owner). */
       repoArg: z.string().min(1).optional(),
+      /**
+       * For `scope/name` entries, like `prod/mariadb`: `arg` gets the scope, and the view
+       * keeps only what belongs to the name. Only with the `workload` view.
+       */
+      scoped: z.boolean().optional(),
     })
     .optional(),
   view: dashboardView,
@@ -476,6 +483,21 @@ export const manifestSchema = z
           code: 'custom',
           path: ['dashboard', i, 'tool'],
           message: `${panel.tool} is not a read tool of this connector`,
+        });
+      }
+      // A workload card reads one named workload: it needs `scope/name` entries, and only it.
+      if ((panel.view.kind === 'workload') !== (panel.forEach?.scoped === true)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['dashboard', i, 'forEach', 'scoped'],
+          message: 'the workload view and scoped entries go together',
+        });
+      }
+      if (panel.forEach?.scoped && panel.forEach.repoArg) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['dashboard', i, 'forEach', 'repoArg'],
+          message: 'scoped entries cannot also be split into a repo arg',
         });
       }
     }

@@ -178,7 +178,12 @@ export function App() {
             id="main"
             className={`min-w-0 flex-1 ${fullBleed ? 'flex flex-col' : 'px-4 py-6 md:px-8 md:py-7'}`}
           >
-            <page.Page onSignedOut={onSignedOut} me={me} />
+            <page.Page
+              onSignedOut={onSignedOut}
+              me={me}
+              go={go}
+              chat={pages.some((p) => p.path === '/chat')}
+            />
           </main>
         </div>
       </div>

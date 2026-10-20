@@ -7,6 +7,7 @@ import {
   type JobsData,
   type PanelResult,
   type PodsData,
+  type WorkloadData,
   type RunsData,
   type RunState,
   type TargetResult,
@@ -166,6 +167,7 @@ function PanelCard({ panel }: { panel: PanelResult }) {
         </p>
       )}
       {panel.view === 'pods' && <Pods results={panel.results} />}
+      {panel.view === 'workload' && <Workloads results={panel.results} />}
       {panel.view === 'deployments' && <Deployments results={panel.results} />}
       {panel.view === 'events' && <Events results={panel.results} />}
       {panel.view === 'runs' && <Runs results={panel.results} />}
@@ -197,6 +199,49 @@ function Errors({ results }: { results: TargetResult[] }) {
 
 function Rows({ children }: { children: ReactNode }) {
   return <ul className="flex flex-col divide-y divide-line text-sm">{children}</ul>;
+}
+
+const WORKLOAD_TONE = { ok: 'ok', degraded: 'warn', down: 'bad' } as const;
+
+/** Named workloads (the databases), one row each: its state, pods ready, and restarts. */
+function Workloads({ results }: { results: TargetResult[] }) {
+  const { t, num } = useI18n();
+  const rows = results.filter((r) => r.data?.kind === 'workload');
+  return (
+    <>
+      {rows.length > 0 && (
+        <Rows>
+          {rows.map((r) => {
+            const d = r.data as WorkloadData;
+            return (
+              <li
+                key={r.target ?? d.name}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <span className="min-w-0">
+                  <Ltr>{r.target ?? d.name}</Ltr>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-ink-secondary">
+                    {d.total === 0
+                      ? t('dashboard.workload.noPods')
+                      : t('dashboard.workload.pods', { ready: num(d.ready), total: num(d.total) })}
+                  </span>
+                  {d.restarts > 0 && (
+                    <span className="text-ink-secondary">
+                      {t('dashboard.pods.restarts', { n: num(d.restarts) })}
+                    </span>
+                  )}
+                  <Badge tone={WORKLOAD_TONE[d.state]}>{t(`dashboard.workload.${d.state}`)}</Badge>
+                </span>
+              </li>
+            );
+          })}
+        </Rows>
+      )}
+      <Errors results={results} />
+    </>
+  );
 }
 
 function Pods({ results }: { results: TargetResult[] }) {

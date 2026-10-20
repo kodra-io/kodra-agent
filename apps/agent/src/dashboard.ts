@@ -41,11 +41,29 @@ export interface EventsData {
   warnings: { reason: string; object: string; message: string; at: string; count: number }[];
 }
 
+/**
+ * One named workload's pods (a database, say): `down` when none is running, `degraded` when
+ * some are not ready or any is failing.
+ */
+export interface WorkloadData {
+  kind: 'workload';
+  name: string;
+  state: 'ok' | 'degraded' | 'down';
+  ready: number;
+  total: number;
+  restarts: number;
+  pods: { name: string; status: string; ready: string; restarts: number }[];
+}
+
 export type RunState = 'passed' | 'failed' | 'running' | 'other';
 
 export interface RunsData {
   kind: 'runs';
   counts: Record<RunState, number>;
+  /** Every listed run's start and state, so the console can count a day in its own time zone. */
+  recent: { at: string; state: RunState }[];
+  /** The tool returned a full page: older runs exist that were not listed. */
+  full: boolean;
   runs: {
     id: string;
     name: string | null;
@@ -64,7 +82,8 @@ export interface JobsData {
   jobs: { name: string; state: RunState; status: string; url: string | null }[];
 }
 
-export type PanelData = PodsData | DeploymentsData | EventsData | RunsData | JobsData;
+export type PanelData =
+  PodsData | WorkloadData | DeploymentsData | EventsData | RunsData | JobsData;
 
 export interface TargetResult {
   /** The namespace, project, or repo; null for a card without forEach. */
@@ -149,7 +168,7 @@ export class ConnectorDashboard {
   private async call(
     hosted: HostedTool,
     view: DashboardView,
-    { target, args }: { target: string | null; args: Record<string, unknown> },
+    { target, args, match }: Call,
   ): Promise<TargetResult> {
     const decision = decide(
       policyInputFor(hosted, args, this.deps.policy.destructiveActions, this.deps.policy.self),
@@ -170,7 +189,7 @@ export class ConnectorDashboard {
       );
       const text = this.deps.redactor.redact(result.text);
       if (result.isError) return { target, error: clip(text) || 'the tool failed' };
-      const data = parseView(view, text, hosted.settings);
+      const data = parseView(view, text, hosted.settings, { limit: pageSize(args), match });
       return data ? { target, data } : { target, error: 'could not read the output' };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -179,11 +198,21 @@ export class ConnectorDashboard {
   }
 }
 
+interface Call {
+  target: string | null;
+  args: Record<string, unknown>;
+  /** The workload a `scoped` entry names. */
+  match?: string;
+}
+
+/** The page size a card asks for, so a full page can be told apart from a short one. */
+function pageSize(args: Record<string, unknown>): number | undefined {
+  const size = args['per_page'] ?? args['perPage'] ?? args['limit'];
+  return typeof size === 'number' && size > 0 ? size : undefined;
+}
+
 /** One call per entry of the forEach setting, or a single call. */
-function callsFor(
-  hosted: HostedTool,
-  panel: DashboardPanel,
-): { target: string | null; args: Record<string, unknown> }[] {
+function callsFor(hosted: HostedTool, panel: DashboardPanel): Call[] {
   const fixed: Record<string, unknown> = { ...panel.args };
   const each = panel.forEach;
   if (!each) return [{ target: null, args: fixed }];
@@ -192,7 +221,12 @@ function callsFor(
   const values = (Array.isArray(raw) ? raw : [])
     .filter((v): v is string => typeof v === 'string' && v.length > 0)
     .slice(0, MAX_TARGETS);
-  return values.flatMap((value) => {
+  return values.flatMap((value): Call[] => {
+    if (each.scoped) {
+      const [scope, name, ...rest] = value.split('/');
+      if (!scope || !name || rest.length > 0) return [];
+      return [{ target: value, args: { ...fixed, [each.arg]: scope }, match: name }];
+    }
     if (!each.repoArg) return [{ target: value, args: { ...fixed, [each.arg]: value } }];
     const [owner, repo, ...rest] = value.split('/');
     if (!owner || !repo || rest.length > 0) return [];
@@ -204,16 +238,19 @@ export function parseView(
   view: DashboardView,
   text: string,
   settings: Readonly<Record<string, unknown>> = {},
+  call: { limit?: number | undefined; match?: string | undefined } = {},
 ): PanelData | null {
   switch (view.kind) {
     case 'pods':
       return podsData(parseTable(text));
+    case 'workload':
+      return call.match ? workloadData(parseTable(text), call.match) : null;
     case 'deployments':
       return deploymentsData(parseTable(text));
     case 'events':
       return eventsData(text);
     case 'runs':
-      return runsData(view, text);
+      return runsData(view, text, call.limit);
     case 'jobs':
       return jobsData(view, text, settings);
   }
@@ -327,6 +364,43 @@ function podsData(rows: Record<string, string>[] | null): PodsData | null {
   return { kind: 'pods', counts, pods: shown };
 }
 
+/**
+ * Whether a pod belongs to the named workload, by the names Kubernetes gives its pods:
+ * `name-0` (StatefulSet), `name-<hash>-<id>` (Deployment), `name-<id>` (DaemonSet).
+ */
+export function podOf(workload: string, pod: string): boolean {
+  if (!pod.startsWith(`${workload}-`)) return false;
+  const rest = pod.slice(workload.length + 1);
+  return (
+    /^\d+$/.test(rest) || /^[a-z0-9]{5,10}-[a-z0-9]{5}$/.test(rest) || /^[a-z0-9]{5}$/.test(rest)
+  );
+}
+
+function workloadData(rows: Record<string, string>[] | null, name: string): WorkloadData | null {
+  if (!rows) return null;
+  const own = rows.filter((r) => podOf(name, r['NAME'] ?? ''));
+  const pods = podsData(own);
+  if (!pods) return null;
+  const restarts = own.reduce((n, r) => n + (Number.parseInt(r['RESTARTS'] ?? '0', 10) || 0), 0);
+  const total = own.length - pods.counts.completed;
+  const ready = pods.counts.running;
+  const state = ready === 0 ? 'down' : ready < total ? 'degraded' : 'ok';
+  return {
+    kind: 'workload',
+    name: clip(name, 253),
+    state,
+    ready,
+    total,
+    restarts,
+    pods: own.slice(0, MAX_ROWS).map((r) => ({
+      name: clip(r['NAME'] ?? '', 253),
+      status: clip(r['STATUS'] ?? '', 60),
+      ready: clip(r['READY'] ?? '', 12),
+      restarts: Number.parseInt(r['RESTARTS'] ?? '0', 10) || 0,
+    })),
+  };
+}
+
 function deploymentsData(rows: Record<string, string>[] | null): DeploymentsData | null {
   if (!rows) return null;
   const deployments = rows.map((r) => {
@@ -399,7 +473,14 @@ export function runState(status: string): RunState {
   return 'other';
 }
 
-function runsData(view: Extract<DashboardView, { kind: 'runs' }>, text: string): RunsData | null {
+/** How many runs the console gets to count a day from. */
+const MAX_RECENT = 100;
+
+function runsData(
+  view: Extract<DashboardView, { kind: 'runs' }>,
+  text: string,
+  limit: number | undefined,
+): RunsData | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -427,7 +508,13 @@ function runsData(view: Extract<DashboardView, { kind: 'runs' }>, text: string):
       at: clip(str(pick(item, view.fields.at)), 40),
     };
   });
-  return { kind: 'runs', counts, runs: runs.slice(0, MAX_ROWS) };
+  return {
+    kind: 'runs',
+    counts,
+    recent: runs.slice(0, MAX_RECENT).map((r) => ({ at: r.at, state: r.state })),
+    full: limit !== undefined && list.length >= limit,
+    runs: runs.slice(0, MAX_ROWS),
+  };
 }
 
 function pick(value: unknown, path: string): unknown {

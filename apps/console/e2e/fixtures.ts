@@ -161,6 +161,28 @@ const fixtures: Record<string, unknown> = {
               },
             ],
           },
+          {
+            id: 'databases',
+            title: { en: 'Databases', ar: 'قواعد البيانات' },
+            view: 'workload',
+            results: [
+              {
+                target: 'prod/mariadb',
+                data: {
+                  kind: 'workload',
+                  name: 'mariadb',
+                  state: 'degraded',
+                  ready: 1,
+                  total: 2,
+                  restarts: 3,
+                  pods: [
+                    { name: 'mariadb-0', status: 'Running', ready: '1/1', restarts: 0 },
+                    { name: 'mariadb-1', status: 'Running', ready: '0/1', restarts: 3 },
+                  ],
+                },
+              },
+            ],
+          },
         ],
       },
       {
@@ -177,6 +199,15 @@ const fixtures: Record<string, unknown> = {
                 data: {
                   kind: 'runs',
                   counts: { passed: 3, failed: 1, running: 1, other: 0 },
+                  // Three of them today (the tests' clock is 2026-10-19, UTC).
+                  recent: [
+                    { at: '2026-10-19T08:10:00Z', state: 'running' },
+                    { at: '2026-10-19T07:40:00Z', state: 'failed' },
+                    { at: '2026-10-19T06:00:00Z', state: 'passed' },
+                    { at: '2026-10-18T16:00:00Z', state: 'passed' },
+                    { at: '2026-10-18T11:00:00Z', state: 'passed' },
+                  ],
+                  full: false,
                   runs: [
                     {
                       id: '501',
@@ -1158,4 +1189,18 @@ export async function signIn(page: Page, token = TOKEN) {
   await page.getByLabel('Console token').fill(token);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+}
+
+/**
+ * Waits for the one-off animations (the operations center's boot and count-up) to finish, so
+ * axe reads colors at full opacity. Looping ones (the status ring's arcs) are left running.
+ */
+export async function settled(page: Page) {
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity),
+  );
+  // The count-up runs on animation frames, not CSS: it is done within 0.7 s.
+  await page.waitForTimeout(800);
 }

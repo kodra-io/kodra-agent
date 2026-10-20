@@ -27,6 +27,10 @@
   --k-ok: #16a34a;
   --k-bad-tint: #fee2e2;
   --k-bad-text: #b91c1c;
+  --k-warn-tint: #fef3c7;
+  --k-warn-text: #92400e;
+  --k-warn: #d97706;
+  --k-bad: #dc2626;
   --k-focus: #3b82f6;
   color-scheme: light;
 }
@@ -50,6 +54,10 @@
   --k-ok: #4ade80;
   --k-bad-tint: #3c252f;
   --k-bad-text: #fca5a5;
+  --k-warn-tint: #3d2e14;
+  --k-warn-text: #fcd34d;
+  --k-warn: #fbbf24;
+  --k-bad: #f87171;
   color-scheme: dark;
 }
 
@@ -72,6 +80,10 @@
   --color-ok-text: var(--k-ok-text);
   --color-bad-tint: var(--k-bad-tint);
   --color-bad-text: var(--k-bad-text);
+  --color-bad: var(--k-bad);
+  --color-warn: var(--k-warn);
+  --color-warn-tint: var(--k-warn-tint);
+  --color-warn-text: var(--k-warn-text);
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
     'Helvetica Neue', sans-serif;
@@ -117,9 +129,136 @@ body {
   animation: kodra-blink 1s steps(1) infinite;
 }
 
+/*
+ * The Overview operations center. Theme colors only; the motion is a short boot, rows that
+ * slide in, a ring that draws itself, and a soft pulse on lights that need someone. Every
+ * animation starts from the opposite of its resting state, so with reduced motion
+ * (animation: none) everything simply shows.
+ */
+@keyframes kodra-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.kodra-live {
+  animation: kodra-live 1.6s ease-in-out infinite;
+}
+
+@keyframes kodra-boot {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.kodra-boot {
+  animation: kodra-boot 0.4s ease-out both;
+}
+
+.kodra-boot-2 {
+  animation-delay: 0.08s;
+}
+
+.kodra-boot-3 {
+  animation-delay: 0.16s;
+}
+
+.kodra-boot-4 {
+  animation-delay: 0.24s;
+}
+
+/* The attention queue slides in row by row, from the start side. */
+@keyframes kodra-slide {
+  from {
+    opacity: 0;
+    transform: translateX(var(--kodra-slide, -10px));
+  }
+}
+
+.kodra-stagger {
+  --kodra-slide: -10px;
+}
+
+[dir='rtl'] .kodra-stagger {
+  --kodra-slide: 10px;
+}
+
+.kodra-stagger > * {
+  animation: kodra-slide 0.35s ease-out 0.2s both;
+}
+
+.kodra-stagger > :nth-child(2) {
+  animation-delay: 0.26s;
+}
+
+.kodra-stagger > :nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+.kodra-stagger > :nth-child(4) {
+  animation-delay: 0.38s;
+}
+
+.kodra-stagger > :nth-child(5) {
+  animation-delay: 0.44s;
+}
+
+.kodra-stagger > :nth-child(n + 6) {
+  animation-delay: 0.5s;
+}
+
+/* The status ring draws itself; one thin arc turns slowly around it. */
+@keyframes kodra-draw {
+  from {
+    stroke-dashoffset: 340;
+  }
+}
+
+.kodra-ring-draw {
+  stroke-dasharray: 340;
+  stroke-dashoffset: 0;
+  animation: kodra-draw 1s ease-out 0.1s both;
+}
+
+@keyframes kodra-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.kodra-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: kodra-spin 30s linear infinite;
+}
+
+@keyframes kodra-beat {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+.kodra-beat {
+  animation: kodra-beat 1.8s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kodra-dot,
-  .kodra-caret {
+  .kodra-caret,
+  .kodra-live,
+  .kodra-boot,
+  .kodra-stagger > *,
+  .kodra-ring-draw,
+  .kodra-spin,
+  .kodra-beat {
     animation: none;
   }
 }

@@ -161,9 +161,9 @@ Reviewed manifest: `docker@34bd0adb3e3c`
   objects. Creating, changing, deleting, and exec are classified destructive: blocked unless
   `destructiveActions: require-approval`.
 
-- **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, read with the same read tool and shown only in the console. Never sent to the model, and not audited (nothing changes).
+- **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@b4fdf1b34ff9`
+Reviewed manifest: `kubernetes@be9b053dfaf1`
 
 ### Prometheus
 

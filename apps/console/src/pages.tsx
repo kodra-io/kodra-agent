@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   get,
   pauseAgent,
@@ -19,6 +19,7 @@ import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
 import { useStatus } from './status.ts';
 import { Badge, Cell, Ltr, Page, Table } from './ui.tsx';
+import { Welcome } from './welcome.tsx';
 
 /** Who is signed in: `console` (the shared token) or `console:<name>`. */
 export interface Me {
@@ -29,6 +30,10 @@ export interface Me {
 export interface PageProps {
   onSignedOut: () => void;
   me: Me;
+  /** Opens another page of the console. */
+  go: (path: string) => void;
+  /** Whether this session has the Chat page. */
+  chat: boolean;
 }
 
 function uptime(seconds: number, t: ReturnType<typeof useI18n>['t']): string {
@@ -40,16 +45,12 @@ function uptime(seconds: number, t: ReturnType<typeof useI18n>['t']): string {
   return t('overview.minutes', { n: Math.max(m, 0) });
 }
 
-export function OverviewPage({ onSignedOut, me }: PageProps) {
-  const { t, has, num, time } = useI18n();
+export function OverviewPage({ onSignedOut, me, go, chat }: PageProps) {
+  const { t, has, time } = useI18n();
   const { status, pending, refresh } = useStatus();
   const load = useCallback(() => get<OverviewView>('overview'), []);
   const { data, error, loading, reload } = useLoad(load, onSignedOut);
   const paused = status?.paused ?? null;
-  const budget = status?.budget;
-  const money = (n: number) => num(n, { style: 'currency', currency: 'USD' });
-  const spentShare =
-    budget?.limit && budget.spent !== null ? Math.min(1, budget.spent / budget.limit) : null;
 
   const toggle = () => {
     (paused ? resumeAgent() : pauseAgent()).then(refresh).catch((e: unknown) => {
@@ -69,10 +70,15 @@ export function OverviewPage({ onSignedOut, me }: PageProps) {
     >
       {status && (
         <div className="flex flex-col gap-6">
-          <p className="-mt-4 text-ink-secondary">
-            <Ltr>{status.model}</Ltr> · {t('overview.version')} <Ltr>{status.version}</Ltr> ·{' '}
-            {t('overview.uptime')} {uptime(status.uptimeSeconds, t)}
-          </p>
+          <Welcome
+            user={me.user}
+            status={status}
+            pending={pending}
+            overview={data}
+            uptime={uptime(status.uptimeSeconds, t)}
+            go={go}
+            chat={chat}
+          />
 
           <section
             aria-labelledby="state-title"
@@ -114,77 +120,10 @@ export function OverviewPage({ onSignedOut, me }: PageProps) {
             )}
           </section>
 
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3.5">
-            <Tile label={t('overview.approvalsWaiting')} value={num(pending)}>
-              {pending > 0 ? t('overview.review') : t('approvals.noneWaiting')}
-            </Tile>
-            <Tile
-              label={t('overview.investigationsToday')}
-              value={num(data?.investigationsToday ?? 0)}
-            >
-              {data?.lastInvestigation ? (
-                <>
-                  <Ltr>{data.lastInvestigation.alert}</Ltr>, {time(data.lastInvestigation.ts)}
-                </>
-              ) : (
-                t('investigations.empty')
-              )}
-            </Tile>
-            <Tile
-              label={t('overview.changesThisWeek')}
-              value={num(
-                (data?.changesThisWeek.approved ?? 0) +
-                  (data?.changesThisWeek.denied ?? 0) +
-                  (data?.changesThisWeek.expired ?? 0),
-              )}
-            >
-              {t('overview.changesSplit', {
-                approved: data?.changesThisWeek.approved ?? 0,
-                denied: data?.changesThisWeek.denied ?? 0,
-              })}
-            </Tile>
-            <Tile
-              label={t('overview.spendThisMonth')}
-              value={budget?.spent == null ? t('overview.noPrice') : money(budget.spent)}
-              suffix={
-                budget?.limit ? t('overview.ofBudget', { limit: money(budget.limit) }) : undefined
-              }
-            >
-              {spentShare !== null ? (
-                <span className="flex flex-col gap-1.5">
-                  <span
-                    role="progressbar"
-                    aria-label={t('overview.budgetUsed')}
-                    aria-valuenow={Math.round(spentShare * 100)}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    className="block h-2 overflow-hidden rounded-full bg-muted"
-                  >
-                    <Bar share={spentShare} over={budget?.over === true} />
-                  </span>
-                  {t(budget?.over ? 'overview.budgetOver' : 'overview.budgetShare', {
-                    share: Math.round(spentShare * 100),
-                  })}
-                </span>
-              ) : (
-                t('overview.noBudget')
-              )}
-            </Tile>
-          </div>
-
-          {data?.auditHead && (
-            <p className="text-sm text-ink-secondary">
-              {t('overview.auditHead', { seq: data.auditHead.seq })}{' '}
-              <bdi dir="ltr" className="font-mono" title={data.auditHead.hash}>
-                {data.auditHead.hash.slice(0, 16)}
-              </bdi>
-            </p>
-          )}
-
           <div className="flex flex-wrap items-start gap-5">
             <section
               aria-labelledby="changes-title"
-              className="min-w-0 flex-[999_1_420px] rounded-xl border border-line bg-raised p-5"
+              className="min-w-0 flex-1 rounded-xl border border-line bg-raised p-5"
             >
               <h2 id="changes-title" className="text-lg font-semibold">
                 {t('overview.recentChanges')}
@@ -228,62 +167,11 @@ export function OverviewPage({ onSignedOut, me }: PageProps) {
                 </ol>
               )}
             </section>
-
-            <section
-              aria-labelledby="health-title"
-              className="min-w-0 flex-[1_1_300px] rounded-xl border border-line bg-raised p-5"
-            >
-              <h2 id="health-title" className="text-lg font-semibold">
-                {t('overview.connectors')}
-              </h2>
-              <ul className="mt-3 flex flex-col gap-2.5">
-                {status.connectors.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between gap-2">
-                    <span>{c.name}</span>
-                    <Badge tone={c.available ? 'ok' : 'plain'}>
-                      {t(c.available ? 'overview.available' : 'overview.unavailable')}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            </section>
           </div>
         </div>
       )}
     </Page>
   );
-}
-
-function Tile({
-  label,
-  value,
-  suffix,
-  children,
-}: {
-  label: string;
-  value: string;
-  suffix?: string | undefined;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-4.5 py-4">
-      <span className="text-[13px] font-medium text-ink-secondary">{label}</span>
-      <span className="text-3xl font-bold">
-        {value}
-        {suffix && <span className="ms-1.5 text-sm font-medium text-ink-secondary">{suffix}</span>}
-      </span>
-      <span className="text-[13px] text-ink-secondary">{children}</span>
-    </div>
-  );
-}
-
-/** The budget bar's fill; its width is set through the DOM (the CSP allows no inline styles). */
-function Bar({ share, over }: { share: number; over: boolean }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.style.width = `${String(Math.round(share * 100))}%`;
-  }, [share]);
-  return <span ref={ref} className={`block h-2 ${over ? 'bg-bad-text' : 'bg-primary'}`} />;
 }
 
 /** A connector's tools. A limit every tool shares is shown once, not on each tool. */

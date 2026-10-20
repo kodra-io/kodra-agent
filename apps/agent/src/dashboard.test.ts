@@ -7,12 +7,14 @@ import {
   DASHBOARD_TTL_MS,
   parseTable,
   parseView,
+  podOf,
   runState,
   type DeploymentsData,
   type EventsData,
   type JobsData,
   type PodsData,
   type RunsData,
+  type WorkloadData,
 } from './dashboard.ts';
 import type { HostedTool, ToolCallResult } from './mcp/host.ts';
 import { Redactor } from './redactor.ts';
@@ -178,6 +180,17 @@ describe('dashboard readers', () => {
   it('reads GitLab pipelines, and drops links that are not web links', () => {
     const data = parseView(runsView('gitlab-ci'), GITLAB_RUNS) as RunsData;
     expect(data.counts).toEqual({ passed: 1, failed: 1, running: 1, other: 0 });
+    // Every listed run's time and state, for the console to count a day in its time zone.
+    expect(data.recent).toEqual([
+      { at: '2026-10-17T08:00:00Z', state: 'passed' },
+      { at: '2026-10-17T09:00:00Z', state: 'failed' },
+      { at: '2026-10-17T10:00:00Z', state: 'running' },
+    ]);
+    // A page shorter than asked for is everything; a full one may have more behind it.
+    expect(data.full).toBe(false);
+    expect((parseView(runsView('gitlab-ci'), GITLAB_RUNS, {}, { limit: 3 }) as RunsData).full).toBe(
+      true,
+    );
     expect(data.runs[1]).toMatchObject({ id: '102', ref: 'feature/x', state: 'failed', url: null });
     expect(data.runs[0]?.url).toBe('https://gitlab.com/acme/api/-/pipelines/101');
   });
@@ -190,6 +203,56 @@ describe('dashboard readers', () => {
       ['CI', 'in_progress'],
     ]);
     expect(runState('canceled')).toBe('other');
+  });
+});
+
+describe('dashboard readers: a workload', () => {
+  const view: DashboardView = { kind: 'workload' };
+  const table = [
+    'NAMESPACE   NAME         READY   STATUS             RESTARTS        AGE',
+    'prod        mariadb-0    1/1     Running            0               3d',
+    'prod        mariadb-1    0/1     Running            3 (1m ago)      3d',
+    'prod        mariadbx-0   1/1     Running            0               3d',
+  ].join('\n');
+
+  it("keeps only the named workload's pods: ready, restarts, and its state", () => {
+    expect(parseView(view, table, {}, { match: 'mariadb' })).toEqual({
+      kind: 'workload',
+      name: 'mariadb',
+      state: 'degraded',
+      ready: 1,
+      total: 2,
+      restarts: 3,
+      pods: [
+        { name: 'mariadb-0', status: 'Running', ready: '1/1', restarts: 0 },
+        { name: 'mariadb-1', status: 'Running', ready: '0/1', restarts: 3 },
+      ],
+    });
+  });
+
+  it('is down when nothing of it runs, or it has no pods at all', () => {
+    const real = fixture('kubernetes-pods.txt');
+    expect(parseView(view, real, {}, { match: 'broken' })).toMatchObject({
+      state: 'down',
+      ready: 0,
+      total: 1,
+      restarts: 6,
+    });
+    expect(parseView(view, table, {}, { match: 'postgres' })).toMatchObject({
+      state: 'down',
+      total: 0,
+      pods: [],
+    });
+    expect(parseView(view, table)).toBeNull();
+  });
+
+  it("matches the names Kubernetes gives a workload's pods, and no other", () => {
+    expect(podOf('mariadb', 'mariadb-0')).toBe(true);
+    expect(podOf('web', 'web-7c6cdd646-4jqkc')).toBe(true);
+    expect(podOf('agent', 'agent-x7k2p')).toBe(true);
+    expect(podOf('maria', 'mariadb-0')).toBe(false);
+    expect(podOf('mariadb', 'mariadbx-0')).toBe(false);
+    expect(podOf('web', 'web-admin-7c6cdd646-4jqkc')).toBe(false);
   });
 });
 
@@ -267,6 +330,8 @@ describe('ConnectorDashboard', () => {
       ['pods', 'ok', ['dev', 'prod']],
       ['deployments', 'ok', ['dev', 'prod']],
       ['warnings', 'unavailable', []],
+      // No databases listed: nothing to watch.
+      ['databases', 'no-targets', []],
     ]);
     expect(host.calls).toContainEqual({
       name: 'kubernetes__resources_list',
@@ -346,6 +411,7 @@ describe('ConnectorDashboard', () => {
       'no-targets',
       'unavailable',
       'unavailable',
+      'no-targets',
     ]);
     expect(host.calls).toHaveLength(0);
   });
@@ -384,6 +450,47 @@ describe('ConnectorDashboard', () => {
   });
 });
 
+describe('ConnectorDashboard: databases', () => {
+  it('reads each namespace/name entry in its namespace, through the namespace guard', async () => {
+    const kubernetes = getConnector('kubernetes');
+    if (!kubernetes) throw new Error('missing');
+    const host = fakeHost(
+      [
+        hosted({
+          name: 'kubernetes__pods_list_in_namespace',
+          tool: 'pods_list_in_namespace',
+          settings: { namespaces: ['dev'], databases: ['dev/web', 'prod/db', 'not-scoped'] },
+          guards: kubernetes.guards?.['pods_list_in_namespace'] ?? [],
+        }),
+      ],
+      () => ({ isError: false, text: fixture('kubernetes-pods.txt') }),
+    );
+    const view = await new ConnectorDashboard({
+      host,
+      redactor: new Redactor(),
+      policy: { destructiveActions: 'deny', self: null },
+      manifests: [
+        {
+          ...kubernetes,
+          dashboard: kubernetes.dashboard?.filter((p) => p.id === 'databases') ?? [],
+        },
+      ],
+    }).view();
+    const [web, db] = view.connectors[0]?.panels[0]?.results ?? [];
+    expect(web).toMatchObject({
+      target: 'dev/web',
+      data: { kind: 'workload', name: 'web', state: 'ok' },
+    });
+    expect((web?.data as WorkloadData).ready).toBe(2);
+    // prod is not a listed namespace: refused before any call.
+    expect(db?.target).toBe('prod/db');
+    expect(db?.error).toMatch(/namespace/);
+    expect(host.calls).toEqual([
+      { name: 'kubernetes__pods_list_in_namespace', args: { namespace: 'dev' } },
+    ]);
+  });
+});
+
 describe('dashboard manifests', () => {
   it('uses only read tools, and refuses a card on any other tool', () => {
     for (const m of connectors) {
@@ -397,5 +504,14 @@ describe('dashboard manifests', () => {
       dashboard: [{ ...kubernetes.dashboard?.[0], tool: 'resources_scale' }],
     });
     expect(bad.success).toBe(false);
+    // A workload card needs namespace/name entries, and only it may have them.
+    const pods = kubernetes.dashboard?.[0];
+    if (!pods?.forEach) throw new Error('missing');
+    for (const panel of [
+      { ...pods, view: { kind: 'workload' } },
+      { ...pods, forEach: { ...pods.forEach, scoped: true } },
+    ]) {
+      expect(manifestSchema.safeParse({ ...kubernetes, dashboard: [panel] }).success).toBe(false);
+    }
   });
 });

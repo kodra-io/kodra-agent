@@ -6,6 +6,7 @@ import {
   expect,
   HOSTILE,
   NEW_TOKEN,
+  settled,
   signIn,
   test,
   TOKEN,
@@ -26,13 +27,17 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   await expect(page.getByText('anthropic/claude-sonnet-5-5')).toBeVisible();
   await expect(page.getByText('2 h 3 min')).toBeVisible();
-  const connectors = page.getByRole('listitem').filter({ hasText: 'Kubernetes' });
-  await expect(connectors).toContainText('Not available');
-  // The dashboard: approvals waiting, investigations, changes, and spend against the budget.
-  await expect(page.getByText('PodCrashLooping, ')).toBeVisible();
-  await expect(page.getByText('3 approved, 1 denied')).toBeVisible();
-  await expect(page.getByText('$12.40')).toBeVisible();
-  await expect(page.getByText('of $40.00')).toBeVisible();
+  const systems = page
+    .getByRole('region', { name: /^Systems/ })
+    .getByRole('listitem')
+    .filter({ hasText: 'Kubernetes' });
+  await expect(systems).toContainText('Offline');
+  // Key numbers: investigations, changes, and spend against the budget.
+  const kpis = page.getByRole('list', { name: 'Key numbers' });
+  await expect(kpis.getByText('PodCrashLooping, ')).toBeVisible();
+  await expect(kpis).toContainText('3 approved, 1 denied');
+  await expect(kpis).toContainText('$12.40');
+  await expect(kpis).toContainText('of $40.00');
   await expect(page.getByRole('progressbar', { name: 'Budget used' })).toHaveAttribute(
     'aria-valuenow',
     '31',
@@ -75,6 +80,96 @@ test('admin signs in with admin/admin and must set a new password first', async 
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   expect(api).toContain('POST password');
   expect(api.join('\n')).not.toContain(ADMIN_PASSWORD);
+});
+
+test.describe('the operations center', () => {
+  test.use({ timezoneId: 'UTC' });
+
+  test('shows the clock, the posture, key numbers, the queue worst first, and each system', async ({
+    page,
+    api,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-10-19T08:30:00Z'));
+    await signIn(page, APPROVER_TOKEN);
+    const ops = page.getByRole('region', { name: 'Good morning, Omar' });
+    await expect(ops).toContainText('Operations center');
+    await expect(ops).toContainText('Monday, October 19, 2026');
+    await expect(ops.locator('time')).toHaveText('08:30:00');
+    await expect(ops).toContainText('Attention required');
+    expect(api).toContain('GET dashboard');
+
+    const kpis = ops.getByRole('list', { name: 'Key numbers' });
+    await expect(kpis).toContainText('Pods up5/71 failing');
+    await expect(kpis).toContainText('Deployments ready2/3');
+    await expect(kpis).toContainText('Pipelines today31 passed, 1 failed, 1 running');
+    await expect(kpis).toContainText('Databases ready0/11 not fully ready');
+
+    const queueRegion = ops.getByRole('region', { name: /^Attention queue/ });
+    const queue = queueRegion.getByRole('listitem');
+    await expect(queue).toHaveText([
+      'Critical1 pod is failing in dev',
+      'CriticalKubernetes is not available',
+      /^Action\d+ approvals? (is|are) waiting for a decision$/,
+      'Warning1 deployment is not fully ready',
+      'Warning2 recent pipeline runs or jobs failed',
+      'WarningDatabase prod/mariadb is not fully ready',
+    ]);
+    await expect(queueRegion).toContainText('And 1 more');
+
+    const systems = ops.getByRole('region', { name: /^Systems/ }).getByRole('listitem');
+    await expect(systems).toHaveText([
+      'GitLabConnectedOK',
+      'KubernetesNot runningOffline',
+      'prod/mariadb1 of 2 pods ready, 3 restartsDegraded',
+    ]);
+
+    await queue.filter({ hasText: 'pod is failing' }).getByRole('link').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+  });
+
+  test('asks the agent for a full briefing in a new conversation', async ({ page, api }) => {
+    await page.clock.setFixedTime(new Date('2026-10-19T19:00:00Z'));
+    await signIn(page);
+    // The shared token has no name to greet.
+    const ops = page.getByRole('region', { name: 'Good evening' });
+    await ops.getByRole('link', { name: 'Request a full briefing' }).click();
+    await expect(page.getByLabel('Message')).toHaveValue(/^Give me a briefing on what is going on/);
+    // Nothing is sent until the person sends it.
+    expect(api.some((line) => line.startsWith('BODY chat '))).toBe(false);
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByRole('log')).toContainText('Give me a briefing');
+
+    // Back on Chat later, it opens as usual, not on a new briefing.
+    await page.getByRole('navigation').getByRole('link', { name: 'Usage' }).click();
+    await page.getByRole('navigation').getByRole('link', { name: 'Chat' }).click();
+    await expect(page.getByLabel('Message')).toHaveValue('');
+  });
+
+  test('works in Arabic, right to left', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-19T14:00:00Z'));
+    await signIn(page, APPROVER_TOKEN);
+    await page.getByRole('button', { name: 'Switch to Arabic' }).click();
+    const ops = page.getByRole('region', { name: 'مساء الخير يا Omar' });
+    await expect(ops).toContainText('مركز العمليات');
+    await expect(ops).toContainText('يتطلب تدخلًا');
+    await expect(ops).toContainText('Pods متعثرة في dev: 1');
+    await settled(page);
+    expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
+  });
+
+  test('boots with motion, and holds still with reduced motion', async ({ page }) => {
+    await signIn(page, APPROVER_TOKEN);
+    const ops = page.getByRole('region', { name: /Omar$/ });
+    const running = () =>
+      ops.evaluate((el) => el.getAnimations({ subtree: true }).map((a) => a.playState));
+    await expect.poll(running).toContain('running');
+    await expect(ops.getByRole('list', { name: 'Key numbers' })).toContainText('$12.40');
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload();
+    await expect(ops.getByRole('list', { name: 'Key numbers' })).toContainText('Pods up5/7');
+    expect(await running()).toEqual([]);
+  });
 });
 
 test('shows why a connector is not available, and the tools it gives', async ({ page }) => {
@@ -620,6 +715,10 @@ test('the dashboard shows what the connectors see, as plain text', async ({ page
   // A run without a web link has no link.
   await expect(pipelines.getByRole('link', { name: 'Open run 500' })).toHaveCount(0);
 
+  // Databases listed as namespace/name: each one's pods ready and restarts.
+  const databases = page.getByRole('article', { name: 'Databases' });
+  await expect(databases).toContainText('prod/mariadb1 of 2 pods ready3 restartsDegraded');
+
   const jobs = page.getByRole('article', { name: 'Jobs' });
   await expect(jobs).toContainText('1 failed');
   await expect(jobs.getByRole('link', { name: 'Open job deploy-web' })).toHaveAttribute(
@@ -648,6 +747,7 @@ test('has no accessibility violations, in both themes', async ({ page }) => {
   for (const name of ['Overview', 'Dashboard', 'Approvals']) {
     await page.getByRole('navigation').getByRole('link', { name }).click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await settled(page);
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.map((v) => `dark ${name}: ${v.id}`)).toEqual([]);
   }
@@ -668,6 +768,7 @@ test('has no accessibility violations, in both themes', async ({ page }) => {
       await page.getByRole('button', { name: 'Send' }).click();
       await expect(page.getByRole('log').getByRole('group')).toBeVisible();
     }
+    await settled(page);
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.map((v) => `${name}: ${v.id}`)).toEqual([]);
   }
