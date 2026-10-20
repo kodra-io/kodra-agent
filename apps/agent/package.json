@@ -1,6 +1,6 @@
 {
   "name": "@kodra-agent/agent",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "Kodra AI Agent runtime and CLI",
   "license": "Apache-2.0",
