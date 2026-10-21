@@ -30,7 +30,7 @@
     "@kodra-agent/schema": "workspace:*",
     "@kodra-agent/templates": "workspace:*",
     "@kubernetes/client-node": "2.0.0",
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
     "@opentelemetry/resources": "2.12.0",
