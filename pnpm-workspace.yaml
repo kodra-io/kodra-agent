@@ -1,3 +1,9 @@
 packages:
   - apps/*
   - packages/*
+
+# Native add-ons ssh2 can build for speed; it runs fine in pure JavaScript without them,
+# and no install script runs on a user's machine or in the image.
+allowBuilds:
+  cpu-features: false
+  ssh2: false

@@ -366,7 +366,7 @@ function connectorLines(
     }
     // Connectors without an MCP server (Docker, Slack) give the model no tools.
     const runtime = input.component.manifest.runtime;
-    if (runtime === null || (!Array.isArray(runtime) && runtime.type === 'builtin')) {
+    if (runtime === null) {
       const use = input.component.manifest.category === 'build' ? ', used by `ship`' : '';
       return `${name}: ${input.access ?? 'on'}${use}`;
     }

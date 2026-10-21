@@ -314,8 +314,24 @@ describe('pipelines today and databases', () => {
   it('lights each database, and puts one that is down or not ready in the queue', () => {
     const down = withDatabases('down');
     expect(totalsOf(down).databases).toEqual([
-      { target: 'prod/mariadb', state: 'down', ready: 0, total: 2, restarts: 4 },
-      { target: 'prod/redis', state: 'unknown', ready: 0, total: 0, restarts: 0 },
+      {
+        target: 'prod/mariadb',
+        state: 'down',
+        source: 'kubernetes',
+        ready: 0,
+        total: 2,
+        restarts: 4,
+        connections: null,
+      },
+      {
+        target: 'prod/redis',
+        state: 'unknown',
+        source: 'kubernetes',
+        ready: 0,
+        total: 0,
+        restarts: 0,
+        connections: null,
+      },
     ]);
     const b = briefing({ status, pending: 0, overview, dashboard: down });
     expect(b.posture).toBe('critical');
@@ -332,6 +348,91 @@ describe('pipelines today and databases', () => {
     ]);
     const ok = briefing({ status, pending: 0, overview, dashboard: withDatabases('ok') });
     expect(ok.attention.map((i) => i.key)).toEqual(['welcome.databasesDegraded.one']);
+  });
+
+  it('counts databases the agent connects to with those in Kubernetes, wherever they run', () => {
+    const both: DashboardView = {
+      ...withDatabases('ok'),
+      connectors: [
+        ...withDatabases('ok').connectors,
+        {
+          id: 'databases',
+          displayName: 'Databases',
+          panels: [
+            {
+              id: 'databases',
+              title: { en: 'Databases', ar: 'قواعد البيانات' },
+              view: 'database',
+              results: [
+                {
+                  target: 'orders',
+                  data: {
+                    kind: 'database',
+                    name: 'orders',
+                    engine: 'mariadb',
+                    via: 'tunnel',
+                    state: 'ok',
+                    reasons: [],
+                    version: '11.4.3-MariaDB',
+                    uptimeSeconds: 100,
+                    connections: { used: 12, max: 151 },
+                    readOnly: false,
+                    replicaLagSeconds: null,
+                    latencyMs: 40,
+                  },
+                },
+                {
+                  target: 'billing',
+                  data: {
+                    kind: 'database',
+                    name: 'billing',
+                    engine: 'postgres',
+                    via: 'direct',
+                    state: 'down',
+                    reasons: ['the user or password was refused'],
+                    version: null,
+                    uptimeSeconds: null,
+                    connections: null,
+                    readOnly: null,
+                    replicaLagSeconds: null,
+                    latencyMs: null,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const t = totalsOf(both);
+    expect(t.databases.map((d) => [d.target, d.source, d.state])).toEqual([
+      ['prod/mariadb', 'kubernetes', 'ok'],
+      ['prod/redis', 'kubernetes', 'unknown'],
+      ['orders', 'connection', 'ok'],
+      ['billing', 'connection', 'down'],
+    ]);
+    const statusWithDb = {
+      ...status,
+      connectors: [
+        ...status.connectors,
+        { ...status.connectors[0], id: 'databases', name: 'Databases', available: true },
+      ],
+    };
+    const systems = systemsOf(statusWithDb, both).filter((s) => s.id.startsWith('db:'));
+    expect(systems.map((s) => [s.name, s.state, s.metric.key, s.metric.vars])).toEqual([
+      ['prod/mariadb', 'ok', 'welcome.sys.db', { ready: 2, total: 2, restarts: 4 }],
+      ['prod/redis', 'warn', 'welcome.sys.unreadable', {}],
+      ['orders', 'ok', 'welcome.sys.dbConnections', { used: 12, max: 151 }],
+      ['billing', 'down', 'welcome.sys.dbDown', {}],
+    ]);
+    // The Databases connector itself is up: its databases have their own lights.
+    expect(systemsOf(statusWithDb, both).find((s) => s.id === 'databases')?.state).toBe('ok');
+    const b = briefing({ status: statusWithDb, pending: 0, overview, dashboard: both });
+    expect(b.attention[0]).toMatchObject({
+      severity: 'critical',
+      key: 'welcome.databasesDown.one',
+      vars: { names: 'billing' },
+    });
   });
 });
 

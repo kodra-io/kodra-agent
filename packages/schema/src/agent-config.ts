@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { checkDependencies } from './dependencies.ts';
+import { entriesSchema } from './entries.ts';
 import { modelPrice, type ConfigField, type Manifest, type ModelPrice } from './manifest.ts';
 import { isCalendarDate, isTimeZone, weeklyMinute } from './freeze.ts';
 import { policyProblems, PROFILES, type Profile } from './policy.ts';
@@ -420,6 +421,8 @@ function fieldSchema(field: ConfigField): z.ZodType {
       const out = field.default !== undefined ? n.default(field.default) : n;
       return out.meta({ description });
     }
+    case 'entries':
+      return entriesSchema(field);
   }
 }
 

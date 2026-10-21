@@ -500,5 +500,20 @@
   "dashboard.workload.degraded": "Degraded",
   "dashboard.workload.down": "Down",
   "dashboard.workload.pods": "{ready} of {total} pods ready",
-  "dashboard.workload.noPods": "No pods found"
+  "dashboard.workload.noPods": "No pods found",
+  "welcome.sys.dbDown": "Not answering",
+  "welcome.sys.dbConnections": "{used} of {max} connections",
+  "dashboard.database.connections": "{used} of {max} connections",
+  "dashboard.database.lag": "Replica {n}s behind",
+  "dashboard.database.readOnly": "Read-only",
+  "dashboard.database.tunnel": "SSH tunnel",
+  "settings.entries.add": "Add {noun}",
+  "settings.entries.none": "None yet.",
+  "settings.entries.name": "Name",
+  "settings.entries.nameHint": "Lowercase letters, digits, and hyphens, like orders-replica.",
+  "settings.entries.new": "new entry",
+  "settings.entries.remove": "Remove {name}",
+  "settings.entries.more": "More settings",
+  "settings.entries.secret": "Kept in your environment as",
+  "settings.entries.secretNoName": "Give it a name first."
 }

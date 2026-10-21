@@ -500,5 +500,20 @@
   "dashboard.workload.degraded": "متعثرة",
   "dashboard.workload.down": "متوقفة",
   "dashboard.workload.pods": "{ready} من {total} Pods جاهزة",
-  "dashboard.workload.noPods": "لا توجد Pods"
+  "dashboard.workload.noPods": "لا توجد Pods",
+  "welcome.sys.dbDown": "لا تستجيب",
+  "welcome.sys.dbConnections": "الاتصالات: {used} من {max}",
+  "dashboard.database.connections": "الاتصالات: {used} من {max}",
+  "dashboard.database.lag": "النسخة المتماثلة متأخرة {n} ث",
+  "dashboard.database.readOnly": "للقراءة فقط",
+  "dashboard.database.tunnel": "نفق SSH",
+  "settings.entries.add": "إضافة {noun}",
+  "settings.entries.none": "لا يوجد بعد.",
+  "settings.entries.name": "الاسم",
+  "settings.entries.nameHint": "حروف إنجليزية صغيرة وأرقام وشرطات، مثل orders-replica.",
+  "settings.entries.new": "إدخال جديد",
+  "settings.entries.remove": "إزالة {name}",
+  "settings.entries.more": "إعدادات إضافية",
+  "settings.entries.secret": "تُحفظ في بيئتك باسم",
+  "settings.entries.secretNoName": "أعطه اسما أولا."
 }

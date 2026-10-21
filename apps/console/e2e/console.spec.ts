@@ -102,7 +102,8 @@ test.describe('the operations center', () => {
     await expect(kpis).toContainText('Pods up5/71 failing');
     await expect(kpis).toContainText('Deployments ready2/3');
     await expect(kpis).toContainText('Pipelines today31 passed, 1 failed, 1 running');
-    await expect(kpis).toContainText('Databases ready0/11 not fully ready');
+    // One in Kubernetes, one the agent connects to: counted together.
+    await expect(kpis).toContainText('Databases ready1/21 not fully ready');
 
     const queueRegion = ops.getByRole('region', { name: /^Attention queue/ });
     const queue = queueRegion.getByRole('listitem');
@@ -121,6 +122,7 @@ test.describe('the operations center', () => {
       'GitLabConnectedOK',
       'KubernetesNot runningOffline',
       'prod/mariadb1 of 2 pods ready, 3 restartsDegraded',
+      'orders12 of 151 connectionsOK',
     ]);
 
     await queue.filter({ hasText: 'pod is failing' }).getByRole('link').click();
@@ -249,6 +251,52 @@ test('an approver changes a connector: review the diff and the access it adds, t
   await expect(page.getByRole('button', { name: 'Undo last change' })).toHaveCount(0, {
     timeout: 15_000,
   });
+});
+
+test('adds a database, with a tunnel; its secrets are named for it, never typed here', async ({
+  page,
+  api,
+}) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Configure Databases' }).click();
+  // The saved database's password is set under Secrets, where it is tested first.
+  await expect(
+    page.getByText('Databases orders.password (KODRA_DB_ORDERS_PASSWORD)'),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add database' }).click();
+  const added = page
+    .getByRole('group', { name: 'The databases to watch.' })
+    .locator('> div')
+    .nth(1);
+  await expect(added.getByText('Give it a name first.').first()).toBeVisible();
+  await added.getByLabel(/^Name/).fill('billing');
+  await added.getByLabel('Database engine.').selectOption('postgres');
+  await added
+    .getByLabel('Host name or IP address.')
+    .fill('billing.abc.eu-central-1.rds.amazonaws.com');
+  await added.getByLabel('Database user.').fill('kodra_monitor');
+  await expect(added.getByText('${env:KODRA_DB_BILLING_PASSWORD}')).toBeVisible();
+  await added.getByText('More settings').click();
+  await added.getByLabel('SSH tunnel: the bastion host.').fill('bastion.example.com');
+  await expect(added.getByText('${env:KODRA_DB_BILLING_TUNNEL_KEY}')).toBeVisible();
+  // No field takes a secret value.
+  await expect(added.locator('input[type="password"]')).toHaveCount(0);
+
+  const review = page.getByRole('complementary', { name: 'Review changes' });
+  await review.getByRole('button', { name: 'Save and restart' }).click();
+  await review.getByRole('button', { name: 'Yes, save and restart' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
+  expect(
+    api.some(
+      (a) =>
+        a.startsWith('BODY settings/apply') &&
+        a.includes(
+          '{"name":"billing","engine":"postgres","host":"billing.abc.eu-central-1.rds.amazonaws.com","user":"kodra_monitor","tunnelHost":"bastion.example.com"}',
+        ),
+    ),
+  ).toBe(true);
 });
 
 test('replaces a token only after it passes the check', async ({ page }) => {
@@ -693,7 +741,7 @@ test('the dashboard shows what the connectors see, as plain text', async ({ page
   // Pipelines and Jenkins jobs count together.
   await expect(tiles).toContainText('Failed runs2');
 
-  const pods = page.getByRole('article', { name: 'Pods' });
+  const pods = page.getByRole('article', { name: 'Pods', exact: true });
   await expect(pods.getByText('CrashLoopBackOff')).toBeVisible();
   await expect(pods.getByText('14 restarts')).toBeVisible();
   await expect(pods).toContainText('prod: could not read (pods is forbidden)');
@@ -716,8 +764,13 @@ test('the dashboard shows what the connectors see, as plain text', async ({ page
   await expect(pipelines.getByRole('link', { name: 'Open run 500' })).toHaveCount(0);
 
   // Databases listed as namespace/name: each one's pods ready and restarts.
+  const dbPods = page.getByRole('article', { name: 'Database pods' });
+  await expect(dbPods).toContainText('prod/mariadb1 of 2 pods ready3 restartsDegraded');
+  // A database the agent connects to: version, connections, and how it is reached.
   const databases = page.getByRole('article', { name: 'Databases' });
-  await expect(databases).toContainText('prod/mariadb1 of 2 pods ready3 restartsDegraded');
+  await expect(databases).toContainText(
+    'orders 11.4.3-MariaDB12 of 151 connectionsSSH tunnelReady',
+  );
 
   const jobs = page.getByRole('article', { name: 'Jobs' });
   await expect(jobs).toContainText('1 failed');

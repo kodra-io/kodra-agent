@@ -8,6 +8,9 @@ import {
   parseAgentConfig,
 } from '@kodra-agent/connectors';
 import {
+  entriesOf,
+  entryEnvVar,
+  type EntriesField,
   formatIssue,
   isConsoleApprover,
   type AccessLevel,
@@ -30,7 +33,7 @@ import {
 } from '../model-options.ts';
 import { unifiedDiff } from '../diff.ts';
 import type { KubernetesFactory } from '../kubernetes.ts';
-import { probeIds, runProbe, type ProbeResult } from '../probes.ts';
+import { probeIds, runProbe, type ProbeContext, type ProbeResult } from '../probes.ts';
 import type { Redactor } from '../redactor.ts';
 import { resolveAll } from '../secrets.ts';
 import type { ConfigBackend } from './config-backend.ts';
@@ -123,7 +126,13 @@ export function patchConfigText(text: string, patch: SettingsPatch): string {
       set([...base, 'access'], c.access);
     }
     for (const [key, value] of Object.entries(c.config ?? {})) {
-      set([...base, 'config', key], value);
+      const field = manifest.configFields.find((f) => f.key === key);
+      set(
+        [...base, 'config', key],
+        field?.kind === 'entries' && Array.isArray(value)
+          ? entriesWithRefs(field, value, doc.getIn([...base, 'config', key]))
+          : value,
+      );
     }
   }
   set(['spec', 'policy', 'approvals', 'approvers'], patch.policy?.approvers);
@@ -137,6 +146,48 @@ export function patchConfigText(text: string, patch: SettingsPatch): string {
   }
   set(['spec', 'console', 'chat'], patch.console?.chat);
   return doc.toString();
+}
+
+/**
+ * Entries (databases) as the console sends them, with their secrets as references the agent
+ * chooses: each entry's own variable, like ${env:KODRA_DB_ORDERS_PASSWORD}. A reference the
+ * console sends is never written as is, so nobody can point a database at another secret; a
+ * file reference already in the file for the same entry is kept.
+ */
+export function entriesWithRefs(
+  field: EntriesField,
+  entries: readonly unknown[],
+  current: unknown,
+): Record<string, unknown>[] {
+  const before = entriesOf(
+    current !== null && typeof current === 'object' && 'toJSON' in current
+      ? (current as { toJSON: () => unknown }).toJSON()
+      : current,
+  );
+  return entriesOf(entries).map((entry) => {
+    const name = String(entry['name']);
+    const was = before.find((e) => e['name'] === name);
+    const out: Record<string, unknown> = { name };
+    for (const f of field.fields) {
+      const value = entry[f.key];
+      if (f.kind !== 'secret') {
+        if (value !== undefined && value !== null && value !== '') out[f.key] = value;
+        continue;
+      }
+      const wanted =
+        f.required ||
+        (f.requiredWith === undefined
+          ? true
+          : ![undefined, null, ''].includes(entry[f.requiredWith] as string));
+      if (!wanted) continue;
+      const kept = was?.[f.key];
+      out[f.key] =
+        typeof kept === 'string' && kept.startsWith('${file:')
+          ? kept
+          : `\${env:${entryEnvVar(field, name, f.envVar)}}`;
+    }
+    return out;
+  });
 }
 
 /** A whole spec.model for a provider switch: settings as given, secrets as references. */
@@ -174,6 +225,19 @@ export function changedPaths(patch: SettingsPatch): string[] {
 const list = (value: unknown): string[] =>
   Array.isArray(value) ? value.map(String) : typeof value === 'string' ? [value] : [];
 
+/**
+ * Each entry with where it connects, like `orders (db.internal:3306 via bastion)`, so a
+ * database pointed somewhere new counts as new access, not only a new name.
+ */
+function whereEntries(value: unknown): string[] {
+  const text = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? String(v) : '');
+  return entriesOf(value).map((e) => {
+    const port = text(e['port']) === '' ? '' : `:${text(e['port'])}`;
+    const via = text(e['tunnelHost']) === '' ? '' : ` via ${text(e['tunnelHost'])}`;
+    return `${text(e['name'])} (${text(e['host'])}${port}${via})`;
+  });
+}
+
 /** Access the new config gives that the old one did not. */
 export function moreAccess(before: AgentConfig, after: AgentConfig): AccessChange[] {
   const out: AccessChange[] = [];
@@ -188,9 +252,10 @@ export function moreAccess(before: AgentConfig, after: AgentConfig): AccessChang
       out.push({ code: 'write', connector: id });
     }
     for (const field of getConnector(id)?.configFields ?? []) {
-      if (field.kind !== 'string-list') continue;
-      const was = new Set(list(old.config?.[field.key]));
-      const added = list(entry.config?.[field.key]).filter((v) => !was.has(v));
+      if (field.kind !== 'string-list' && field.kind !== 'entries') continue;
+      const names = field.kind === 'entries' ? whereEntries : list;
+      const was = new Set(names(old.config?.[field.key]));
+      const added = names(entry.config?.[field.key]).filter((v) => !was.has(v));
       if (added.length > 0) out.push({ code: 'scope', connector: id, field: field.key, added });
     }
   }
@@ -290,6 +355,8 @@ export interface SettingsDeps {
   endpoints?: ListContext['endpoints'];
   /** The agent's prompt size in tokens without a conversation, to check a model's window. */
   promptSize?: () => number;
+  /** Tests swap how databases are reached (a password is tested before it is saved). */
+  databases?: ProbeContext['databases'];
 }
 
 /** A model name as providers write them: letters, digits, and . _ - : / @. */
@@ -364,23 +431,40 @@ export class SettingsStore {
           access: entry?.access ?? null,
           config: { ...(entry?.config ?? {}) },
           fields: m.configFields,
-          secrets: m.secrets.map((s) => {
-            const use = comp?.secrets.find((u) => u.spec.key === s.key);
-            const ref = use?.ref;
-            const envName = ref?.scheme === 'env' ? ref.name : s.envVar;
-            return {
-              key: s.key,
-              label: use ? secretLabel(use) : s.key,
-              envVar: envName,
-              required: s.required,
-              set: ref?.scheme === 'env' ? Boolean(env[ref.name]) : ref !== undefined,
-              writable:
-                envWritable && (ref === undefined ? s.defaultRef === 'env' : ref.scheme === 'env'),
-              ref: ref?.scheme === 'file' ? ref.path : `\${env:${envName}}`,
-              description: s.description,
-              howToCreate: s.howToCreate,
-            };
-          }),
+          secrets: [
+            ...m.secrets.map((s) => {
+              const use = comp?.secrets.find((u) => u.spec.key === s.key);
+              const ref = use?.ref;
+              const envName = ref?.scheme === 'env' ? ref.name : s.envVar;
+              return {
+                key: s.key,
+                label: use ? secretLabel(use) : s.key,
+                envVar: envName,
+                required: s.required,
+                set: ref?.scheme === 'env' ? Boolean(env[ref.name]) : ref !== undefined,
+                writable:
+                  envWritable &&
+                  (ref === undefined ? s.defaultRef === 'env' : ref.scheme === 'env'),
+                ref: ref?.scheme === 'file' ? ref.path : `\${env:${envName}}`,
+                description: s.description,
+                howToCreate: s.howToCreate,
+              };
+            }),
+            // Each database's own secrets (an entry's password), named for it.
+            ...(comp?.secrets ?? [])
+              .filter((use) => !m.secrets.some((s) => s.key === use.spec.key))
+              .map((use) => ({
+                key: use.spec.key,
+                label: secretLabel(use),
+                envVar: use.ref.scheme === 'env' ? use.ref.name : use.spec.envVar,
+                required: false,
+                set: use.ref.scheme === 'env' ? Boolean(env[use.ref.name]) : true,
+                writable: envWritable && use.ref.scheme === 'env',
+                ref: use.ref.scheme === 'file' ? use.ref.path : `\${env:${use.ref.name}}`,
+                description: use.spec.description,
+                howToCreate: use.spec.howToCreate,
+              })),
+          ],
           tools: {
             read: risks.filter((r) => r === 'read').length,
             write: risks.filter((r) => r === 'write').length,
@@ -537,6 +621,8 @@ export class SettingsStore {
       fetch: this.deps.fetch,
       kubernetes: this.deps.kubernetes,
       timeoutMs: this.deps.probeTimeoutMs,
+      only: key,
+      ...(this.deps.databases ? { databases: this.deps.databases } : {}),
     });
     if (result.status === 'fail') return result;
     await this.backend.writeEnv(new Map([[use.ref.name, trimmed]]), []);

@@ -2,6 +2,8 @@ import * as https from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import type { Component } from './config.ts';
+import { checkDatabase, type CheckDeps } from './databases/health.ts';
+import { databaseEntries } from './databases/server.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
 import { ollamaContext, SMALL_CONTEXT } from './model-context.ts';
 
@@ -22,6 +24,13 @@ export interface ProbeContext {
   timeoutMs: number;
   /** Overrides for fixed public API hosts (tests point these at local fake servers). */
   endpoints?: Partial<Record<'github' | 'slack' | 'anthropic' | 'openai' | 'sts', string>>;
+  /**
+   * The one secret being tested (a database password the console is about to save), so the
+   * check covers its entry only: another database being down does not block it.
+   */
+  only?: string;
+  /** Tests swap how databases are reached. */
+  databases?: Partial<CheckDeps>;
 }
 
 export type Probe = (ctx: ProbeContext) => Promise<ProbeResult>;
@@ -109,6 +118,25 @@ function needSecret(ctx: ProbeContext, key: string): string | ProbeResult {
 
 /** Implementations for every probe id the manifests name. */
 export const probes: Record<string, Probe> = {
+  'databases.connect': async (ctx) => {
+    const only = ctx.only?.split('.')[0];
+    const entries = databaseEntries(ctx.component.settings, ctx.secrets).filter(
+      (e) => only === undefined || e.name === only,
+    );
+    if (entries.length === 0) return skip('no databases listed');
+    const results = await Promise.all(
+      entries.map((e) => checkDatabase(e, { timeoutMs: ctx.timeoutMs, ...ctx.databases })),
+    );
+    const words = results.map((r) =>
+      r.state === 'ok' ? `${r.name}: ok` : `${r.name}: ${r.state} (${r.reasons.join('; ')})`,
+    );
+    const down = results.filter((r) => r.state === 'down');
+    if (down.length === 0) return pass(words.join('; '));
+    return fail(
+      words.join('; '),
+      'Check the host, port, user, and password; for a tunnel, the bastion and its host key.',
+    );
+  },
   'github.read-repos': async (ctx) => {
     const token = needSecret(ctx, 'token');
     if (typeof token !== 'string') return token;

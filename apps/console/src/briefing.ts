@@ -1,4 +1,4 @@
-import type { DashboardView, OverviewView, StatusView } from './api.ts';
+import type { DashboardView, OverviewView, PanelResult, StatusView, TargetResult } from './api.ts';
 import type { MessageKey } from './i18n.tsx';
 
 /** Morning until noon, afternoon until 6 pm, evening after that (and before 5 am). */
@@ -67,7 +67,10 @@ export interface Totals {
   runsRunning: number;
   /** Namespaces with a failing pod. */
   failingIn: string[];
-  /** The listed databases (workload cards), by `namespace/name`; `unknown` when unreadable. */
+  /**
+   * Every watched database, wherever it runs: a Kubernetes workload (`namespace/name`) or one
+   * the Databases connector connects to (by name); `unknown` when its card could not be read.
+   */
   databases: Database[];
   /** Whether any card had numbers at all. */
   seen: { pods: boolean; deployments: boolean; runs: boolean; databases: boolean };
@@ -76,9 +79,52 @@ export interface Totals {
 export interface Database {
   target: string;
   state: 'ok' | 'degraded' | 'down' | 'unknown';
+  /** A Kubernetes workload's pods, or a connection the agent makes to the database itself. */
+  source: 'kubernetes' | 'connection';
+  /** Pods (Kubernetes only). */
   ready: number;
   total: number;
   restarts: number;
+  /** Connections in use (a connection only, when the user may read it). */
+  connections: { used: number; max: number } | null;
+}
+
+/** The views that report databases: a Kubernetes workload, or the Databases connector. */
+const DATABASE_VIEWS: readonly PanelResult['view'][] = ['workload', 'database'];
+
+function databaseOf(view: PanelResult['view'], result: TargetResult): Database {
+  const data = result.data;
+  if (data?.kind === 'workload') {
+    return {
+      target: result.target ?? data.name,
+      state: data.state,
+      source: 'kubernetes',
+      ready: data.ready,
+      total: data.total,
+      restarts: data.restarts,
+      connections: null,
+    };
+  }
+  if (data?.kind === 'database') {
+    return {
+      target: result.target ?? data.name,
+      state: data.state,
+      source: 'connection',
+      ready: 0,
+      total: 0,
+      restarts: 0,
+      connections: data.connections,
+    };
+  }
+  return {
+    target: result.target ?? '',
+    state: 'unknown',
+    source: view === 'workload' ? 'kubernetes' : 'connection',
+    ready: 0,
+    total: 0,
+    restarts: 0,
+    connections: null,
+  };
 }
 
 export function totalsOf(dashboard: DashboardView | null): Totals {
@@ -100,20 +146,9 @@ export function totalsOf(dashboard: DashboardView | null): Totals {
     for (const panel of connector.panels) {
       for (const result of panel.results) {
         const data = result.data;
-        if (panel.view === 'workload') {
+        if (DATABASE_VIEWS.includes(panel.view)) {
           t.seen.databases = true;
-          const target = result.target ?? (data?.kind === 'workload' ? data.name : '');
-          t.databases.push(
-            data?.kind === 'workload'
-              ? {
-                  target,
-                  state: data.state,
-                  ready: data.ready,
-                  total: data.total,
-                  restarts: data.restarts,
-                }
-              : { target, state: 'unknown', ready: 0, total: 0, restarts: 0 },
-          );
+          t.databases.push(databaseOf(panel.view, result));
           continue;
         }
         if (!data) continue;
@@ -313,17 +348,22 @@ export function systemsOf(status: StatusView, dashboard: DashboardView | null): 
     id: `db:${d.target}`,
     name: d.target,
     state: d.state === 'ok' ? 'ok' : d.state === 'down' ? 'down' : 'warn',
-    metric:
-      d.state === 'unknown'
-        ? { key: 'welcome.sys.unreadable', vars: {} }
-        : d.total === 0
-          ? { key: 'welcome.sys.dbNoPods', vars: {} }
-          : {
-              key: 'welcome.sys.db',
-              vars: { ready: d.ready, total: d.total, restarts: d.restarts },
-            },
+    metric: databaseMetric(d),
   }));
   return [...connectorsOf(status, dashboard), ...databases];
+}
+
+function databaseMetric(d: Database): SystemState['metric'] {
+  if (d.state === 'unknown') return { key: 'welcome.sys.unreadable', vars: {} };
+  if (d.source === 'connection') {
+    if (d.state === 'down') return { key: 'welcome.sys.dbDown', vars: {} };
+    return d.connections
+      ? { key: 'welcome.sys.dbConnections', vars: { ...d.connections } }
+      : { key: 'welcome.sys.online', vars: {} };
+  }
+  return d.total === 0
+    ? { key: 'welcome.sys.dbNoPods', vars: {} }
+    : { key: 'welcome.sys.db', vars: { ready: d.ready, total: d.total, restarts: d.restarts } };
 }
 
 function connectorsOf(status: StatusView, dashboard: DashboardView | null): SystemState[] {
@@ -346,7 +386,7 @@ function connectorsOf(status: StatusView, dashboard: DashboardView | null): Syst
       };
     }
     // Databases have their own lights.
-    const cards = { ...own, panels: own.panels.filter((p) => p.view !== 'workload') };
+    const cards = { ...own, panels: own.panels.filter((p) => !DATABASE_VIEWS.includes(p.view)) };
     const t = totalsOf({ updatedAt: '', connectors: [cards] });
     const unreadable = cards.panels.some((p) => p.results.some((r) => r.error));
     const trouble =

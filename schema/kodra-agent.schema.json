@@ -722,6 +722,147 @@
               "title": "AWS",
               "description": "Read EKS clusters and CloudWatch metrics, logs, and alarms. Read-only."
             },
+            "databases": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "access": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only"
+                  ]
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "databases": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "maxLength": 40,
+                            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+                          },
+                          "engine": {
+                            "type": "string",
+                            "enum": [
+                              "mariadb",
+                              "mysql",
+                              "postgres"
+                            ],
+                            "description": "Database engine."
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|\\[?[0-9A-Fa-f:.]+\\]?)$",
+                            "description": "Host name or IP address, as seen from the agent (or from the tunnel host)."
+                          },
+                          "port": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 65535,
+                            "description": "Port. Leave empty for the engine default (3306 or 5432)."
+                          },
+                          "database": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z0-9_$-]{1,63}$",
+                            "description": "Database to connect to. PostgreSQL uses postgres when empty."
+                          },
+                          "user": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z0-9_.@-]{1,63}$",
+                            "description": "Database user."
+                          },
+                          "password": {
+                            "type": "string",
+                            "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                            "description": "The database user’s password. A secret reference."
+                          },
+                          "tls": {
+                            "default": "verify",
+                            "description": "Encryption: verify (encrypted, certificate checked), require (encrypted, certificate not checked), or off.",
+                            "type": "string",
+                            "enum": [
+                              "verify",
+                              "require",
+                              "off"
+                            ]
+                          },
+                          "tunnelHost": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|\\[?[0-9A-Fa-f:.]+\\]?)$",
+                            "description": "SSH tunnel: the bastion host to connect through. Leave empty to connect directly."
+                          },
+                          "tunnelPort": {
+                            "default": 22,
+                            "description": "SSH tunnel: the bastion’s SSH port.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 65535
+                          },
+                          "tunnelUser": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$",
+                            "description": "SSH tunnel: the user on the bastion."
+                          },
+                          "tunnelHostKey": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "^SHA256:[A-Za-z0-9+/]{43}=?$",
+                            "description": "SSH tunnel: the bastion’s host key fingerprint. The tunnel is refused if it does not match. Get it with: ssh-keyscan bastion | ssh-keygen -lf -"
+                          },
+                          "tunnelKey": {
+                            "type": "string",
+                            "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
+                            "description": "SSH tunnel: the private key for the bastion user. A secret reference."
+                          },
+                          "maxLagSeconds": {
+                            "default": 30,
+                            "description": "A replica this many seconds behind is not fully healthy.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 86400
+                          },
+                          "connectionsWarnPercent": {
+                            "default": 90,
+                            "description": "Connections in use, as a percentage of the maximum, at which the database is not fully healthy.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "engine",
+                          "host",
+                          "user"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "The databases to watch. Use a database user that can only read."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "enabled"
+              ],
+              "additionalProperties": false,
+              "title": "Databases",
+              "description": "Watch the databases you list, wherever they run: standalone, in the cloud (like Amazon RDS), or in Kubernetes. MariaDB, MySQL, and PostgreSQL, directly or through an SSH tunnel. Health checks only."
+            },
             "azure": {
               "type": "object",
               "properties": {

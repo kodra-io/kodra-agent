@@ -17,6 +17,7 @@ describe('connector registry', () => {
     expect(available.sort()).toEqual(
       [
         'aws',
+        'databases',
         'docker',
         'github',
         'github-actions',

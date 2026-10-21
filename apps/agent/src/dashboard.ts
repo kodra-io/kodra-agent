@@ -1,4 +1,10 @@
-import type { DashboardPanel, DashboardView, LocalizedText, Manifest } from '@kodra-agent/schema';
+import {
+  listValues,
+  type DashboardPanel,
+  type DashboardView,
+  type LocalizedText,
+  type Manifest,
+} from '@kodra-agent/schema';
 import { parse as parseYaml } from 'yaml';
 import { policyInputFor } from './agent.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
@@ -15,8 +21,8 @@ import type { Redactor } from './redactor.ts';
 
 export const DASHBOARD_TTL_MS = 60_000;
 const CALL_TIMEOUT_MS = 20_000;
-/** Targets (namespaces, projects, repos) per card. */
-const MAX_TARGETS = 10;
+/** Targets (namespaces, projects, repos, databases) per card. */
+const MAX_TARGETS = 20;
 const MAX_ROWS = 8;
 const MAX_TEXT = 300;
 
@@ -55,6 +61,25 @@ export interface WorkloadData {
   pods: { name: string; status: string; ready: string; restarts: number }[];
 }
 
+/**
+ * A database's health from the Databases connector, wherever the database runs: `down` when it
+ * does not answer, `degraded` with the reasons (connections nearly used up, a lagging replica).
+ */
+export interface DatabaseData {
+  kind: 'database';
+  name: string;
+  engine: string;
+  via: 'direct' | 'tunnel';
+  state: 'ok' | 'degraded' | 'down';
+  reasons: string[];
+  version: string | null;
+  uptimeSeconds: number | null;
+  connections: { used: number; max: number } | null;
+  readOnly: boolean | null;
+  replicaLagSeconds: number | null;
+  latencyMs: number | null;
+}
+
 export type RunState = 'passed' | 'failed' | 'running' | 'other';
 
 export interface RunsData {
@@ -83,7 +108,7 @@ export interface JobsData {
 }
 
 export type PanelData =
-  PodsData | WorkloadData | DeploymentsData | EventsData | RunsData | JobsData;
+  PodsData | WorkloadData | DatabaseData | DeploymentsData | EventsData | RunsData | JobsData;
 
 export interface TargetResult {
   /** The namespace, project, or repo; null for a card without forEach. */
@@ -217,9 +242,9 @@ function callsFor(hosted: HostedTool, panel: DashboardPanel): Call[] {
   const each = panel.forEach;
   if (!each) return [{ target: null, args: fixed }];
   const settings = each.from ? hosted.sharedSettings?.[each.from] : hosted.settings;
-  const raw = settings?.[each.setting];
-  const values = (Array.isArray(raw) ? raw : [])
-    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+  // Plain lists, or the names of an `entries` setting (databases).
+  const values = listValues(settings?.[each.setting])
+    .filter((v) => v.length > 0)
     .slice(0, MAX_TARGETS);
   return values.flatMap((value): Call[] => {
     if (each.scoped) {
@@ -245,6 +270,8 @@ export function parseView(
       return podsData(parseTable(text));
     case 'workload':
       return call.match ? workloadData(parseTable(text), call.match) : null;
+    case 'database':
+      return databaseData(text);
     case 'deployments':
       return deploymentsData(parseTable(text));
     case 'events':
@@ -254,6 +281,44 @@ export function parseView(
     case 'jobs':
       return jobsData(view, text, settings);
   }
+}
+
+const nonNegative = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+
+/** The Databases connector's health JSON, keeping only known fields of the right types. */
+function databaseData(text: string): DatabaseData | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const state = r['state'];
+  if (state !== 'ok' && state !== 'degraded' && state !== 'down') return null;
+  if (typeof r['name'] !== 'string' || typeof r['engine'] !== 'string') return null;
+  const c = r['connections'] as Record<string, unknown> | null | undefined;
+  const used = nonNegative(c?.['used']);
+  const max = nonNegative(c?.['max']);
+  return {
+    kind: 'database',
+    name: clip(r['name']),
+    engine: clip(r['engine']),
+    via: r['via'] === 'tunnel' ? 'tunnel' : 'direct',
+    state,
+    reasons: (Array.isArray(r['reasons']) ? r['reasons'] : [])
+      .filter((x): x is string => typeof x === 'string')
+      .slice(0, 4)
+      .map((x) => clip(x)),
+    version: typeof r['version'] === 'string' ? clip(r['version']) : null,
+    uptimeSeconds: nonNegative(r['uptimeSeconds']),
+    connections: used !== null && max !== null && max > 0 ? { used, max } : null,
+    readOnly: typeof r['readOnly'] === 'boolean' ? r['readOnly'] : null,
+    replicaLagSeconds: nonNegative(r['replicaLagSeconds']),
+    latencyMs: nonNegative(r['latencyMs']),
+  };
 }
 
 const JOB_ORDER: Record<RunState, number> = { failed: 0, running: 1, passed: 2, other: 3 };

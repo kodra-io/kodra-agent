@@ -7,9 +7,11 @@ import {
   getDefaultEnvironment,
   StdioClientTransport,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
   stdioRuntimes,
   type AccessLevel,
+  type BuiltinRuntime,
   type ChangeStep,
   type Manifest,
   type McpStdioRuntime,
@@ -22,6 +24,7 @@ import type { FileReader } from '../forge-files.ts';
 import type { Logger } from '../io.ts';
 import type { Risk } from '../policy.ts';
 import type { Redactor } from '../redactor.ts';
+import { builtinServer, type BuiltinDeps } from './builtin.ts';
 import { binaryPath, mcpCacheDir, preinstalledPath } from './fetch.ts';
 
 /** A tool the model may see: classified in its manifest and offered by its server. */
@@ -78,6 +81,8 @@ export interface HostOptions {
   skipped?: readonly ConnectorFailure[];
   /** Proxy and CA variables every server gets (M12), whatever its manifest inherits. */
   networkEnv?: Readonly<Record<string, string>>;
+  /** Overrides for servers that run inside the agent (tests point databases at fakes). */
+  builtin?: BuiltinDeps;
 }
 
 export interface ConnectorInput {
@@ -100,7 +105,8 @@ interface Running {
   connector: string;
   label: string;
   client: Client;
-  dir: string;
+  /** The server's private folder; null for a server inside the agent. */
+  dir: string | null;
 }
 
 const SEP = '__';
@@ -182,28 +188,52 @@ export class ConnectorHost {
     const host = new ConnectorHost(opts);
     host.failed.push(...(opts.skipped ?? []));
     for (const input of inputs) {
-      for (const runtime of stdioRuntimes(input.component.manifest)) {
-        if (!wanted(runtime, input.component.settings)) continue;
-        try {
-          await host.startOne(input, runtime);
-        } catch (error) {
-          const manifest = input.component.manifest;
-          const reason = opts.redactor.redact(
-            error instanceof Error ? error.message : String(error),
-          );
-          host.failed.push({
-            connector: manifest.id,
-            displayName: manifest.displayName,
-            server: runtime.name,
-            reason,
-          });
-          await opts.audit
-            ?.append({ event: 'error', actor: 'agent', connector: manifest.id, detail: reason })
-            .catch(() => undefined);
-        }
+      const runtime = input.component.manifest.runtime;
+      if (runtime !== null && !Array.isArray(runtime) && runtime.type === 'builtin') {
+        await host.attempt(input, undefined, () => host.startBuiltin(input, runtime));
+        continue;
+      }
+      for (const stdio of stdioRuntimes(input.component.manifest)) {
+        if (!wanted(stdio, input.component.settings)) continue;
+        await host.attempt(input, stdio.name, () => host.startOne(input, stdio));
       }
     }
     return host;
+  }
+
+  /** Starts one server; a failure is recorded (redacted) and audited, never thrown. */
+  private async attempt(
+    input: ConnectorInput,
+    server: string | undefined,
+    start: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await start();
+    } catch (error) {
+      const manifest = input.component.manifest;
+      const reason = this.opts.redactor.redact(
+        error instanceof Error ? error.message : String(error),
+      );
+      this.failed.push({
+        connector: manifest.id,
+        displayName: manifest.displayName,
+        server,
+        reason,
+      });
+      await this.opts.audit
+        ?.append({ event: 'error', actor: 'agent', connector: manifest.id, detail: reason })
+        .catch(() => undefined);
+    }
+  }
+
+  /** A server inside the agent, over an in-memory link: no process, folder, or environment. */
+  private async startBuiltin(input: ConnectorInput, runtime: BuiltinRuntime): Promise<void> {
+    const server = builtinServer(runtime.module, input, this.opts.builtin);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: 'kodra-agent', version: '0.0.0' });
+    await client.connect(clientSide);
+    await this.register(input, client, input.component.manifest.id, null);
   }
 
   /** Servers that could not start, with the reason (redacted). */
@@ -326,6 +356,18 @@ export class ConnectorHost {
       );
     }
     const label = `${manifest.id}${runtime.name ? `/${runtime.name}` : ''}`;
+    await this.register(input, client, label, dir);
+  }
+
+  /** Lists a started server's tools and exposes only those its manifest classifies. */
+  private async register(
+    input: ConnectorInput,
+    client: Client,
+    label: string,
+    dir: string | null,
+  ): Promise<void> {
+    const { component, access } = input;
+    const manifest = component.manifest;
     const serverIndex = this.running.push({ connector: manifest.id, label, client, dir }) - 1;
 
     let tools: Awaited<ReturnType<Client['listTools']>>['tools'];
@@ -334,7 +376,7 @@ export class ConnectorHost {
     } catch (error) {
       this.running.pop();
       await client.close().catch(() => undefined);
-      await rm(dir, { recursive: true, force: true });
+      if (dir !== null) await rm(dir, { recursive: true, force: true });
       throw error;
     }
     for (const tool of tools) {
@@ -409,7 +451,9 @@ export class ConnectorHost {
   async close(): Promise<void> {
     for (const server of this.running.splice(0)) {
       await server.client.close().catch(() => undefined);
-      await rm(server.dir, { recursive: true, force: true }).catch(() => undefined);
+      if (server.dir !== null) {
+        await rm(server.dir, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
   }
 }

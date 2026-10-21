@@ -280,3 +280,135 @@ describe('SettingsStore', () => {
     ]);
   });
 });
+
+describe('databases from the console', () => {
+  const withDatabases = (entries: string) =>
+    yaml('https://gitlab.example.com', '/var/lib/kodra-agent/audit.jsonl').replace(
+      '  policy:',
+      `    databases:
+      enabled: true
+      access: read-only
+      config:
+        databases:
+${entries}  policy:`,
+    );
+
+  it('names each secret for its database, whatever reference the console sends', () => {
+    const next = patchConfigText(withDatabases(''), {
+      connectors: {
+        databases: {
+          config: {
+            databases: [
+              {
+                name: 'orders',
+                engine: 'mariadb',
+                host: 'db.internal',
+                user: 'monitor',
+                // Hostile: pointing a database at the model key, or at a file on the host.
+                password: '${env:ANTHROPIC_API_KEY}',
+                tunnelKey: '${file:/etc/shadow}',
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(next).toContain('password: ${env:KODRA_DB_ORDERS_PASSWORD}');
+    // Only the model's own reference names the model key.
+    expect(next.split('ANTHROPIC_API_KEY')).toHaveLength(2);
+    // No tunnel host, so no tunnel key at all.
+    expect(next).not.toContain('tunnelKey');
+    expect(next).not.toContain('/etc/shadow');
+    expect(parseAgentConfig(next).ok).toBe(true);
+  });
+
+  it('keeps a file reference already in the file for the same database', () => {
+    const text = withDatabases(`          - name: orders
+            engine: postgres
+            host: db.internal
+            user: monitor
+            password: \${file:/secrets/orders-password}
+`);
+    const next = patchConfigText(text, {
+      connectors: {
+        databases: {
+          config: {
+            databases: [
+              { name: 'orders', engine: 'postgres', host: 'db2.internal', user: 'monitor' },
+              {
+                name: 'billing',
+                engine: 'mysql',
+                host: 'billing.internal',
+                user: 'monitor',
+                tunnelHost: 'bastion.example.com',
+                tunnelUser: 'tunnel',
+                tunnelHostKey: 'SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8',
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(next).toContain('password: ${file:/secrets/orders-password}');
+    expect(next).toContain('password: ${env:KODRA_DB_BILLING_PASSWORD}');
+    expect(next).toContain('tunnelKey: ${env:KODRA_DB_BILLING_TUNNEL_KEY}');
+    const before = parseAgentConfig(text);
+    const after = parseAgentConfig(next);
+    if (!before.ok || !after.ok) throw new Error('invalid');
+    // A new database, and one pointed somewhere new, are both new access.
+    expect(moreAccess(before.config, after.config)).toEqual([
+      {
+        code: 'scope',
+        connector: 'databases',
+        field: 'databases',
+        added: ['orders (db2.internal)', 'billing (billing.internal via bastion.example.com)'],
+      },
+    ]);
+  });
+
+  it("lists each database's secret, and tests only that database before saving it", async () => {
+    const { dir, configPath, store, audit } = await setup();
+    await writeFile(
+      configPath,
+      (await readFile(configPath, 'utf8')).replace(
+        '  policy:',
+        `    databases:
+      enabled: true
+      access: read-only
+      config:
+        databases:
+          - name: orders
+            engine: mariadb
+            host: 127.0.0.1
+            port: 1
+            user: monitor
+            password: \${env:KODRA_DB_ORDERS_PASSWORD}
+            tls: 'off'
+  policy:`,
+      ),
+    );
+    const view = await store.view(null);
+    const databases = view.connectors.find((c) => c.id === 'databases');
+    expect(databases?.secrets).toEqual([
+      expect.objectContaining({
+        key: 'orders.password',
+        label: 'Databases orders.password (KODRA_DB_ORDERS_PASSWORD)',
+        envVar: 'KODRA_DB_ORDERS_PASSWORD',
+        set: false,
+        writable: true,
+      }),
+    ]);
+    // Nothing listens on port 1: the password is not saved.
+    const result = await store.setSecret(
+      'databases',
+      'orders.password',
+      'pw-c4n4ry-1',
+      'console:omar',
+    );
+    expect(result).toMatchObject({ status: 'fail' });
+    expect(result.message).toContain('orders: down (the connection was refused');
+    expect(result.message).not.toContain('c4n4ry');
+    await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
+    expect(JSON.stringify(await audit())).not.toContain('c4n4ry');
+  });
+});

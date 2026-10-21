@@ -472,3 +472,87 @@ describe('data protection and named models', () => {
     ]);
   });
 });
+
+describe('databases: entries', () => {
+  const databases = (entries: string) =>
+    config(`${ollama}  connectors:
+    databases:
+      enabled: true
+      config:
+        databases:
+${entries}`);
+
+  it('takes databases with their own secret references, and tunnels', () => {
+    const result = parseAgentConfig(
+      databases(`          - name: orders
+            engine: mariadb
+            host: orders.abc123.eu-central-1.rds.amazonaws.com
+            user: kodra_monitor
+            password: \${env:KODRA_DB_ORDERS_PASSWORD}
+          - name: billing-replica
+            engine: postgres
+            host: 10.0.4.12
+            port: 6432
+            user: kodra_monitor
+            password: \${file:/secrets/billing-password}
+            tunnelHost: bastion.example.com
+            tunnelUser: tunnel
+            tunnelHostKey: SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8
+            tunnelKey: \${env:KODRA_DB_BILLING_REPLICA_TUNNEL_KEY}
+`),
+    );
+    expect(result.ok ? [] : messages(result)).toEqual([]);
+    if (!result.ok) return;
+    const entries = result.config.spec.connectors['databases']?.config?.['databases'];
+    // Defaults filled in: verify TLS, port 22 for the tunnel, the warning levels.
+    expect(entries).toMatchObject([
+      { name: 'orders', tls: 'verify', maxLagSeconds: 30, connectionsWarnPercent: 90 },
+      { name: 'billing-replica', tunnelPort: 22 },
+    ]);
+  });
+
+  it("never points a database's secret at another variable, like the model key", () => {
+    const result = parseAgentConfig(
+      databases(`          - name: orders
+            engine: mysql
+            host: db
+            user: m
+            password: \${env:ANTHROPIC_API_KEY}
+`),
+    );
+    expect(messages(result).join('\n')).toContain('must be ${env:KODRA_DB_ORDERS_PASSWORD}');
+  });
+
+  it('refuses a plain password and an unknown engine, without echoing the value', () => {
+    const result = parseAgentConfig(
+      databases(`          - name: orders
+            engine: oracle
+            host: db
+            user: m
+            password: hunter2-plain # gitleaks:allow
+`),
+    );
+    const text = messages(result).join('\n');
+    expect(text).toContain('must be a secret reference, not a value');
+    expect(text).not.toContain('hunter2');
+    expect(text).toContain('must be mariadb, mysql, postgres');
+  });
+
+  it('refuses a repeated name, and half a tunnel', () => {
+    const result = parseAgentConfig(
+      databases(`          - name: orders
+            engine: mysql
+            host: db
+            user: m
+          - name: orders
+            engine: mysql
+            host: db2
+            user: m
+            tunnelHost: bastion
+`),
+    );
+    const text = messages(result).join('\n');
+    expect(text).toContain('orders is used twice');
+    expect(text).toContain('tunnelUser: is required with tunnelHost');
+  });
+});
