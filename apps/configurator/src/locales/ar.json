@@ -49,6 +49,7 @@
   "category.cicd": "CI/CD",
   "category.monitoring": "المراقبة",
   "category.cloud": "السحابة",
+  "category.database": "قواعد البيانات",
   "category.chat": "المحادثة",
   "access.read-only": "قراءة فقط",
   "access.read-write-approved": "قراءة وكتابة، بموافقة",
@@ -146,5 +147,6 @@
   "policy.duplicateName": "{name} اسم بيئة أخرى بالفعل.",
   "policy.emptyEnvironment": "{name} تحتاج إلى مساحة أسماء أو مستودع واحد على الأقل.",
   "policy.namespaceTaken": "مساحة الأسماء {namespace} موجودة في {owner}. تنتمي مساحة الأسماء إلى بيئة واحدة.",
-  "policy.repoTaken": "المستودع {repo} موجود في {owner}. ينتمي المستودع إلى بيئة واحدة."
+  "policy.repoTaken": "المستودع {repo} موجود في {owner}. ينتمي المستودع إلى بيئة واحدة.",
+  "connectors.entriesInConsole": "أضفها في وحدة التحكم بعد تشغيل الوكيل: تُختبر كل كلمة مرور قبل حفظها."
 }

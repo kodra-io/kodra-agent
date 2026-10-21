@@ -7,6 +7,7 @@ import {
   type JobsData,
   type PanelResult,
   type PodsData,
+  type DatabaseData,
   type WorkloadData,
   type RunsData,
   type RunState,
@@ -168,6 +169,7 @@ function PanelCard({ panel }: { panel: PanelResult }) {
       )}
       {panel.view === 'pods' && <Pods results={panel.results} />}
       {panel.view === 'workload' && <Workloads results={panel.results} />}
+      {panel.view === 'database' && <Databases results={panel.results} />}
       {panel.view === 'deployments' && <Deployments results={panel.results} />}
       {panel.view === 'events' && <Events results={panel.results} />}
       {panel.view === 'runs' && <Runs results={panel.results} />}
@@ -202,6 +204,68 @@ function Rows({ children }: { children: ReactNode }) {
 }
 
 const WORKLOAD_TONE = { ok: 'ok', degraded: 'warn', down: 'bad' } as const;
+
+/**
+ * Databases the agent connects to, one row each: its state, connections in use, a replica's
+ * lag, and why it is not ok, in the agent's words.
+ */
+function Databases({ results }: { results: TargetResult[] }) {
+  const { t, num } = useI18n();
+  const rows = results.filter((r) => r.data?.kind === 'database');
+  return (
+    <>
+      {rows.length > 0 && (
+        <Rows>
+          {rows.map((r) => {
+            const d = r.data as DatabaseData;
+            return (
+              <li key={r.target ?? d.name} className="flex flex-col gap-1 py-2">
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    <Ltr>{r.target ?? d.name}</Ltr>{' '}
+                    <span className="text-ink-secondary">
+                      <Ltr>{d.version ?? d.engine}</Ltr>
+                    </span>
+                  </span>
+                  <span className="flex flex-wrap items-center gap-2">
+                    {d.connections && (
+                      <span className="text-ink-secondary">
+                        {t('dashboard.database.connections', {
+                          used: num(d.connections.used),
+                          max: num(d.connections.max),
+                        })}
+                      </span>
+                    )}
+                    {d.replicaLagSeconds !== null && (
+                      <span className="text-ink-secondary">
+                        {t('dashboard.database.lag', { n: num(Math.round(d.replicaLagSeconds)) })}
+                      </span>
+                    )}
+                    {d.readOnly === true && (
+                      <Badge tone="plain">{t('dashboard.database.readOnly')}</Badge>
+                    )}
+                    {d.via === 'tunnel' && (
+                      <Badge tone="plain">{t('dashboard.database.tunnel')}</Badge>
+                    )}
+                    <Badge tone={WORKLOAD_TONE[d.state]}>
+                      {t(`dashboard.workload.${d.state}`)}
+                    </Badge>
+                  </span>
+                </span>
+                {d.reasons.length > 0 && (
+                  <span className="text-ink-secondary">
+                    <Ltr>{d.reasons.join('; ')}</Ltr>
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </Rows>
+      )}
+      <Errors results={results} />
+    </>
+  );
+}
 
 /** Named workloads (the databases), one row each: its state, pods ready, and restarts. */
 function Workloads({ results }: { results: TargetResult[] }) {

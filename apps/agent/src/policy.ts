@@ -1,4 +1,4 @@
-import type { AccessLevel, ToolGuard, ToolRisk } from '@kodra-agent/schema';
+import { listValues, type AccessLevel, type ToolGuard, type ToolRisk } from '@kodra-agent/schema';
 import { parseAllDocuments } from 'yaml';
 
 /** The agent's own Kubernetes objects, from the chart's KODRA_AGENT_SELF_* variables. */
@@ -90,9 +90,9 @@ export function decide(input: PolicyInput): Decision {
 
 const isBlank = (v: unknown) => v === undefined || v === null || v === '';
 
+/** A list setting's values; for an `entries` setting (databases), each entry's name. */
 function listSetting(settings: Readonly<Record<string, unknown>>, key: string): string[] {
-  const value = settings[key];
-  return Array.isArray(value) ? value.map((v) => String(v)) : [];
+  return listValues(settings[key]);
 }
 
 /** `owner/repo` from the tool's arguments, or null when it is missing or not a string. */

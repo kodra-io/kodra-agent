@@ -200,7 +200,7 @@ export default defineManifest({
     {
       // The pods of each listed database workload: ready, restarts, and status.
       id: 'databases',
-      title: t('Databases', 'قواعد البيانات'),
+      title: t('Database pods', 'Pods قواعد البيانات'),
       tool: 'pods_list_in_namespace',
       forEach: { setting: 'databases', arg: 'namespace', scoped: true },
       view: { kind: 'workload' },

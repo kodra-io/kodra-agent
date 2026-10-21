@@ -315,6 +315,57 @@ export type ConfigField =
       description: Localized;
       min: number;
       max: number;
+    }
+  | {
+      /** A list of named entries, like one per database. */
+      kind: 'entries';
+      key: string;
+      required: boolean;
+      description: Localized;
+      fields: EntryField[];
+      /** What one entry is, like "database". */
+      noun: Localized;
+      /** An entry's secret lives in <envPrefix><NAME>_<envVar>. */
+      envPrefix: string;
+      max: number;
+    };
+
+export type EntryField =
+  | {
+      kind: 'string';
+      key: string;
+      required: boolean;
+      requiredWith?: string;
+      description: Localized;
+      example?: string;
+      patternHint?: Localized;
+    }
+  | {
+      kind: 'integer';
+      key: string;
+      required: boolean;
+      requiredWith?: string;
+      description: Localized;
+      min: number;
+      max: number;
+      default?: number;
+    }
+  | {
+      kind: 'choice';
+      key: string;
+      required: boolean;
+      description: Localized;
+      options: string[];
+      default?: string;
+    }
+  | { kind: 'boolean'; key: string; description: Localized; default: boolean }
+  | {
+      kind: 'secret';
+      key: string;
+      required: boolean;
+      requiredWith?: string;
+      description: Localized;
+      envVar: string;
     };
 
 export interface SecretSetting {
@@ -459,6 +510,23 @@ export interface WorkloadData {
   pods: { name: string; status: string; ready: string; restarts: number }[];
 }
 
+/** A database's health from the Databases connector, wherever it runs. */
+export interface DatabaseData {
+  kind: 'database';
+  name: string;
+  engine: string;
+  via: 'direct' | 'tunnel';
+  state: 'ok' | 'degraded' | 'down';
+  /** Why it is not ok, in the agent's words. */
+  reasons: string[];
+  version: string | null;
+  uptimeSeconds: number | null;
+  connections: { used: number; max: number } | null;
+  readOnly: boolean | null;
+  replicaLagSeconds: number | null;
+  latencyMs: number | null;
+}
+
 export interface DeploymentsData {
   kind: 'deployments';
   ready: number;
@@ -497,14 +565,15 @@ export interface JobsData {
 
 export interface TargetResult {
   target: string | null;
-  data?: PodsData | WorkloadData | DeploymentsData | EventsData | RunsData | JobsData;
+  data?:
+    PodsData | WorkloadData | DatabaseData | DeploymentsData | EventsData | RunsData | JobsData;
   error?: string;
 }
 
 export interface PanelResult {
   id: string;
   title: Localized;
-  view: 'pods' | 'workload' | 'deployments' | 'events' | 'runs' | 'jobs';
+  view: 'pods' | 'workload' | 'database' | 'deployments' | 'events' | 'runs' | 'jobs';
   results: TargetResult[];
   note?: 'no-targets' | 'unavailable';
 }

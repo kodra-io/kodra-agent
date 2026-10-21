@@ -7,6 +7,7 @@ import {
   type ParseResult,
 } from '@kodra-agent/schema';
 import aws from './aws/manifest.ts';
+import databases from './databases/manifest.ts';
 import { azure, azureDevops, bitbucket, gcp, teams } from './coming-soon.ts';
 import docker from './docker/manifest.ts';
 import githubActions from './github-actions/manifest.ts';
@@ -34,6 +35,7 @@ export const connectors: readonly Manifest[] = [
   prometheus,
   grafana,
   aws,
+  databases,
   azure,
   gcp,
   slack,

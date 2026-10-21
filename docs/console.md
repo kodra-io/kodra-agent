@@ -113,6 +113,7 @@ The **Dashboard** page shows what the agent can see in your tools right now:
 | Connector      | Cards                                                                                                                                    |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Kubernetes     | Pods by state (running, failing, pending) with restarts; deployments ready against desired; recent warning events. Per listed namespace. |
+| Databases      | Each listed database: state, version, connections in use, a replica's lag, and why it is not ok.                                         |
 | GitLab CI      | The latest 20 pipelines per project: passed, failed, running, with links.                                                                |
 | GitHub Actions | The latest 20 workflow runs per repo: passed, failed, running, with links.                                                               |
 
@@ -242,12 +243,21 @@ zone, from the runs each pipeline card lists (GitLab and GitHub cards list the l
 project). When a project's whole list is from today, older runs of today were not listed,
 and the number shows a `+`.
 
-**Databases** are configurable: list them in the Kubernetes connector's `databases` setting as
-`namespace/name` (a StatefulSet or Deployment, in one of the connector's `namespaces`), from
-the configurator, Settings, or `kodra-agent.yaml`. Each one gets a light and a Dashboard row
-from its pods: ready, degraded (some pods not ready), or down (none running), with restarts.
-Leave the setting empty and no databases are shown. The pods are read with the same read
-tool and namespace guard as the Pods card, without any database credentials.
+**Databases** are configurable, wherever they run:
+
+- **Any database the agent can reach** (standalone, Amazon RDS or Aurora, another cloud, or a
+  cluster service): turn on the **Databases** connector and add each one under Settings
+  (engine, host, user, optional SSH tunnel), then enter its password under Secrets, where it
+  is tested first. The agent connects with fixed status queries: ok, degraded (connections
+  nearly used up, a lagging replica), or down (with why). See
+  [the Databases connector](connectors/databases.md).
+- **A database in Kubernetes, by its pods:** list it in the Kubernetes connector's `databases`
+  setting as `namespace/name` (a StatefulSet or Deployment, in one of the connector's
+  `namespaces`). Its light comes from its pods: ready, degraded (some pods not ready), or down
+  (none running), with restarts. No database credentials are needed.
+
+Both count in **Databases ready**, each gets a light under Systems, and one that is down or
+degraded goes in the queue. With neither set, no databases are shown.
 
 The queue lists what needs someone, worst first, each tagged critical, action, warning, or
 info: failing pods, a database down, connectors down, the budget used up, approvals waiting,

@@ -7,6 +7,7 @@ import {
   type AccessChange,
   type CheckRow,
   type ConfigField,
+  type EntryField,
   type ConnectorSettings,
   type ConnectorView,
   type Localized,
@@ -844,6 +845,16 @@ function FieldEditor({
       {f.required && <span className="text-bad-text"> *</span>}
     </label>
   );
+  if (f.kind === 'entries') {
+    return (
+      <EntriesEditor
+        field={f}
+        entries={Array.isArray(value) ? (value as Record<string, unknown>[]) : []}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    );
+  }
   if (f.kind === 'string-list') {
     return (
       <div className="flex flex-col gap-1.5">
@@ -883,6 +894,277 @@ function FieldEditor({
         <span className="text-xs text-ink-secondary">
           {t('settings.range', { min: f.min, max: f.max })}
         </span>
+      )}
+    </div>
+  );
+}
+
+type EntriesConfig = Extract<ConfigField, { kind: 'entries' }>;
+
+/** The variable an entry's secret lives in, as the agent names it. */
+function entryEnvVar(field: EntriesConfig, name: string, suffix: string): string {
+  return `${field.envPrefix}${name.toUpperCase().replaceAll('-', '_')}_${suffix}`;
+}
+
+/**
+ * A list of named entries (databases), each a small form rendered from the manifest. Secrets
+ * are never typed here: each one is a reference the agent names for the entry, and its value
+ * is entered under Secrets once the entry is saved, where it is tested first.
+ */
+function EntriesEditor({
+  field,
+  entries,
+  disabled,
+  onChange,
+}: {
+  field: EntriesConfig;
+  entries: Record<string, unknown>[];
+  disabled: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  const { t } = useI18n();
+  const text = useText();
+  const set = (i: number, key: string, v: unknown) => {
+    onChange(
+      entries.map((e, j) => {
+        if (j !== i) return e;
+        const empty = v === '' || v === null || v === undefined;
+        return Object.fromEntries([
+          ...Object.entries(e).filter(([k]) => k !== key),
+          ...(empty ? [] : [[key, v] as const]),
+        ]);
+      }),
+    );
+  };
+  return (
+    <fieldset className="flex flex-col gap-3">
+      <legend className="mb-1.5 font-medium">
+        {text(field.description)}
+        {field.required && <span className="text-bad-text"> *</span>}
+      </legend>
+      {entries.length === 0 && (
+        <p className="text-sm text-ink-secondary">{t('settings.entries.none')}</p>
+      )}
+      {entries.map((entry, i) => (
+        <EntryCard
+          // Entries have no id until named; their place in the list is stable while editing.
+          key={i}
+          field={field}
+          entry={entry}
+          disabled={disabled}
+          onSet={(key, v) => {
+            set(i, key, v);
+          }}
+          onRemove={() => {
+            onChange(entries.filter((_, j) => j !== i));
+          }}
+        />
+      ))}
+      {!disabled && entries.length < field.max && (
+        <button
+          type="button"
+          className={`${secondary} self-start`}
+          onClick={() => {
+            const first: Record<string, unknown> = { name: '' };
+            for (const f of field.fields) {
+              if (f.kind === 'choice' && f.required) first[f.key] = f.default ?? f.options[0];
+            }
+            onChange([...entries, first]);
+          }}
+        >
+          <Icon name="plus" size={16} />
+          {t('settings.entries.add', { noun: text(field.noun) })}
+        </button>
+      )}
+    </fieldset>
+  );
+}
+
+function EntryCard({
+  field,
+  entry,
+  disabled,
+  onSet,
+  onRemove,
+}: {
+  field: EntriesConfig;
+  entry: Record<string, unknown>;
+  disabled: boolean;
+  onSet: (key: string, value: unknown) => void;
+  onRemove: () => void;
+}) {
+  const { t } = useI18n();
+  const nameId = useId();
+  const name = typeof entry['name'] === 'string' ? entry['name'] : '';
+  // Up front: what every entry needs, and its own secret (a password). The rest, like a
+  // tunnel, under More settings.
+  const first = (f: EntryField) =>
+    ('required' in f && f.required) || (f.kind === 'secret' && f.requiredWith === undefined);
+  const main = field.fields.filter(first);
+  const more = field.fields.filter((f) => !first(f));
+  const render = (f: EntryField) => (
+    <EntryInput
+      key={f.key}
+      field={f}
+      value={entry[f.key]}
+      secretRef={
+        f.kind === 'secret' && name ? `\${env:${entryEnvVar(field, name, f.envVar)}}` : null
+      }
+      disabled={disabled}
+      onChange={(v) => {
+        onSet(f.key, v);
+      }}
+    />
+  );
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-3.5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex min-w-48 flex-1 flex-col gap-1.5">
+          <label htmlFor={nameId} className="font-medium">
+            {t('settings.entries.name')}
+            <span className="text-bad-text"> *</span>
+          </label>
+          <input
+            id={nameId}
+            className={input}
+            dir="ltr"
+            value={name}
+            placeholder="orders"
+            disabled={disabled}
+            onChange={(e) => {
+              onSet('name', e.target.value.trim().toLowerCase());
+            }}
+          />
+          <span className="text-xs text-ink-secondary">{t('settings.entries.nameHint')}</span>
+        </div>
+        {!disabled && (
+          <button type="button" className={secondary} onClick={onRemove}>
+            <Icon name="x" size={16} />
+            {t('settings.entries.remove', { name: name || t('settings.entries.new') })}
+          </button>
+        )}
+      </div>
+      {main.map(render)}
+      {more.length > 0 && (
+        <details
+          className="rounded-lg border border-line p-3"
+          open={more.some((f) => entry[f.key] !== undefined && f.kind !== 'secret')}
+        >
+          <summary className="cursor-pointer text-sm font-semibold">
+            {t('settings.entries.more')}
+          </summary>
+          <div className="mt-3 flex flex-col gap-3">{more.map(render)}</div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function EntryInput({
+  field: f,
+  value,
+  secretRef,
+  disabled,
+  onChange,
+}: {
+  field: EntryField;
+  value: unknown;
+  secretRef: string | null;
+  disabled: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  const { t } = useI18n();
+  const text = useText();
+  const id = useId();
+  const label = (
+    <label htmlFor={id} className="text-sm font-medium">
+      {text(f.description)}
+      {'required' in f && f.required && <span className="text-bad-text"> *</span>}
+    </label>
+  );
+  if (f.kind === 'secret') {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium">{text(f.description)}</span>
+        <span className="text-xs text-ink-secondary">
+          {secretRef ? (
+            <>
+              {t('settings.entries.secret')}{' '}
+              <bdi dir="ltr" className="font-mono">
+                {secretRef}
+              </bdi>
+            </>
+          ) : (
+            t('settings.entries.secretNoName')
+          )}
+        </span>
+      </div>
+    );
+  }
+  if (f.kind === 'boolean') {
+    return (
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <input
+          type="checkbox"
+          checked={typeof value === 'boolean' ? value : f.default}
+          disabled={disabled}
+          onChange={(e) => {
+            onChange(e.target.checked);
+          }}
+        />
+        {text(f.description)}
+      </label>
+    );
+  }
+  if (f.kind === 'choice') {
+    return (
+      <div className="flex flex-col gap-1.5">
+        {label}
+        <select
+          id={id}
+          className={input}
+          dir="ltr"
+          value={typeof value === 'string' ? value : (f.default ?? '')}
+          disabled={disabled}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        >
+          {!f.required && f.default === undefined && <option value="" />}
+          {f.options.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      {label}
+      <input
+        id={id}
+        className={input}
+        dir="ltr"
+        type={f.kind === 'integer' ? 'number' : 'text'}
+        {...(f.kind === 'integer' ? { min: f.min, max: f.max } : {})}
+        placeholder={
+          f.kind === 'integer'
+            ? f.default !== undefined
+              ? String(f.default)
+              : ''
+            : (f.example ?? '')
+        }
+        value={typeof value === 'string' || typeof value === 'number' ? String(value) : ''}
+        disabled={disabled}
+        onChange={(e) => {
+          const raw = e.target.value.trim();
+          onChange(raw === '' ? null : f.kind === 'integer' ? Number(raw) : raw);
+        }}
+      />
+      {f.kind === 'string' && f.patternHint && (
+        <span className="text-xs text-ink-secondary">{text(f.patternHint)}</span>
       )}
     </div>
   );

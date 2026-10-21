@@ -49,6 +49,7 @@
   "category.cicd": "CI/CD",
   "category.monitoring": "Monitoring",
   "category.cloud": "Cloud",
+  "category.database": "Databases",
   "category.chat": "Chat",
   "access.read-only": "Read-only",
   "access.read-write-approved": "Read and write, with approval",
@@ -146,5 +147,6 @@
   "policy.duplicateName": "{name} is already the name of another environment.",
   "policy.emptyEnvironment": "{name} needs at least one namespace or repository.",
   "policy.namespaceTaken": "Namespace {namespace} is already in {owner}. A namespace belongs to one environment.",
-  "policy.repoTaken": "Repository {repo} is already in {owner}. A repository belongs to one environment."
+  "policy.repoTaken": "Repository {repo} is already in {owner}. A repository belongs to one environment.",
+  "connectors.entriesInConsole": "Add them in the console after the agent starts: each password is tested before it is saved."
 }

@@ -161,9 +161,9 @@ Reviewed manifest: `docker@34bd0adb3e3c`
   objects. Creating, changing, deleting, and exec are classified destructive: blocked unless
   `destructiveActions: require-approval`.
 
-- **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
+- **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@be9b053dfaf1`
+Reviewed manifest: `kubernetes@bc7b4968bef4`
 
 ### Prometheus
 
@@ -196,6 +196,24 @@ Reviewed manifest: `grafana@b7a337946901`
   data access and writes are turned off in the servers.
 
 Reviewed manifest: `aws@7a940bcd91bd`
+
+### Databases
+
+- **Server:** none; a built-in server inside the agent ([decision](../connectors/databases.md)).
+  Drivers `mysql2` and `pg`, and `ssh2` for tunnels, pinned.
+- **Sends to:** each listed database at its `host` and `port`, directly or through an SSH
+  tunnel to `tunnelHost` (whose host key must match `tunnelHostKey`). Encrypted and the
+  certificate checked by default (`tls: verify`).
+- **Secrets:** each database's `password` and `tunnelKey`, only in variables named for it
+  (`KODRA_DB_<NAME>_PASSWORD`, `KODRA_DB_<NAME>_TUNNEL_KEY`) or a file. A reference to any other
+  variable is refused, so no other secret can be sent to a database host. Each goes only to its
+  own database or bastion.
+- **Reads only:** fixed status queries (version, uptime, connections, read-only, replica lag).
+  No tool takes SQL; nothing in the data is read.
+- **Console dashboard:** each database's state, version, connections, and lag, from the same
+  read tool, shown only in the console and on Overview. Not audited (nothing changes).
+
+Reviewed manifest: `databases@50201c186489`
 
 ### Slack
 

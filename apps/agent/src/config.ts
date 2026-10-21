@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { getConnector, getModelProvider, parseAgentConfig } from '@kodra-agent/connectors';
 import {
+  entriesOf,
+  entryEnvVar,
   formatIssue,
   parseSecretRef,
   type AgentConfig,
@@ -111,7 +113,45 @@ function component(
       });
     }
   }
+  secrets.push(...entrySecrets(manifest, settings));
   return { id: manifest.id, displayName: manifest.displayName, manifest, settings, secrets };
+}
+
+/**
+ * The secrets of `entries` settings (a database's password), keyed `<entry>.<field>`, like
+ * `orders.password`. They are optional to the connector: an entry whose secret is missing
+ * reports it, and the others keep working. Their check is the connector's health probe.
+ */
+function entrySecrets(manifest: Manifest, settings: Record<string, unknown>): SecretUse[] {
+  const out: SecretUse[] = [];
+  for (const field of manifest.configFields) {
+    if (field.kind !== 'entries') continue;
+    for (const entry of entriesOf(settings[field.key])) {
+      const name = String(entry['name']);
+      for (const f of field.fields) {
+        if (f.kind !== 'secret') continue;
+        const raw = entry[f.key];
+        const parsed = typeof raw === 'string' ? parseSecretRef(raw) : null;
+        if (!parsed?.ok) continue;
+        out.push({
+          component: manifest.id,
+          componentName: manifest.displayName,
+          spec: {
+            key: `${name}.${f.key}`,
+            envVar: entryEnvVar(field, name, f.envVar),
+            defaultRef: 'env',
+            required: false,
+            description: f.description,
+            howToCreate: f.howToCreate,
+            minimumScopes: {},
+            probe: manifest.healthProbe ?? `${manifest.id}.connect`,
+          },
+          ref: parsed.ref,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /** A short, value-free label for a secret, like "GitHub token (GITHUB_TOKEN)". */

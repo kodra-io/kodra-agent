@@ -13,6 +13,7 @@ export const CATEGORIES = [
   'cicd',
   'monitoring',
   'cloud',
+  'database',
   'chat',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -39,6 +40,58 @@ const regexSource = z.string().refine((source) => {
     return false;
   }
 }, 'must be a valid regular expression');
+
+/**
+ * A field of one entry in an `entries` setting. `requiredWith` makes it required when another
+ * field of the entry is set (a tunnel's user, once its host is).
+ */
+const entryField = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('string'),
+    key: z.string().regex(KEY),
+    required: z.boolean(),
+    requiredWith: z.string().regex(KEY).optional(),
+    description: localizedText,
+    pattern: regexSource.optional(),
+    patternHint: localizedText.optional(),
+    example: z.string().optional(),
+  }),
+  z.strictObject({
+    kind: z.literal('integer'),
+    key: z.string().regex(KEY),
+    required: z.boolean(),
+    requiredWith: z.string().regex(KEY).optional(),
+    description: localizedText,
+    min: z.int(),
+    max: z.int(),
+    default: z.int().optional(),
+  }),
+  z.strictObject({
+    kind: z.literal('choice'),
+    key: z.string().regex(KEY),
+    required: z.boolean(),
+    description: localizedText,
+    options: z.array(z.string().min(1)).min(1),
+    default: z.string().optional(),
+  }),
+  z.strictObject({
+    kind: z.literal('boolean'),
+    key: z.string().regex(KEY),
+    description: localizedText,
+    default: z.boolean(),
+  }),
+  /** A secret reference, never a value; see `envPrefix`. */
+  z.strictObject({
+    kind: z.literal('secret'),
+    key: z.string().regex(KEY),
+    required: z.boolean(),
+    requiredWith: z.string().regex(KEY).optional(),
+    description: localizedText,
+    howToCreate: localizedText,
+    /** The variable's suffix, like PASSWORD. */
+    envVar: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  }),
+]);
 
 const configField = z.discriminatedUnion('kind', [
   z.strictObject({
@@ -78,8 +131,30 @@ const configField = z.discriminatedUnion('kind', [
     max: z.int(),
     default: z.int().optional(),
   }),
+  /**
+   * A list of named entries, like one per database. Each entry has a `name` (lowercase
+   * letters, digits, and hyphens, unique in the list) that tools, guards, and dashboard cards
+   * refer to, plus the fields below.
+   */
+  z.strictObject({
+    kind: z.literal('entries'),
+    key: z.string().regex(KEY),
+    required: z.boolean(),
+    description: localizedText,
+    fields: z.array(entryField).min(1),
+    /** What one entry is, for buttons like "Add database". */
+    noun: localizedText,
+    /**
+     * An entry's secrets are environment variables named for it: `<envPrefix><NAME>_<envVar>`,
+     * like KODRA_DB_ORDERS_PASSWORD. A reference to any other variable is refused, so an entry
+     * can never be pointed at another connector's secret.
+     */
+    envPrefix: z.string().regex(/^[A-Z][A-Z0-9_]*_$/),
+    max: z.int().min(1).max(50),
+  }),
 ]);
 export type ConfigField = z.infer<typeof configField>;
+export type EntryField = z.infer<typeof entryField>;
 
 const scopesByAccess = z.strictObject({
   always: z.array(z.string().min(1)).optional(),
@@ -305,12 +380,22 @@ const stdioRuntime = z.strictObject({
 });
 export type McpStdioRuntime = z.infer<typeof stdioRuntime>;
 
+/**
+ * An MCP server inside the agent itself, for checks no outside server does safely (database
+ * health, with fixed queries only). Its tools are classified and guarded like any other.
+ */
+const builtinRuntime = z.strictObject({
+  type: z.literal('builtin'),
+  module: z.enum(['databases']),
+});
+export type BuiltinRuntime = z.infer<typeof builtinRuntime>;
+
 const runtime = z.union([
   stdioRuntime,
   /** Several servers for one connector; their tool names must not overlap. */
   z.array(stdioRuntime).min(2),
   z.strictObject({ type: z.literal('mcp-container'), image: z.string() }),
-  z.strictObject({ type: z.literal('builtin'), module: z.string() }),
+  builtinRuntime,
 ]);
 
 /** A dotted path into a JSON item, like `status` or `user.name`. */
@@ -327,6 +412,8 @@ const dashboardView = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('workload') }),
   z.strictObject({ kind: z.literal('deployments') }),
   z.strictObject({ kind: z.literal('events') }),
+  /** A database's health as JSON, from the built-in Databases connector. */
+  z.strictObject({ kind: z.literal('database') }),
   /**
    * A JSON list of jobs with a status word (like Jenkins colors), mapped to a state by
    * `states`; unmapped words count as `other`. `scope` keeps only items whose field is in a
@@ -457,6 +544,34 @@ export const manifestSchema = z
     const dupes = keys.filter((k, i) => keys.indexOf(k) !== i);
     if (dupes.length > 0) {
       ctx.addIssue({ code: 'custom', message: `duplicate field keys: ${dupes.join(', ')}` });
+    }
+    for (const [i, field] of m.configFields.entries()) {
+      if (field.kind !== 'entries') continue;
+      const own = field.fields.map((f) => f.key);
+      if (own.includes('name') || own.some((k, j) => own.indexOf(k) !== j)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['configFields', i, 'fields'],
+          message: 'entry field keys must be unique, and every entry has its own `name`',
+        });
+      }
+      for (const f of field.fields) {
+        if ('requiredWith' in f && f.requiredWith !== undefined && !own.includes(f.requiredWith)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['configFields', i, 'fields'],
+            message: `${f.key} is required with ${f.requiredWith}, which is not a field`,
+          });
+        }
+      }
+      // An entry's secret is checked by the connector's health probe, like a connection test.
+      if (field.fields.some((f) => f.kind === 'secret') && !m.healthProbe) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['healthProbe'],
+          message: 'entries with secrets need a healthProbe to check them',
+        });
+      }
     }
     for (const level of m.accessLevels) {
       if (!m.permissionsSummary[level]?.length) {

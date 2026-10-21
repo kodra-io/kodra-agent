@@ -70,6 +70,8 @@ function fieldValue(field: ConfigField, raw: string | undefined): unknown {
   switch (field.kind) {
     case 'string-list':
       return splitList(value);
+    case 'entries':
+      return undefined;
     case 'integer':
       return /^-?\d+$/.test(value) ? Number(value) : value;
     default:
@@ -219,6 +221,9 @@ function validateField(field: ConfigField, raw: string | undefined, id: string, 
         ? []
         : [{ field: id, step, code: 'integer-range' as const, min: field.min, max: field.max }];
     }
+    case 'entries':
+      // Entries (like databases) are added in the console, where their secrets are checked.
+      return [];
   }
 }
 

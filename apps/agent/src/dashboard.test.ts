@@ -206,6 +206,52 @@ describe('dashboard readers', () => {
   });
 });
 
+describe('dashboard readers: a database', () => {
+  const view: DashboardView = { kind: 'database' };
+  const health = {
+    name: 'orders',
+    engine: 'mariadb',
+    via: 'tunnel',
+    state: 'degraded',
+    reasons: ['140 of 151 connections in use'],
+    version: '11.4.3-MariaDB',
+    uptimeSeconds: 3600,
+    connections: { used: 140, max: 151 },
+    readOnly: false,
+    replicaLagSeconds: null,
+    latencyMs: 42,
+    checkedAt: '2026-10-21T08:00:00.000Z',
+  };
+
+  it("keeps the health check's known fields", () => {
+    expect(parseView(view, JSON.stringify(health))).toEqual({
+      kind: 'database',
+      name: 'orders',
+      engine: 'mariadb',
+      via: 'tunnel',
+      state: 'degraded',
+      reasons: ['140 of 151 connections in use'],
+      version: '11.4.3-MariaDB',
+      uptimeSeconds: 3600,
+      connections: { used: 140, max: 151 },
+      readOnly: false,
+      replicaLagSeconds: null,
+      latencyMs: 42,
+    });
+  });
+
+  it('refuses what is not a health check, and drops fields of the wrong type', () => {
+    expect(parseView(view, 'not json')).toBeNull();
+    expect(parseView(view, JSON.stringify({ ...health, state: 'great' }))).toBeNull();
+    expect(
+      parseView(
+        view,
+        JSON.stringify({ ...health, connections: { used: -1, max: 'x' }, reasons: [1, 'ok'] }),
+      ),
+    ).toMatchObject({ connections: null, reasons: ['ok'] });
+  });
+});
+
 describe('dashboard readers: a workload', () => {
   const view: DashboardView = { kind: 'workload' };
   const table = [

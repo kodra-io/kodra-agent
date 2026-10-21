@@ -206,6 +206,7 @@ const CATEGORY_ORDER: readonly Category[] = [
   'cicd',
   'monitoring',
   'cloud',
+  'database',
   'chat',
 ];
 
@@ -282,6 +283,14 @@ function ConnectorCard({
 
           {manifest.configFields.map((field) => {
             const fieldId = `connector.${manifest.id}.${field.key}`;
+            // Entries (databases) are added in the console, where each password is tested.
+            if (field.kind === 'entries') {
+              return (
+                <p key={field.key} className="text-sm text-ink-secondary">
+                  {lt(field.description)} {t('connectors.entriesInConsole')}
+                </p>
+              );
+            }
             return (
               <ConfigFieldInput
                 key={field.key}

@@ -163,7 +163,7 @@ const fixtures: Record<string, unknown> = {
           },
           {
             id: 'databases',
-            title: { en: 'Databases', ar: 'قواعد البيانات' },
+            title: { en: 'Database pods', ar: 'Pods قواعد البيانات' },
             view: 'workload',
             results: [
               {
@@ -179,6 +179,37 @@ const fixtures: Record<string, unknown> = {
                     { name: 'mariadb-0', status: 'Running', ready: '1/1', restarts: 0 },
                     { name: 'mariadb-1', status: 'Running', ready: '0/1', restarts: 3 },
                   ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        // A database the agent connects to itself, through an SSH tunnel.
+        id: 'databases',
+        displayName: 'Databases',
+        panels: [
+          {
+            id: 'databases',
+            title: { en: 'Databases', ar: 'قواعد البيانات' },
+            view: 'database',
+            results: [
+              {
+                target: 'orders',
+                data: {
+                  kind: 'database',
+                  name: 'orders',
+                  engine: 'mariadb',
+                  via: 'tunnel',
+                  state: 'ok',
+                  reasons: [],
+                  version: '11.4.3-MariaDB',
+                  uptimeSeconds: 86_400,
+                  connections: { used: 12, max: 151 },
+                  readOnly: false,
+                  replicaLagSeconds: null,
+                  latencyMs: 41,
                 },
               },
             ],
@@ -575,6 +606,84 @@ function settingsView(
         tools: { read: 8, write: 1, destructive: 5 },
       },
       {
+        id: 'databases',
+        name: 'Databases',
+        category: 'database',
+        status: 'available',
+        description: loc('Watch the databases you list, wherever they run.'),
+        accessLevels: ['read-only'],
+        summaries: { 'read-only': [loc('Reads each database status with fixed checks.')] },
+        enabled: true,
+        access: 'read-only',
+        config: {
+          databases: [
+            { name: 'orders', engine: 'mariadb', host: 'orders.internal', user: 'kodra_monitor' },
+          ],
+        },
+        fields: [
+          {
+            kind: 'entries',
+            key: 'databases',
+            required: false,
+            description: loc('The databases to watch.'),
+            noun: loc('database'),
+            envPrefix: 'KODRA_DB_',
+            max: 20,
+            fields: [
+              {
+                kind: 'choice',
+                key: 'engine',
+                required: true,
+                description: loc('Database engine.'),
+                options: ['mariadb', 'mysql', 'postgres'],
+              },
+              {
+                kind: 'string',
+                key: 'host',
+                required: true,
+                description: loc('Host name or IP address.'),
+              },
+              { kind: 'string', key: 'user', required: true, description: loc('Database user.') },
+              {
+                kind: 'secret',
+                key: 'password',
+                required: false,
+                description: loc('The database user password.'),
+                envVar: 'PASSWORD',
+              },
+              {
+                kind: 'string',
+                key: 'tunnelHost',
+                required: false,
+                description: loc('SSH tunnel: the bastion host.'),
+              },
+              {
+                kind: 'secret',
+                key: 'tunnelKey',
+                required: false,
+                requiredWith: 'tunnelHost',
+                description: loc('SSH tunnel: the private key.'),
+                envVar: 'TUNNEL_KEY',
+              },
+            ],
+          },
+        ],
+        secrets: [
+          {
+            key: 'orders.password',
+            label: 'Databases orders.password (KODRA_DB_ORDERS_PASSWORD)',
+            envVar: 'KODRA_DB_ORDERS_PASSWORD',
+            required: false,
+            set: false,
+            writable: true,
+            ref: '${env:KODRA_DB_ORDERS_PASSWORD}',
+            description: loc('The database user password.'),
+            howToCreate: loc('Use a user that can only read server status.'),
+          },
+        ],
+        tools: { read: 2, write: 0, destructive: 0 },
+      },
+      {
         id: 'github',
         name: 'GitHub',
         category: 'source',
@@ -830,6 +939,17 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         if (added.length > 0) {
           diff.push(...added.map((a) => `+          - ${a}`));
           moreAccess.push({ code: 'scope', connector: 'gitlab', field: 'projects', added });
+        }
+        const databases = patch.connectors?.['databases'] as
+          { config?: { databases?: { name?: string; host?: string }[] } } | undefined;
+        for (const db of (databases?.config?.databases ?? []).slice(1)) {
+          diff.push(`+          - name: ${String(db.name)}`);
+          moreAccess.push({
+            code: 'scope',
+            connector: 'databases',
+            field: 'databases',
+            added: [`${String(db.name)} (${String(db.host)})`],
+          });
         }
         if (patch.model?.name) diff.push(`+    name: ${patch.model.name}`);
         if (patch.limits && 'monthlyBudgetUsd' in patch.limits) {
