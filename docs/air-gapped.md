@@ -10,7 +10,7 @@ else is downloaded at runtime.
 On a machine that can reach both sides:
 
 ```sh
-VERSION=0.3.6
+VERSION=0.3.7
 REGISTRY=harbor.example.com/mirror
 
 # The image (multi-arch), and the chart as an OCI artifact.
@@ -25,12 +25,12 @@ Check the image's signature before you copy it (`cosign verify`, see `docs/packa
 ## 2. Install from your registry
 
 ```sh
-helm install my-agent "oci://harbor.example.com/mirror/charts/kodra-agent" --version 0.3.6 \
+helm install my-agent "oci://harbor.example.com/mirror/charts/kodra-agent" --version 0.3.7 \
   --namespace kodra-agent -f values.yaml --set-file config=kodra-agent.yaml \
   --set image.registry=harbor.example.com/mirror
 ```
 
-On Docker Compose, set `KODRA_AGENT_IMAGE=harbor.example.com/mirror/kodra-io/kodra-agent:0.3.6`
+On Docker Compose, set `KODRA_AGENT_IMAGE=harbor.example.com/mirror/kodra-io/kodra-agent:0.3.7`
 in `.env`.
 
 ## 3. Use a model you can reach
