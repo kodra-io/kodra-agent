@@ -2,7 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { stat, mkdir, mkdtemp, readFile, rm, writeFile, copyFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { detectStack, planShip, shipPrBody, type SourceProvider } from '@kodra-agent/templates';
+import {
+  analyzeRepo,
+  detectStack,
+  onboardingReport,
+  planShip,
+  shipPrBody,
+  type Analysis,
+  type ShipFile,
+  type SourceProvider,
+} from '@kodra-agent/templates';
 import { resolvePolicy } from '@kodra-agent/schema';
 import { policyInputFor, recordOverride } from '../agent.ts';
 import {
@@ -15,8 +24,11 @@ import {
 import type { AuditLog } from '../audit.ts';
 import type { Context } from '../context.ts';
 import type { HostedTool, ConnectorInput } from '../mcp/host.ts';
+import { proxyOptions } from '../network.ts';
 import { decide } from '../policy.ts';
+import { TOKEN_PATTERNS } from '../redactor.ts';
 import { startRuntime, type Runtime } from '../runtime.ts';
+import { boltSlack } from '../slack/api.ts';
 import { spawnExec } from '../ship/exec.ts';
 import { proposeDockerfileFix } from '../ship/fix.ts';
 import {
@@ -37,6 +49,8 @@ export interface ShipOptions {
   branch?: string | undefined;
   /** How many times the model may fix a Dockerfile that fails to build or start. */
   maxFixes: number;
+  /** `onboard`: analyze the repo first, report, and add ONBOARDING.md to the PR (M26). */
+  onboard?: boolean;
 }
 
 interface Source {
@@ -125,23 +139,29 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
     }
     // Inside the agent container, the app under test is reached over a private network.
     const self = ctx.selfContainer === undefined ? selfContainer() : ctx.selfContainer;
-    for (const tool of ['docker', 'helm'] as const) {
-      if (!(await toolAvailable(exec, tool))) {
-        ctx.term.err(
-          tool === 'docker'
-            ? self
-              ? 'Docker is needed to build and test the image. In the agent container, turn on the Docker connector with build access, so the bundle mounts the Docker socket.'
-              : 'Docker is needed to build and test the image. Start Docker and try again.'
-            : 'Helm is needed to check the chart. Install Helm and try again.',
-        );
-        return 1;
+    const toolsReady = async (): Promise<boolean> => {
+      for (const tool of ['docker', 'helm'] as const) {
+        if (!(await toolAvailable(exec, tool))) {
+          ctx.term.err(
+            tool === 'docker'
+              ? self
+                ? 'Docker is needed to build and test the image. In the agent container, turn on the Docker connector with build access, so the bundle mounts the Docker socket.'
+                : 'Docker is needed to build and test the image. Start Docker and try again.'
+              : 'Helm is needed to check the chart. Install Helm and try again.',
+          );
+          return false;
+        }
       }
-    }
+      return true;
+    };
+    // Onboarding reports first, so a machine without Docker still gets the report.
+    if (!opts.onboard && !(await toolsReady())) return 1;
+    const where = localDir ? 'local folder' : `${source?.provider ?? ''} ${opts.target}`;
     await runtime.audit.append({
       event: 'task.start',
       actor: 'ship',
       task,
-      detail: localDir ? 'local folder' : `${source?.provider ?? ''} ${opts.target}`,
+      detail: opts.onboard ? `onboard: ${where}` : where,
     });
 
     // 1. A working copy: a shallow clone, or a copy of the local folder.
@@ -177,9 +197,23 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       await copyLocal(localDir, repoDir);
     }
 
-    // 2. Detect.
+    // 2. Detect, and when onboarding, analyze and report first.
     const name = source?.repo ?? (localDir ?? 'app').split(/[\\/]/).filter(Boolean).at(-1) ?? 'app';
-    const detected = detectStack(repoFiles(repoDir), name);
+    let analysis: Analysis | null = null;
+    let report = '';
+    if (opts.onboard) {
+      analysis = analyzeRepo(repoFiles(repoDir), name, TOKEN_PATTERNS);
+      report = onboardingReport(name, analysis);
+      ctx.term.out(report);
+      await postToSlack(ctx, runtime, slackSummary(name, analysis));
+      if (!analysis.detection.ok) {
+        ctx.term.out('Nothing was shipped: answer the questions above, then run onboard again.');
+        await audit(runtime.audit, task, 'onboard: report only, stack not supported');
+        return 0;
+      }
+      if (!(await toolsReady())) return 1;
+    }
+    const detected = analysis?.detection ?? detectStack(repoFiles(repoDir), name);
     if (!detected.ok) {
       ctx.term.err(detected.reason);
       return 1;
@@ -202,7 +236,19 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       defaultBranch: baseBranch || 'main',
       ...(source?.gitlabUrl ? { gitlabUrl: source.gitlabUrl } : {}),
       mirrors: runtime.config.spec.ship.baseImageMirrors,
+      ...(analysis ? { env: envNames(analysis) } : {}),
     });
+    let reportPath: string | null = null;
+    if (analysis) {
+      if (await exists(join(repoDir, REPORT))) {
+        plan.kept.push(
+          `${REPORT}: the existing one is left alone; the report is in this description.`,
+        );
+      } else {
+        reportPath = REPORT;
+        plan.files.push(reportFile(report));
+      }
+    }
     for (const kept of plan.kept) ctx.term.out(`  Keeping: ${kept}`);
     if (plan.files.length === 0) {
       ctx.term.out('Nothing to add: the Dockerfile, CI, and chart already exist.');
@@ -303,7 +349,21 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       await audit(runtime.audit, task, 'files written locally');
       return 0;
     }
-    const body = shipPrBody({ detection: d, plan, verification, modelChanges });
+    const body = shipPrBody({
+      detection: d,
+      plan,
+      verification,
+      modelChanges,
+      ...(analysis
+        ? {
+            onboarding: {
+              reportPath,
+              questions: analysis.questions,
+              secrets: envNames(analysis).secrets,
+            },
+          }
+        : {}),
+    });
     return await openPullRequest({
       ctx,
       runtime,
@@ -314,10 +374,63 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       plan,
       body,
       task,
+      onboard: opts.onboard ?? false,
     });
   } finally {
     await rm(work, { recursive: true, force: true }).catch(() => undefined);
     await runtime.close();
+  }
+}
+
+const REPORT = 'ONBOARDING.md';
+
+const reportFile = (report: string): ShipFile => ({
+  path: REPORT,
+  content: report,
+  reason: 'The onboarding report: dependencies, settings, risks, gaps, and questions for the team.',
+});
+
+const envNames = (a: Analysis) => ({
+  settings: a.config.filter((v) => !v.secret).map((v) => v.name),
+  secrets: a.config.filter((v) => v.secret).map((v) => v.name),
+});
+
+/** Risks and questions for the team's Slack channel: names and locations only, never values. */
+function slackSummary(repo: string, a: Analysis): string {
+  const risks = a.findings.filter((f) => f.level === 'risk');
+  const gaps = a.findings.filter((f) => f.level === 'gap');
+  const plural = (n: number, word: string) => `${String(n)} ${word}${n === 1 ? '' : 's'}`;
+  return [
+    `*Onboarding ${repo}*: ${plural(risks.length, 'risk')}, ${plural(gaps.length, 'gap')}.`,
+    ...(risks.length > 0 ? ['', '*Risks*', ...risks.map((f) => `• ${f.text}`)] : []),
+    ...a.secrets.map(
+      (h) => `• Committed credential (${h.rule}) at \`${h.path}:${String(h.line)}\``,
+    ),
+    '',
+    '*Questions for the team*',
+    ...a.questions.map((q, i) => `${String(i + 1)}. ${q}`),
+  ].join('\n');
+}
+
+/** Posts to the agent's Slack channel when Slack is configured. A failure only warns. */
+async function postToSlack(ctx: Context, runtime: Runtime, text: string): Promise<void> {
+  const input = runtime.inputs.find((i) => i.component.id === 'slack');
+  const botToken = input?.secrets['botToken'];
+  const appToken = input?.secrets['appToken'];
+  if (!input || !botToken || !appToken) return;
+  const channel = String(input.component.settings['channel']);
+  try {
+    const slack = (ctx.slackConnection ?? boltSlack)(
+      botToken,
+      appToken,
+      proxyOptions(runtime.network),
+    );
+    await slack.api.postMessage({ channel, text: ctx.redactor.redact(text) });
+    ctx.term.out(`Posted the risks and questions to Slack (${channel}).`);
+  } catch (error) {
+    ctx.term.err(
+      `Could not post to Slack: ${ctx.redactor.redact(error instanceof Error ? error.message : String(error))}`,
+    );
   }
 }
 
@@ -335,9 +448,11 @@ interface PrInput {
   plan: { files: { path: string }[] };
   body: string;
   task: string;
+  onboard: boolean;
 }
 
 const TITLE = 'Add a Dockerfile, CI, and a Helm chart';
+const ONBOARD_TITLE = 'Onboard this service: Dockerfile, CI, Helm chart, and a report';
 
 /**
  * One approval covers both changes: pushing a new branch and opening the PR. The policy
@@ -361,15 +476,16 @@ async function openPullRequest(i: PrInput): Promise<number> {
     return 1;
   }
 
-  const head = `kodra-agent/ship-${task.slice(5)}`;
+  const title = i.onboard ? ONBOARD_TITLE : TITLE;
+  const head = `kodra-agent/${i.onboard ? 'onboard' : 'ship'}-${task.slice(5)}`;
   const [owner = '', ...rest] = source.repo.split('/');
   const repoArgs = github ? { owner, repo: rest.join('/') } : { project_id: source.repo };
   const pushArgs = { ...repoArgs, branch: head };
   const prArgs = github
-    ? { ...repoArgs, title: TITLE, body: i.body, head, base: i.baseBranch }
+    ? { ...repoArgs, title, body: i.body, head, base: i.baseBranch }
     : {
         ...repoArgs,
-        title: TITLE,
+        title,
         description: i.body,
         source_branch: head,
         target_branch: i.baseBranch,
@@ -412,7 +528,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
   for (const args of [
     ['checkout', '-b', head],
     ['add', '--', ...files],
-    [...identity, 'commit', '--no-verify', '-m', `${TITLE}\n\nPrepared by Kodra AI Agent.`],
+    [...identity, 'commit', '--no-verify', '-m', `${title}\n\nPrepared by Kodra AI Agent.`],
   ]) {
     const result = await git.run(args, repoDir);
     if (result.code !== 0) {
@@ -424,7 +540,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
   }
 
   const summary = ctx.redactor.redact(
-    JSON.stringify({ repo: source.repo, branch: head, base: i.baseBranch, title: TITLE, files }),
+    JSON.stringify({ repo: source.repo, branch: head, base: i.baseBranch, title, files }),
   );
   const req = newApprovalRequest(
     {
@@ -432,8 +548,9 @@ async function openPullRequest(i: PrInput): Promise<number> {
       tool: `git push + ${prTool.tool}`,
       risk: 'write',
       args: summary,
-      reason:
-        'Ship: push the verified Dockerfile, CI, and Helm chart to a new branch and open a pull request.',
+      reason: i.onboard
+        ? 'Onboard: push the verified Dockerfile, CI, Helm chart, and onboarding report to a new branch and open a pull request.'
+        : 'Ship: push the verified Dockerfile, CI, and Helm chart to a new branch and open a pull request.',
       requestedBy: 'ship',
     },
     rules.rules,

@@ -1,4 +1,5 @@
-import { cp, mkdir, readdir, readFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +9,7 @@ import { fakeLauncher } from '../test-fixtures/fake-connector.ts';
 import {
   configYaml,
   fakeServer,
+  fakeSlack,
   json,
   posixPath,
   scriptedPrompter,
@@ -36,10 +38,18 @@ const git = (args: string[], cwd?: string) =>
   });
 
 /** A bare repo on disk standing in for GitHub, seeded with a sample on `main`. */
-async function bareRemote(dir: string, sample: string): Promise<string> {
+async function bareRemote(
+  dir: string,
+  sample: string,
+  extra: Record<string, string> = {},
+): Promise<string> {
   const seed = join(dir, 'seed');
   const bare = join(dir, 'remote.git');
   await cp(new URL(sample, SAMPLES), seed, { recursive: true });
+  for (const [path, content] of Object.entries(extra)) {
+    await mkdir(dirname(join(seed, path)), { recursive: true });
+    await writeFile(join(seed, path), content);
+  }
   for (const args of [
     ['init', '-q', '-b', 'main'],
     ['add', '.'],
@@ -131,10 +141,15 @@ async function setup(
     exec?: Exec;
     /** Runs `ship` as if inside the agent container with this id. */
     selfContainer?: string;
+    /** Files added to the sample before it is committed. */
+    extra?: Record<string, string>;
+    /** Configure Slack (a fake connection). */
+    slack?: boolean;
   } = {},
 ) {
   const dir = await tempDir();
-  const bare = await bareRemote(dir, opts.sample ?? 'node');
+  const bare = await bareRemote(dir, opts.sample ?? 'node', opts.extra);
+  const slack = fakeSlack();
   const github = await fakeServer({
     '/repos/acme/node-api': (_q, s) => {
       json(s, 200, { default_branch: 'main' });
@@ -153,6 +168,14 @@ async function setup(
         `      access: ${opts.access ?? 'read-write-approved'}`,
         '      config: {repos: [acme/node-api]}',
         "      secrets: {token: '${env:GITHUB_TOKEN}'}",
+        ...(opts.slack
+          ? [
+              '    slack:',
+              '      enabled: true',
+              "      config: {channel: '#ops'}",
+              "      secrets: {botToken: '${env:SLACK_BOT_TOKEN}', appToken: '${env:SLACK_APP_TOKEN}'}",
+            ]
+          : []),
       ].join('\n'),
     }),
     dir,
@@ -161,7 +184,13 @@ async function setup(
   const m = model(opts.modelAnswers);
   const prompter = scriptedPrompter(opts.answers ?? [true]);
   const t = testContext({
-    env: { ANTHROPIC_API_KEY: 'k', GITHUB_TOKEN: TOKEN },
+    env: {
+      ANTHROPIC_API_KEY: 'k',
+      GITHUB_TOKEN: TOKEN,
+      SLACK_BOT_TOKEN: 'xoxb-ship-test-bot',
+      SLACK_APP_TOKEN: 'xapp-ship-test-app',
+    },
+    slackConnection: () => slack.connection(),
     endpoints: { github: github.url },
     launcher: fakeLauncher({ record }),
     modelFactory: () => m,
@@ -212,6 +241,8 @@ async function setup(
     remoteBranches,
     remoteFiles,
     auditPath,
+    slack,
+    bare,
   };
 }
 
@@ -438,4 +469,115 @@ describe.skipIf(!process.env['KODRA_SHIP_E2E'])('kodra-agent ship on real Docker
       expect(await s.remoteFiles(pr?.args['head'] ?? '')).toContain('charts/node-api/Chart.yaml');
     },
   );
+});
+
+// M26: onboard = analyze and report, then the ship flow with the report in the PR.
+const LEAKED = 'ghp_onboardLeakedToken0123456789abcdefAB'; // gitleaks:allow
+const ONBOARD_EXTRA = {
+  'config.js': [
+    'export const db = process.env.DATABASE_URL;',
+    'export const level = process.env.LOG_LEVEL;',
+    `export const token = '${LEAKED}';`,
+  ].join('\n'),
+  'docker-compose.yml': 'services:\n  db:\n    image: postgres:16.4\n',
+};
+
+describe('kodra-agent onboard', () => {
+  it(
+    'reports, posts the questions to Slack, and opens one PR with the report after one approval',
+    { timeout: 60_000 },
+    async () => {
+      const s = await setup({ extra: ONBOARD_EXTRA, slack: true });
+      expect(await main(['onboard', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+      const output = s.t.output();
+      expect(output).toContain('# Onboarding: acme/node-api');
+      expect(output).toContain('PostgreSQL (database), from `docker-compose.yml`');
+      expect(output).toContain('- `config.js:3` (github-token)');
+      expect(output).toContain('Posted the risks and questions to Slack (#ops).');
+      expect(s.prompter.asked).toEqual(['Approve this action?']);
+
+      // Slack gets the risks and questions, with the credential's location only.
+      const posted = s.slack.posted.map((p) => p.text).join('\n');
+      expect(posted).toContain('*Onboarding acme/node-api*: 1 risk, 1 gap.');
+      expect(posted).toContain('Committed credential (github-token) at `config.js:3`');
+      expect(posted).toContain('Where do DATABASE_URL live today');
+
+      const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
+      expect(pr?.args['title']).toBe(
+        'Onboard this service: Dockerfile, CI, Helm chart, and a report',
+      );
+      expect(pr?.args['head']).toMatch(/^kodra-agent\/onboard-[a-f0-9]{8}$/);
+      expect(pr?.args['body']).toContain('## Onboarding');
+      expect(pr?.args['body']).toContain(
+        '- Create a Secret holding `DATABASE_URL` and set `envFromSecret` to its name.',
+      );
+
+      const head = pr?.args['head'] ?? '';
+      expect(await s.remoteFiles(head)).toEqual(
+        expect.arrayContaining(['ONBOARDING.md', 'Dockerfile', 'charts/node-api/values.yaml']),
+      );
+      const show = async (path: string) =>
+        (await git(['--git-dir', s.bare, 'show', `${head}:${path}`])).stdout;
+      const report = await show('ONBOARDING.md');
+      expect(report).toContain('| `DATABASE_URL` | secret | `config.js` |');
+      const values = await show('charts/node-api/values.yaml');
+      expect(values).toContain('#  - name: LOG_LEVEL');
+      expect(values).toContain('# The code reads: DATABASE_URL.');
+
+      // The committed credential is named by location only: never in the report, the PR,
+      // Slack, the terminal, or the audit log.
+      const everything = [
+        output,
+        report,
+        values,
+        JSON.stringify(pr?.args),
+        posted,
+        await readFile(s.auditPath, 'utf8'),
+      ].join('\n');
+      expect(everything).not.toContain(LEAKED);
+      expect(everything).not.toContain(TOKEN);
+      expect(await s.audit()).toContainEqual(
+        expect.objectContaining({ event: 'task.start', detail: 'onboard: github acme/node-api' }),
+      );
+    },
+  );
+
+  it(
+    'reports an unsupported repo without building or pushing anything',
+    { timeout: 60_000 },
+    async () => {
+      const s = await setup({ sample: 'node', extra: { 'pnpm-lock.yaml': '' }, answers: [] });
+      expect(await main(['onboard', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+      expect(s.t.output()).toContain('Not shipped automatically: Found pnpm-lock.yaml');
+      expect(s.t.output()).toContain('Nothing was shipped: answer the questions above');
+      expect(s.exec.calls.some((c) => c.command === 'docker')).toBe(false);
+      expect(await s.remoteBranches()).toEqual(['main']);
+      expect(s.slack.posted).toEqual([]);
+    },
+  );
+
+  it('pushes nothing when the approval is denied', { timeout: 60_000 }, async () => {
+    const s = await setup({ extra: ONBOARD_EXTRA, answers: [false] });
+    expect(await main(['onboard', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(1);
+    expect(s.t.output()).toContain('# Onboarding: acme/node-api');
+    expect(s.t.output()).toContain('Not approved. Nothing was pushed.');
+    expect(await s.remoteBranches()).toEqual(['main']);
+  });
+
+  it('keeps an existing ONBOARDING.md', { timeout: 60_000 }, async () => {
+    const s = await setup({ extra: { 'ONBOARDING.md': '# Ours\n' } });
+    expect(await main(['onboard', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+    const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
+    expect(pr?.args['body']).toContain('ONBOARDING.md: the existing one is left alone');
+    const head = pr?.args['head'] ?? '';
+    expect((await git(['--git-dir', s.bare, 'show', `${head}:ONBOARDING.md`])).stdout).toBe(
+      '# Ours\n',
+    );
+  });
+
+  it('checks its arguments', async () => {
+    const t = testContext();
+    expect(await main(['onboard'], t.ctx)).toBe(2);
+    expect(t.output()).toContain('Usage: kodra-agent onboard');
+  });
 });

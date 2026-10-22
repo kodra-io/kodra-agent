@@ -18,6 +18,7 @@ const COMMANDS = [
   ['run', 'Start the service: Slack, alert monitoring, and health checks'],
   ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
   ['ship <repo|dir>', 'Add a Dockerfile, CI, and Helm chart, verify them, and open a PR'],
+  ['onboard <repo|dir>', 'Report what a repo needs and its risks, then ship it with that report'],
   ['audit verify', "Check that the audit log's records were not edited, deleted, or reordered"],
 ] as const;
 
@@ -118,18 +119,28 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
         return 2;
       }
       return auditVerify({ configPath: config, json: values.json ?? false }, ctx);
-    case 'ship': {
+    case 'ship':
+    case 'onboard': {
       const target = positionals[1];
       const maxFixes = Number(values['max-fixes'] ?? '2');
       if (target === undefined) {
-        ctx.term.err('Usage: kodra-agent ship <owner/repo | group/project | folder>');
+        ctx.term.err(`Usage: kodra-agent ${command} <owner/repo | group/project | folder>`);
         return 2;
       }
       if (!Number.isInteger(maxFixes) || maxFixes < 0 || maxFixes > 5) {
         ctx.term.err('--max-fixes must be a whole number from 0 to 5.');
         return 2;
       }
-      return ship({ configPath: config, target, branch: values.branch, maxFixes }, ctx);
+      return ship(
+        {
+          configPath: config,
+          target,
+          branch: values.branch,
+          maxFixes,
+          onboard: command === 'onboard',
+        },
+        ctx,
+      );
     }
     default:
       ctx.term.err(`Unknown command '${command}'. Run 'kodra-agent --help'.`);

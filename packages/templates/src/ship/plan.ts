@@ -26,6 +26,8 @@ export interface PlanOptions {
   gitlabUrl?: string;
   /** Registry mirrors for base images (spec.ship.baseImageMirrors). */
   mirrors?: Readonly<Record<string, string>>;
+  /** Environment variables the code reads, for the chart (names only, from `onboard`). */
+  env?: { settings: readonly string[]; secrets: readonly string[] };
 }
 
 export interface ShipFile {
@@ -84,7 +86,11 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
     kept.push(`Helm chart: the existing one in ${chartDir} is linted, not replaced.`);
   } else {
     for (const [path, content] of Object.entries(
-      helmChart(d, { image, generatedDockerfile: !d.existing.dockerfile }),
+      helmChart(d, {
+        image,
+        generatedDockerfile: !d.existing.dockerfile,
+        ...(o.env ? { env: o.env } : {}),
+      }),
     )) {
       files.push({
         path,
@@ -130,6 +136,8 @@ export interface PrBodyInput {
   verification: string[];
   /** Changes the model made to fix a failed build, if any. */
   modelChanges: string[];
+  /** From `onboard`: the report's path in this PR, the questions, and the secrets to create. */
+  onboarding?: { reportPath: string | null; questions: string[]; secrets: string[] };
 }
 
 /** The PR description: what was detected, what each file is for, and how it was verified. */
@@ -140,6 +148,20 @@ export function shipPrBody(i: PrBodyInput): string {
     'Kodra AI Agent prepared this pull request to build, containerize, and package this service.',
     'Nothing is deployed: review it, merge it, and your own CI takes it from there.',
     '',
+    ...(i.onboarding
+      ? [
+          '## Onboarding',
+          ...(i.onboarding.reportPath
+            ? [
+                `\`${i.onboarding.reportPath}\` describes what the app depends on, the settings it reads, risks, and gaps.`,
+                '',
+              ]
+            : []),
+          'Questions for the team:',
+          ...i.onboarding.questions.map((q, n) => `${String(n + 1)}. ${q}`),
+          '',
+        ]
+      : []),
     '## What was detected',
     ...i.detection.notes.map((n) => `- ${n}`),
     '',
@@ -162,6 +184,11 @@ export function shipPrBody(i: PrBodyInput): string {
     '',
     '## Before you deploy',
     `- The chart pulls \`${i.plan.image}\`. CI tags images with the commit SHA: deploy with \`--set image.tag=<sha>\`.`,
+    ...(i.onboarding && i.onboarding.secrets.length > 0
+      ? [
+          `- Create a Secret holding ${i.onboarding.secrets.map((s) => `\`${s}\``).join(', ')} and set \`envFromSecret\` to its name.`,
+        ]
+      : []),
     '- Resource requests are a starting point. Tune them from real usage.',
     '',
   ].join('\n');

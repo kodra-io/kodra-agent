@@ -6,6 +6,32 @@ export interface ChartOptions {
   image: string;
   /** Whether the Dockerfile is ours, so its numeric user is known. */
   generatedDockerfile: boolean;
+  /** Environment variables the code reads (names only, from `onboard`). */
+  env?: { settings: readonly string[]; secrets: readonly string[] };
+}
+
+/** The env part of values.yaml: names to fill in, and a Secret for credentials. Never a value. */
+function envValues(n: string, env: ChartOptions['env']): string {
+  const settings = env?.settings ?? [];
+  const secrets = env?.secrets ?? [];
+  const lines: string[] = [];
+  if (settings.length > 0) {
+    lines.push('# Settings the code reads. Uncomment them and set a value for each environment.');
+  }
+  lines.push('env: []');
+  for (const name of settings) lines.push(`#  - name: ${name}`, '#    value: ""');
+  lines.push('');
+  lines.push(
+    '# A Secret you create, loaded as environment variables. Secrets never go in this file.',
+  );
+  if (secrets.length > 0) {
+    lines.push(
+      `# The code reads: ${secrets.join(', ')}.`,
+      `# kubectl create secret generic ${n}-env ${secrets.map((s) => `--from-literal=${s}=...`).join(' ')}`,
+    );
+  }
+  lines.push(`envFromSecret: ""${secrets.length > 0 ? ` # for example ${n}-env` : ''}`);
+  return lines.join('\n');
 }
 
 const isJava = (d: Detection) => d.stack === 'spring-maven' || d.stack === 'spring-gradle';
@@ -72,7 +98,7 @@ securityContext:
   capabilities:
     drop: [ALL]
 
-env: []
+${envValues(n, opts.env)}
 
 nodeSelector: {}
 tolerations: []
@@ -135,6 +161,11 @@ spec:
           {{- with .Values.env }}
           env:
             {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.envFromSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
           {{- end }}
           startupProbe:
             {{- toYaml .Values.startupProbe | nindent 12 }}

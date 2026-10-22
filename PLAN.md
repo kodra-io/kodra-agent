@@ -512,6 +512,15 @@ Build in this order. Each connector follows the process in `CLAUDE.md`: license 
 6. **Elasticsearch or OpenSearch, and Splunk,** for logs.
 7. **.NET in the ship flow:** detection, a Dockerfile template that runs as the image's non-root user, its test and lint commands in the stage registry, and a sample app in `examples/ship`.
 
+### M26: Onboard a repo
+
+`kodra-agent onboard <repo|dir>`: what a DevOps engineer does first with a new repo. See `docs/onboard.md`.
+
+- **Understand (read-only).** From file contents only: the stack, services in a monorepo, what the app depends on (databases, caches, queues, storage), the environment variables it reads (secret-like names flagged), committed credentials (file, line, and rule, never the value), migrations, tests, and gaps in an existing Dockerfile, CI, or lockfile. Then questions for the team.
+- **Act (one approval).** The report is printed and its risks and questions go to the Slack channel. The ship flow then runs with what it found: the chart lists the settings and loads secrets from a Secret the team creates (`envFromSecret`), and `ONBOARDING.md` joins the PR. An unsupported repo gets the report only.
+
+Done when the report is right on the sample repos and the fixtures (a monorepo, an unsupported stack, a committed credential, settings in each language), one approval opens the PR with the report, and the credential's value appears nowhere.
+
 ---
 
 ## 9. Status
@@ -529,6 +538,7 @@ Update this table at the end of every milestone.
 | Publish the configurator at build.kodra.io/agent     | v0.3.0       | Not started |     |
 | M15 Value on day one (the demo)                      | After launch | Deferred    |     |
 | Design partners: five to ten, notes in docs/partners | After launch | Not started |     |
+| M26 Onboard a repo                                   | After launch | Done        |     |
 
 Candidates after launch, not scheduled: scheduled checks; M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 
