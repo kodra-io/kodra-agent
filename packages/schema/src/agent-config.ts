@@ -392,12 +392,12 @@ const consoleSchema = z
   .meta({ description: 'The web console: status, activity, usage, chat, and approvals.' });
 
 function fieldSchema(field: ConfigField): z.ZodType {
-  const description = field.description.en;
+  const description = field.description;
   switch (field.kind) {
     case 'string': {
       let s = z.string().min(1);
       if (field.pattern) {
-        s = s.regex(new RegExp(field.pattern), field.patternHint?.en ?? 'has the wrong format');
+        s = s.regex(new RegExp(field.pattern), field.patternHint ?? 'has the wrong format');
       }
       const out = field.default !== undefined ? s.default(field.default) : s;
       return out.meta({ description });
@@ -409,10 +409,7 @@ function fieldSchema(field: ConfigField): z.ZodType {
     case 'string-list': {
       let item = z.string().min(1);
       if (field.pattern) {
-        item = item.regex(
-          new RegExp(field.pattern),
-          field.patternHint?.en ?? 'has the wrong format',
-        );
+        item = item.regex(new RegExp(field.pattern), field.patternHint ?? 'has the wrong format');
       }
       return z.array(item).min(1, 'needs at least one entry').meta({ description });
     }
@@ -440,7 +437,7 @@ function connectorEntrySchema(manifest: Manifest) {
   for (const secret of manifest.secrets) {
     secretsShape[secret.key] = optionalUnless(
       secretRefSchema.meta({
-        description: `${secret.description.en} Usually \${env:${secret.envVar}}.`,
+        description: `${secret.description} Usually \${env:${secret.envVar}}.`,
       }),
       secret.required,
     );
@@ -464,7 +461,7 @@ function connectorEntrySchema(manifest: Manifest) {
   }
   return unknownKeys(shape, 'key').meta({
     title: manifest.displayName,
-    description: manifest.description.en,
+    description: manifest.description,
   });
 }
 
@@ -557,7 +554,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         ctx.addIssue({
           code: 'custom',
           path: ['spec', 'connectors', issue.connector, 'enabled'],
-          message: issue.message.en,
+          message: issue.message,
         });
       }
       const approvers = [

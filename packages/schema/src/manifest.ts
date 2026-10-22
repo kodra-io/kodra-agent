@@ -29,8 +29,8 @@ const KEY = /^[a-z][A-Za-z0-9]*$/;
 const ENV_VAR = /^[A-Z][A-Z0-9_]*$/;
 const PROBE = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/;
 
-const localizedText = z.strictObject({ en: z.string().min(1), ar: z.string().min(1) });
-export type LocalizedText = z.infer<typeof localizedText>;
+/** User-facing copy, in plain English. */
+const copy = z.string().min(1);
 
 const regexSource = z.string().refine((source) => {
   try {
@@ -51,9 +51,9 @@ const entryField = z.discriminatedUnion('kind', [
     key: z.string().regex(KEY),
     required: z.boolean(),
     requiredWith: z.string().regex(KEY).optional(),
-    description: localizedText,
+    description: copy,
     pattern: regexSource.optional(),
-    patternHint: localizedText.optional(),
+    patternHint: copy.optional(),
     example: z.string().optional(),
   }),
   z.strictObject({
@@ -61,7 +61,7 @@ const entryField = z.discriminatedUnion('kind', [
     key: z.string().regex(KEY),
     required: z.boolean(),
     requiredWith: z.string().regex(KEY).optional(),
-    description: localizedText,
+    description: copy,
     min: z.int(),
     max: z.int(),
     default: z.int().optional(),
@@ -70,14 +70,14 @@ const entryField = z.discriminatedUnion('kind', [
     kind: z.literal('choice'),
     key: z.string().regex(KEY),
     required: z.boolean(),
-    description: localizedText,
+    description: copy,
     options: z.array(z.string().min(1)).min(1),
     default: z.string().optional(),
   }),
   z.strictObject({
     kind: z.literal('boolean'),
     key: z.string().regex(KEY),
-    description: localizedText,
+    description: copy,
     default: z.boolean(),
   }),
   /** A secret reference, never a value; see `envPrefix`. */
@@ -86,8 +86,8 @@ const entryField = z.discriminatedUnion('kind', [
     key: z.string().regex(KEY),
     required: z.boolean(),
     requiredWith: z.string().regex(KEY).optional(),
-    description: localizedText,
-    howToCreate: localizedText,
+    description: copy,
+    howToCreate: copy,
     /** The variable's suffix, like PASSWORD. */
     envVar: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
   }),
@@ -98,9 +98,9 @@ const configField = z.discriminatedUnion('kind', [
     kind: z.literal('string'),
     key: z.string().regex(KEY),
     required: z.boolean(),
-    description: localizedText,
+    description: copy,
     pattern: regexSource.optional(),
-    patternHint: localizedText.optional(),
+    patternHint: copy.optional(),
     default: z.string().optional(),
     example: z.string().optional(),
   }),
@@ -108,7 +108,7 @@ const configField = z.discriminatedUnion('kind', [
     kind: z.literal('url'),
     key: z.string().regex(KEY),
     required: z.boolean(),
-    description: localizedText,
+    description: copy,
     default: z.url().optional(),
     example: z.url().optional(),
   }),
@@ -116,9 +116,9 @@ const configField = z.discriminatedUnion('kind', [
     kind: z.literal('string-list'),
     key: z.string().regex(KEY),
     required: z.boolean(),
-    description: localizedText,
+    description: copy,
     pattern: regexSource.optional(),
-    patternHint: localizedText.optional(),
+    patternHint: copy.optional(),
     default: z.array(z.string()).optional(),
     example: z.array(z.string()).optional(),
   }),
@@ -126,7 +126,7 @@ const configField = z.discriminatedUnion('kind', [
     kind: z.literal('integer'),
     key: z.string().regex(KEY),
     required: z.boolean(),
-    description: localizedText,
+    description: copy,
     min: z.int(),
     max: z.int(),
     default: z.int().optional(),
@@ -140,10 +140,10 @@ const configField = z.discriminatedUnion('kind', [
     kind: z.literal('entries'),
     key: z.string().regex(KEY),
     required: z.boolean(),
-    description: localizedText,
+    description: copy,
     fields: z.array(entryField).min(1),
     /** What one entry is, for buttons like "Add database". */
-    noun: localizedText,
+    noun: copy,
     /**
      * An entry's secrets are environment variables named for it: `<envPrefix><NAME>_<envVar>`,
      * like KODRA_DB_ORDERS_PASSWORD. A reference to any other variable is refused, so an entry
@@ -176,8 +176,8 @@ const secretSpec = z.strictObject({
    * optional inside the cluster, but needed on Docker Compose). Use isSecretRequired().
    */
   requiredOn: z.array(z.enum(['compose', 'kubernetes'])).optional(),
-  description: localizedText,
-  howToCreate: localizedText,
+  description: copy,
+  howToCreate: copy,
   minimumScopes: scopesByAccess,
   /** Id of the cheap read call `init` and `doctor` use to validate the secret (built in M3). */
   probe: z.string().regex(PROBE),
@@ -201,7 +201,7 @@ const requirement = z.strictObject({
       ]),
     )
     .min(1),
-  message: localizedText,
+  message: copy,
 });
 export type Requirement = z.infer<typeof requirement>;
 
@@ -450,7 +450,7 @@ export type DashboardView = z.infer<typeof dashboardView>;
  */
 const dashboardPanel = z.strictObject({
   id: z.string().regex(KEY),
-  title: localizedText,
+  title: copy,
   tool: z.string().min(1),
   /** Fixed arguments. */
   args: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
@@ -491,7 +491,7 @@ export const manifestSchema = z
     displayName: z.string().min(1),
     category: z.enum(CATEGORIES),
     status: z.enum(['available', 'coming-soon']),
-    description: localizedText,
+    description: copy,
     /** Empty for connectors where access does not apply (model providers, chat). */
     accessLevels: z.array(z.enum(ACCESS_LEVELS)),
     requires: z.array(requirement),
@@ -534,9 +534,9 @@ export const manifestSchema = z
     /** null until the MCP server is chosen and documented (M4). */
     runtime: runtime.nullable(),
     permissionsSummary: z.strictObject({
-      always: z.array(localizedText).optional(),
-      'read-only': z.array(localizedText).optional(),
-      'read-write-approved': z.array(localizedText).optional(),
+      always: z.array(copy).optional(),
+      'read-only': z.array(copy).optional(),
+      'read-write-approved': z.array(copy).optional(),
     }),
   })
   .superRefine((m, ctx) => {

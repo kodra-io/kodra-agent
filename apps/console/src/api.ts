@@ -284,35 +284,29 @@ export async function signOut(): Promise<void> {
   await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
 }
 
-/** Text in the configurator's two languages, from a connector manifest. */
-export interface Localized {
-  en: string;
-  ar: string;
-}
-
 export type ConfigField =
   | {
       kind: 'string';
       key: string;
       required: boolean;
-      description: Localized;
+      description: string;
       example?: string;
-      patternHint?: Localized;
+      patternHint?: string;
     }
-  | { kind: 'url'; key: string; required: boolean; description: Localized; example?: string }
+  | { kind: 'url'; key: string; required: boolean; description: string; example?: string }
   | {
       kind: 'string-list';
       key: string;
       required: boolean;
-      description: Localized;
+      description: string;
       example?: string[];
-      patternHint?: Localized;
+      patternHint?: string;
     }
   | {
       kind: 'integer';
       key: string;
       required: boolean;
-      description: Localized;
+      description: string;
       min: number;
       max: number;
     }
@@ -321,10 +315,10 @@ export type ConfigField =
       kind: 'entries';
       key: string;
       required: boolean;
-      description: Localized;
+      description: string;
       fields: EntryField[];
       /** What one entry is, like "database". */
-      noun: Localized;
+      noun: string;
       /** An entry's secret lives in <envPrefix><NAME>_<envVar>. */
       envPrefix: string;
       max: number;
@@ -336,16 +330,16 @@ export type EntryField =
       key: string;
       required: boolean;
       requiredWith?: string;
-      description: Localized;
+      description: string;
       example?: string;
-      patternHint?: Localized;
+      patternHint?: string;
     }
   | {
       kind: 'integer';
       key: string;
       required: boolean;
       requiredWith?: string;
-      description: Localized;
+      description: string;
       min: number;
       max: number;
       default?: number;
@@ -354,17 +348,17 @@ export type EntryField =
       kind: 'choice';
       key: string;
       required: boolean;
-      description: Localized;
+      description: string;
       options: string[];
       default?: string;
     }
-  | { kind: 'boolean'; key: string; description: Localized; default: boolean }
+  | { kind: 'boolean'; key: string; description: string; default: boolean }
   | {
       kind: 'secret';
       key: string;
       required: boolean;
       requiredWith?: string;
-      description: Localized;
+      description: string;
       envVar: string;
     };
 
@@ -376,8 +370,8 @@ export interface SecretSetting {
   set: boolean;
   writable: boolean;
   ref: string;
-  description: Localized;
-  howToCreate: Localized;
+  description: string;
+  howToCreate: string;
 }
 
 export interface ConnectorSettings {
@@ -385,9 +379,9 @@ export interface ConnectorSettings {
   name: string;
   category: string;
   status: 'available' | 'coming-soon';
-  description: Localized;
+  description: string;
   accessLevels: string[];
-  summaries: Partial<Record<string, Localized[]>>;
+  summaries: Partial<Record<string, string[]>>;
   enabled: boolean;
   access: string | null;
   config: Record<string, unknown>;
@@ -572,7 +566,7 @@ export interface TargetResult {
 
 export interface PanelResult {
   id: string;
-  title: Localized;
+  title: string;
   view: 'pods' | 'workload' | 'database' | 'deployments' | 'events' | 'runs' | 'jobs';
   results: TargetResult[];
   note?: 'no-targets' | 'unavailable';
@@ -603,14 +597,14 @@ export interface ModelOptionsView {
 export interface ProviderView {
   id: string;
   name: string;
-  description: Localized;
-  sends: Localized[];
+  description: string;
+  sends: string[];
   fields: ConfigField[];
   secrets: {
     key: string;
     envVar: string;
-    description: Localized;
-    howToCreate: Localized;
+    description: string;
+    howToCreate: string;
     set: boolean;
   }[];
   config: Record<string, string>;

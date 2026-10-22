@@ -48,9 +48,7 @@ describe('validateDraft', () => {
       step: 'connectors',
       code: 'pattern',
     });
-    expect(issue?.code === 'pattern' && issue.hint?.en).toBe(
-      'use owner/repo, like acme/payments-api',
-    );
+    expect(issue?.code === 'pattern' && issue.hint).toBe('use owner/repo, like acme/payments-api');
   });
 
   it('checks URLs and integer ranges', () => {

@@ -7,7 +7,6 @@ import {
   type AccessLevel,
   type ApprovalRules,
   type Profile,
-  type LocalizedText,
   type Manifest,
   type SecretSpec,
 } from '@kodra-agent/schema';
@@ -110,8 +109,8 @@ function envExample(draft: AgentDraft): string {
   ];
   const uses = secretsInUse(draft);
   for (const use of uses.filter((u) => u.spec.defaultRef === 'env')) {
-    lines.push('', `# ${use.owner}: ${use.spec.description.en}`);
-    lines.push(`# How to create: ${use.spec.howToCreate.en}`);
+    lines.push('', `# ${use.owner}: ${use.spec.description}`);
+    lines.push(`# How to create: ${use.spec.howToCreate}`);
     const scopes = scopesFor(use);
     if (scopes.length > 0) lines.push(`# Minimum access: ${scopes.join('; ')}`);
     lines.push(`${use.spec.envVar}=`);
@@ -299,7 +298,7 @@ ${docs.join('\n---\n')}
 `;
 }
 
-function summaryLines(manifest: Manifest, access: AccessLevel | undefined): LocalizedText[] {
+function summaryLines(manifest: Manifest, access: AccessLevel | undefined): string[] {
   const s = manifest.permissionsSummary;
   return [...(s.always ?? []), ...((access && s[access]) ?? [])];
 }
@@ -510,7 +509,7 @@ function readme(draft: AgentDraft): string {
   lines.push('## What this agent can do', '');
   if (provider) {
     lines.push(`**Model: ${provider.displayName}**`, '');
-    for (const t of summaryLines(provider, undefined)) lines.push(`- ${t.en}`);
+    for (const t of summaryLines(provider, undefined)) lines.push(`- ${t}`);
     lines.push('');
   }
   for (const manifest of enabledConnectors(draft)) {
@@ -518,7 +517,7 @@ function readme(draft: AgentDraft): string {
     const label = manifest.accessLevels.length > 0 ? ` (${access ?? 'read-only'})` : '';
     lines.push(`**${manifest.displayName}${label}**`, '');
     for (const t of summaryLines(manifest, manifest.accessLevels.length > 0 ? access : undefined)) {
-      lines.push(`- ${t.en}`);
+      lines.push(`- ${t}`);
     }
     lines.push('');
   }
@@ -541,7 +540,7 @@ function readme(draft: AgentDraft): string {
   for (const use of uses) {
     const where =
       use.spec.defaultRef === 'env' ? `\`${use.spec.envVar}\`` : `a file (${use.spec.key})`;
-    lines.push(`- ${use.owner}: ${where}. ${use.spec.description.en}`);
+    lines.push(`- ${use.owner}: ${where}. ${use.spec.description}`);
   }
   if (dockerSocketPath(draft)) {
     lines.push(

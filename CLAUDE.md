@@ -117,6 +117,6 @@ docs                  connector docs, security model (docs/security), observabil
 - Small, focused commits with clear messages. No `DEV-{NAME}` co-author tags (those are for the kodra.io services).
 - Branches: `feature/…`, `fix/…`, `chore/…` with PRs into `main`. Releases are cut from tags. No `develop` branch.
 - Every module with logic has unit tests. Security behavior (redaction, policy engine, approvals, secret handling) has explicit tests.
-- User-facing copy lives in locale files (`en`, `ar`). Every screen must work in RTL.
+- User-facing copy is English only (Arabic was dropped in October 2026). UI copy lives in `locales/en.json`; manifest copy is plain strings.
 - Configurator brand tokens: primary `#3250A0`, primary-deep `#26407F`, primary-tint `#EEF1F8`, text `#172554`, text-secondary `#6B7785`, background `#FAFBFC`, border `#E4E8EE`. One accent color only. Headings in Arial. Fonts self-hosted, no third-party requests.
 - Copy rules: plain language, no em dashes, no fabricated stats, logos, or testimonials.

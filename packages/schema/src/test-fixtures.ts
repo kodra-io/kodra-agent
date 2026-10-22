@@ -1,6 +1,6 @@
 import { defineManifest, type Manifest } from './manifest.ts';
 
-const text = (en: string) => ({ en, ar: en });
+const text = (en: string) => en;
 
 /** Small manifests for unit tests, independent of the real connector catalog. */
 export function fixtureManifest(overrides: Partial<Manifest> & Pick<Manifest, 'id'>): Manifest {

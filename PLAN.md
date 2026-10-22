@@ -108,7 +108,7 @@ Why this order:
   - Toggles add, remove or configure stages. Nothing else changes the pipeline.
 - **A stage registry.** Each stage is declared once, the way connectors are declared in manifests. A declaration holds:
   - its id
-  - a plain-language description in English and Arabic
+  - a plain-language description
   - its settings and their validation
   - the CI systems and build engines that support it
   - what the team must add to their CI (secrets and variables, by name)
@@ -265,7 +265,7 @@ Build:
 Done when:
 
 - Golden files show that the moved GitHub Actions and GitLab CI output matches today's byte for byte.
-- Playwright shows the preview updating as toggles change, in English and Arabic.
+- Playwright shows the preview updating as toggles change.
 - Invalid combinations show a reason.
 
 ### M21: Tests, lint, and supply chain

@@ -1,5 +1,4 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
-import { t } from '../shared.ts';
 
 /** Jobs by full name (`folder/job`): one listed, or under a listed folder. */
 const inJobs: ToolGuard[] = [
@@ -40,20 +39,16 @@ const GLOBAL_READS = [
   'get_plugins_with_updates',
 ] as const;
 
-const readSummary = t(
-  'Reads jobs, builds, console logs, and test reports with the Jenkins API token. Lists jobs, the queue, nodes, and plugins the token can see.',
-  'يقرأ المهام والبناءات وسجلات وحدة التحكم وتقارير الاختبارات باستخدام رمز Jenkins. يعرض المهام والطابور والعقد والإضافات التي يراها الرمز.',
-);
+const readSummary =
+  'Reads jobs, builds, console logs, and test reports with the Jenkins API token. Lists jobs, the queue, nodes, and plugins the token can see.';
 
 export default defineManifest({
   id: 'jenkins',
   displayName: 'Jenkins',
   category: 'cicd',
   status: 'available',
-  description: t(
+  description:
     'Read Jenkins jobs, builds, and console logs. With write access, stop a build after approval.',
-    'قراءة مهام Jenkins وبناءاتها وسجلاتها. مع صلاحية الكتابة، إيقاف بناء بعد الموافقة.',
-  ),
   accessLevels: ['read-only', 'read-write-approved'],
   requires: [],
   configFields: [
@@ -61,33 +56,25 @@ export default defineManifest({
       kind: 'url',
       key: 'url',
       required: true,
-      description: t('Jenkins address.', 'عنوان Jenkins.'),
+      description: 'Jenkins address.',
       example: 'https://jenkins.example.com',
     },
     {
       kind: 'string',
       key: 'username',
       required: true,
-      description: t(
-        'Jenkins user the API token belongs to.',
-        'مستخدم Jenkins الذي يتبع له رمز الواجهة البرمجية.',
-      ),
+      description: 'Jenkins user the API token belongs to.',
       pattern: '^[^\\s/]{1,100}$',
-      patternHint: t('a Jenkins user id, without spaces', 'معرّف مستخدم Jenkins دون مسافات'),
+      patternHint: 'a Jenkins user id, without spaces',
     },
     {
       kind: 'string-list',
       key: 'jobs',
       required: true,
-      description: t(
+      description:
         'Jobs the agent may work with, by full name. A folder covers every job under it.',
-        'المهام التي يعمل بها الوكيل، بالاسم الكامل. المجلد يشمل كل المهام داخله.',
-      ),
       pattern: '^[^\\s/][^\\n]{0,199}$',
-      patternHint: t(
-        'a job or folder full name, like deploy-web or team-a/services',
-        'اسم مهمة أو مجلد كامل، مثل deploy-web أو team-a/services',
-      ),
+      patternHint: 'a job or folder full name, like deploy-web or team-a/services',
       example: ['team-a/services', 'deploy-web'],
     },
   ],
@@ -97,11 +84,9 @@ export default defineManifest({
       envVar: 'JENKINS_API_TOKEN',
       defaultRef: 'env',
       required: true,
-      description: t('Jenkins API token.', 'رمز الواجهة البرمجية في Jenkins.'),
-      howToCreate: t(
+      description: 'Jenkins API token.',
+      howToCreate:
         'Sign in to Jenkins as that user, open your profile, then Security, and add an API token. Give the user Read only on the jobs it should see (plus Cancel for write access).',
-        'سجّل الدخول إلى Jenkins بذلك المستخدم، وافتح ملفك ثم Security، وأضف رمز API. امنح المستخدم صلاحية Read فقط على المهام التي يجب أن يراها (وCancel لصلاحية الكتابة).',
-      ),
       minimumScopes: {
         'read-only': ['Overall/Read', 'Job/Read on the listed jobs'],
         'read-write-approved': ['Overall/Read', 'Job/Read and Job/Cancel on the listed jobs'],
@@ -139,7 +124,7 @@ export default defineManifest({
   dashboard: [
     {
       id: 'jobs',
-      title: t('Jobs', 'المهام'),
+      title: 'Jobs',
       tool: 'get_all_items',
       view: {
         kind: 'jobs',
@@ -176,10 +161,7 @@ export default defineManifest({
     'read-only': [readSummary],
     'read-write-approved': [
       readSummary,
-      t(
-        'Stops a running build of a listed job after approval. Starting builds and answering pipeline inputs are destructive: blocked unless destructiveActions is require-approval.',
-        'يوقف بناءً قيد التشغيل لمهمة مدرجة بعد الموافقة. بدء البناءات والرد على مدخلات خط الإنتاج إجراءات خطرة: محظورة ما لم تكن destructiveActions مضبوطة على require-approval.',
-      ),
+      'Stops a running build of a listed job after approval. Starting builds and answering pipeline inputs are destructive: blocked unless destructiveActions is require-approval.',
     ],
   },
 });

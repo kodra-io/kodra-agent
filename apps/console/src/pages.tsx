@@ -18,7 +18,7 @@ import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
 import { useStatus } from './status.ts';
-import { Badge, Cell, Ltr, Page, Table } from './ui.tsx';
+import { Badge, Cell, Mono, Page, Table } from './ui.tsx';
 import { Welcome } from './welcome.tsx';
 
 /** Who is signed in: `console` (the shared token) or `console:<name>`. */
@@ -148,9 +148,9 @@ export function OverviewPage({ onSignedOut, me, go, chat }: PageProps) {
                         <span className="flex min-w-0 flex-col gap-0.5">
                           <span className="font-medium">
                             {c.title ? (
-                              <bdi dir="auto">{c.title}</bdi>
+                              <span>{c.title}</span>
                             ) : (
-                              <Ltr>{`${c.connector}/${c.tool}`}</Ltr>
+                              <Mono>{`${c.connector}/${c.tool}`}</Mono>
                             )}
                           </span>
                           <span className="text-[13px] text-ink-secondary">
@@ -194,7 +194,7 @@ export function ConnectorTools({ connector: c }: { connector: ConnectorView }) {
       {shared.length > 0 && (
         <p className="mt-1 text-sm">
           <span className="text-ink-secondary">{t('connectors.sharedLimits')}</span>{' '}
-          <bdi dir="ltr">{shared.join('; ')}</bdi>
+          <span>{shared.join('; ')}</span>
         </p>
       )}
       <ul className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
@@ -203,12 +203,10 @@ export function ConnectorTools({ connector: c }: { connector: ConnectorView }) {
           const own = tool.limits.filter((l) => !shared.includes(l));
           return (
             <li key={tool.name}>
-              <Ltr>{tool.name}</Ltr>{' '}
+              <Mono>{tool.name}</Mono>{' '}
               <span className="text-ink-secondary">({has(risk) ? t(risk) : tool.risk})</span>
               {own.length > 0 && (
-                <span className="block ps-4 text-xs text-ink-secondary" dir="ltr">
-                  {own.join('; ')}
-                </span>
+                <span className="block ps-4 text-xs text-ink-secondary">{own.join('; ')}</span>
               )}
             </li>
           );
@@ -330,14 +328,14 @@ export function ActivityPage({ onSignedOut }: PageProps) {
               <Cell>{time(r.ts)}</Cell>
               <Cell>{label('event', r.event)}</Cell>
               <Cell>
-                <Ltr>{r.actor}</Ltr>
+                <Mono>{r.actor}</Mono>
               </Cell>
-              <Cell>{r.connector ? <Ltr>{`${r.connector}/${r.tool ?? ''}`}</Ltr> : null}</Cell>
+              <Cell>{r.connector ? <Mono>{`${r.connector}/${r.tool ?? ''}`}</Mono> : null}</Cell>
               <Cell>
                 {r.decision ? <Badge tone="plain">{label('decision', r.decision)}</Badge> : null}
               </Cell>
               <Cell mono>
-                <bdi dir="ltr">{r.detail}</bdi>
+                <span>{r.detail}</span>
               </Cell>
             </tr>
           ))}
@@ -377,24 +375,18 @@ export function InvestigationsPage({ onSignedOut }: PageProps) {
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-bold">
-                <Ltr>{inv.alert}</Ltr>
+                <Mono>{inv.alert}</Mono>
               </h2>
               <span className="text-sm text-ink-secondary">
                 <Badge tone="plain">
-                  <bdi dir="ltr">{inv.severity}</bdi>
+                  <span>{inv.severity}</span>
                 </Badge>{' '}
                 {time(inv.ts)}
               </span>
             </div>
-            {inv.summary && (
-              <p className="mt-1 text-sm" dir="ltr">
-                {inv.summary}
-              </p>
-            )}
+            {inv.summary && <p className="mt-1 text-sm">{inv.summary}</p>}
             <h3 className="mt-3 text-sm font-semibold">{t('investigations.findings')}</h3>
-            <p className="mt-1 whitespace-pre-wrap text-sm" dir="auto">
-              {inv.findings}
-            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm">{inv.findings}</p>
           </article>
         ))}
       </div>
@@ -438,7 +430,7 @@ export function UsagePage({ onSignedOut }: PageProps) {
         <div className="space-y-6">
           <div className="rounded-xl border border-line bg-raised p-4 text-sm">
             <p>
-              <Ltr>{data.model}</Ltr>
+              <Mono>{data.model}</Mono>
             </p>
             <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
               {(
@@ -484,7 +476,7 @@ export function UsagePage({ onSignedOut }: PageProps) {
                 <h2 className="mb-2 font-bold">{t('usage.byDay')}</h2>
                 <Table head={head('usage.day')}>
                   {data.days.map((d) => (
-                    <tr key={d.day}>{row(<bdi dir="ltr">{d.day}</bdi>, d)}</tr>
+                    <tr key={d.day}>{row(<span>{d.day}</span>, d)}</tr>
                   ))}
                 </Table>
               </section>
@@ -497,7 +489,7 @@ export function UsagePage({ onSignedOut }: PageProps) {
                         <>
                           {time(q.ts)}{' '}
                           <span className="text-ink-secondary">
-                            <Ltr>{q.actor}</Ltr>
+                            <Mono>{q.actor}</Mono>
                           </span>
                         </>,
                         q,
@@ -625,18 +617,18 @@ export function ApprovalsPage({ onSignedOut, me }: PageProps) {
                     <Cell>
                       <span className="font-medium">
                         {a.title ? (
-                          <bdi dir="auto">{a.title}</bdi>
+                          <span>{a.title}</span>
                         ) : (
-                          <Ltr>{`${a.connector}/${a.tool}`}</Ltr>
+                          <Mono>{`${a.connector}/${a.tool}`}</Mono>
                         )}
                       </span>
                       <br />
-                      <bdi dir="ltr" className="font-mono text-xs break-all text-ink-secondary">
+                      <span className="font-mono text-xs break-all text-ink-secondary">
                         {a.args}
-                      </bdi>
+                      </span>
                     </Cell>
                     <Cell>
-                      <Ltr>{a.requestedBy}</Ltr>
+                      <Mono>{a.requestedBy}</Mono>
                     </Cell>
                     <Cell>
                       <Badge tone={tone}>

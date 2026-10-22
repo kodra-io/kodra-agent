@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { ApiError, decide, SignedOut, type PendingApproval } from './api.ts';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
-import { Ltr } from './ui.tsx';
+import { Mono } from './ui.tsx';
 
 type Step = 'ask' | 'confirm' | 'deny' | 'sending' | 'closed';
 
@@ -127,7 +127,7 @@ export function ApprovalCard({
               {t('approval.needed')}
             </span>
             <span id={titleId} className="font-semibold">
-              {a.title ? <bdi dir="auto">{a.title}</bdi> : <Ltr>{action}</Ltr>}
+              {a.title ? <span>{a.title}</span> : <Mono>{action}</Mono>}
             </span>
           </span>
         </div>
@@ -146,13 +146,11 @@ export function ApprovalCard({
       <div className="flex flex-col gap-3 px-4 py-3.5 text-sm">
         <p className="text-ink-secondary">
           <span className="font-medium text-ink">{t('approval.why')}:</span>{' '}
-          <span dir="auto" className="whitespace-pre-wrap">
-            {a.reason}
-          </span>
+          <span className="whitespace-pre-wrap">{a.reason}</span>
         </p>
         {a.requestedBy && (
           <p className="text-xs text-ink-secondary">
-            {t('approvals.by')}: <Ltr>{a.requestedBy}</Ltr>
+            {t('approvals.by')}: <Mono>{a.requestedBy}</Mono>
           </p>
         )}
         {a.freeze && (
@@ -169,13 +167,13 @@ export function ApprovalCard({
           <p className="text-xs text-ink-secondary">
             {a.changeRef && (
               <>
-                {t('approval.changeRefGiven')}: <Ltr>{a.changeRef}</Ltr>
+                {t('approval.changeRefGiven')}: <Mono>{a.changeRef}</Mono>
               </>
             )}
             {a.changeRef && a.override && ' · '}
             {a.override && (
               <>
-                {t('approval.overrideGiven')}: <bdi dir="auto">{a.override}</bdi>
+                {t('approval.overrideGiven')}: <span>{a.override}</span>
               </>
             )}
           </p>
@@ -186,7 +184,7 @@ export function ApprovalCard({
             {approvedBy.length > 0 && (
               <span className="font-normal text-ink-secondary">
                 {' · '}
-                {t('approval.approvedBy')}: <Ltr>{approvedBy.join(', ')}</Ltr>
+                {t('approval.approvedBy')}: <Mono>{approvedBy.join(', ')}</Mono>
               </span>
             )}
           </p>
@@ -195,19 +193,14 @@ export function ApprovalCard({
           <>
             <p className="text-xs text-ink-secondary">
               <span className="font-medium">{t('approval.steps')}:</span>{' '}
-              <bdi dir="ltr" className="font-mono">
-                {a.args}
-              </bdi>
+              <span className="font-mono">{a.args}</span>
             </p>
             <DiffView text={a.preview} label={t('approval.preview')} />
           </>
         ) : (
           <div>
             <p className="text-xs font-medium text-ink-secondary">{t('approval.args')}</p>
-            <pre
-              dir="ltr"
-              className="mt-1 overflow-x-auto rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs whitespace-pre-wrap break-all"
-            >
+            <pre className="mt-1 overflow-x-auto rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs whitespace-pre-wrap break-all">
               {a.args}
             </pre>
           </div>
@@ -265,7 +258,6 @@ export function ApprovalCard({
                 </label>
                 <textarea
                   id={reasonId}
-                  dir="auto"
                   required
                   maxLength={500}
                   rows={2}
@@ -284,7 +276,6 @@ export function ApprovalCard({
                 </label>
                 <input
                   id={refId}
-                  dir="ltr"
                   required
                   maxLength={100}
                   aria-describedby={a.changeRefPattern ? `${refId}-hint` : undefined}
@@ -296,7 +287,7 @@ export function ApprovalCard({
                 />
                 {a.changeRefPattern && (
                   <p id={`${refId}-hint`} className="mt-1 text-xs text-ink-secondary">
-                    {t('approval.changeRefFormat')}: <Ltr>{a.changeRefPattern}</Ltr>
+                    {t('approval.changeRefFormat')}: <Mono>{a.changeRefPattern}</Mono>
                   </p>
                 )}
               </div>
@@ -337,7 +328,6 @@ export function ApprovalCard({
             </label>
             <textarea
               id={noteId}
-              dir="auto"
               maxLength={500}
               rows={2}
               className="mt-1 w-full rounded-lg border border-line-strong bg-surface px-3 py-2"
@@ -373,7 +363,6 @@ export function ApprovalCard({
 export function DiffView({ text, label }: { text: string; label: string }) {
   return (
     <pre
-      dir="ltr"
       tabIndex={0}
       aria-label={label}
       className="max-h-96 overflow-auto rounded-lg border border-line bg-raised py-2 text-start font-mono text-[12.5px] leading-5"

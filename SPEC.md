@@ -161,7 +161,7 @@ Each connector is a typed, validated manifest at `packages/connectors/<id>/manif
 - `secrets`: for each one: env var name, description, how to create it, minimum scopes, and a validation probe (a cheap read call used by `init` and `doctor`)
 - `tools`: every tool the connector exposes, each classified `read | write | destructive`
 - `runtime`: how the agent starts it. An MCP server (stdio subprocess or pinned container image) or a built-in module for chat surfaces
-- `permissionsSummary`: plain-language lines for the review screen, in English and Arabic
+- `permissionsSummary`: plain-language lines for the review screen
 
 Adding a connector means adding a manifest (and a server, only if none exists). The configurator renders entirely from manifests: no connector-specific UI code.
 
@@ -212,7 +212,7 @@ A static single-page app, deployable to S3 and CloudFront.
 
 - A live preview panel shows the generated `kodra-agent.yaml`, `.env.example`, and `docker-compose.yml` or `values.yaml`. Desktop: side panel. Mobile: below the steps.
 - Configuration state is stored in the URL hash, so a setup can be shared as a link. It never contains secrets by design.
-- English and Arabic with full RTL support and a language toggle. All copy lives in locale files. Omar reviews the Arabic copy.
+- English only (Arabic and right-to-left support were dropped in October 2026). All UI copy lives in a locale file.
 - WCAG 2.1 AA: keyboard navigable, visible focus states, sufficient contrast.
 - Content Security Policy set. Fonts are self-hosted. No third-party requests of any kind.
 - The page shows this privacy line, and it must stay true: "This page never asks for your keys. Your choices stay in your browser."
@@ -229,7 +229,7 @@ A static single-page app, deployable to S3 and CloudFront.
 | background | `#FAFBFC` |
 | border | `#E4E8EE` |
 
-One accent color only. Headings in Arial. Body in a system font stack. For Arabic, a self-hosted font with good Arabic coverage. Copy rules: plain language, no em dashes, no fabricated stats or testimonials.
+One accent color only. Headings in Arial. Body in a system font stack. Copy rules: plain language, no em dashes, no fabricated stats or testimonials.
 
 ### Bundle contents
 
@@ -339,8 +339,8 @@ zod schema for `kodra-agent.yaml`, JSON Schema export, secret-reference parser, 
 Done when example configs validate, invalid ones fail with readable errors, and unit tests cover dependency rules and secret-reference parsing.
 
 **M2: Configurator (the first demo)**
-All steps in section 7, live preview, browser-side zip, English and Arabic with RTL, brand tokens, shareable URL state.
-Done when Playwright tests cover: building a config, dependency warnings, switching to Arabic (RTL), and downloading the zip and validating its `kodra-agent.yaml` against the schema.
+All steps in section 7, live preview, browser-side zip, brand tokens, shareable URL state.
+Done when Playwright tests cover: building a config, dependency warnings, and downloading the zip and validating its `kodra-agent.yaml` against the schema.
 
 **M3: Agent core**
 Config loading, `env` and `file` secret resolvers, redactor, audit log, `init` (compose and kubernetes), `doctor`.

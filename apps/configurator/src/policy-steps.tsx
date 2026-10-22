@@ -74,7 +74,6 @@ export function EnvironmentsStep({ draft, dispatch, errorFor, touch }: StepProps
               fieldId={at('name')}
               placeholder="production"
               required
-              ltr
               error={errorFor(at('name'))}
               onChange={(value) => {
                 field('name', value);
@@ -99,7 +98,6 @@ export function EnvironmentsStep({ draft, dispatch, errorFor, touch }: StepProps
               value={env.namespaces}
               fieldId={at('namespaces')}
               placeholder="api, web"
-              ltr
               error={errorFor(at('namespaces'))}
               onChange={(value) => {
                 field('namespaces', value);
@@ -114,7 +112,6 @@ export function EnvironmentsStep({ draft, dispatch, errorFor, touch }: StepProps
               value={env.repos}
               fieldId={at('repos')}
               placeholder="acme/deploy"
-              ltr
               error={errorFor(at('repos'))}
               onChange={(value) => {
                 field('repos', value);
@@ -129,7 +126,6 @@ export function EnvironmentsStep({ draft, dispatch, errorFor, touch }: StepProps
               value={env.approvers}
               fieldId={at('approvers')}
               placeholder="U0123ABCD, console:lead"
-              ltr
               error={errorFor(at('approvers'))}
               onChange={(value) => {
                 field('approvers', value);
@@ -214,7 +210,7 @@ export function ApprovalRulesSummary({
         {policy.environments.map((env) => (
           <li key={env.name}>
             <span className="font-medium">
-              <bdi dir="ltr">{env.name}</bdi>
+              <span>{env.name}</span>
               {env.production ? ` (${t('environments.production')})` : ''}:
             </span>{' '}
             <RulesText rules={env} />

@@ -6,10 +6,6 @@ import { connectorCard, enableConnector, expect, fillBasics, goToStep, test } fr
 
 test.beforeEach(async ({ page }) => {
   await page.goto('./');
-  await page.evaluate(() => {
-    localStorage.setItem('kodra-agent.lang', 'en');
-  });
-  await page.goto('./');
 });
 
 test('builds a starter config step by step and downloads a valid bundle', async ({ page }) => {
@@ -193,23 +189,6 @@ test('coming-soon connectors are visible but cannot be enabled', async ({ page }
   await expect(teams.getByRole('switch')).toBeDisabled();
 });
 
-test('switching to Arabic sets right-to-left and translates the page', async ({ page }) => {
-  await page.getByRole('button', { name: 'Switch to Arabic' }).click();
-  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('أنشئ وكيلك');
-  await expect(page.getByTestId('privacy-line')).toHaveText(
-    'هذه الصفحة لا تطلب مفاتيحك أبدا. اختياراتك تبقى في متصفحك.',
-  );
-  await expect(page.getByRole('heading', { name: 'لمن هذا الوكيل؟' })).toBeVisible();
-  await page.getByRole('button', { name: 'التالي' }).click();
-  await expect(page.getByRole('heading', { name: 'سمّ وكيلك واختر مكان تشغيله' })).toBeVisible();
-
-  // The choice survives a reload.
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-});
-
 test('a shared link restores the same setup', async ({ page, context }) => {
   await fillBasics(page);
   await enableConnector(page, 'gitlab', 'GitLab');
@@ -272,33 +251,23 @@ test('a crafted link cannot enable a coming-soon connector or add fields', async
   await expect(page.getByTestId('preview')).not.toContainText('sk-nope');
 });
 
-for (const lang of ['en', 'ar'] as const) {
-  test(`has no WCAG 2.1 AA violations on any step (${lang}) @mobile`, async ({ page }) => {
-    await page.evaluate((l) => {
-      localStorage.setItem('kodra-agent.lang', l);
-    }, lang);
-    await page.reload();
-    const steps =
-      lang === 'en'
-        ? ['Who is it for', 'Start', 'Model', 'Connectors', 'Review', 'Download']
-        : ['لمن الوكيل', 'البداية', 'النموذج', 'الموصلات', 'المراجعة', 'التنزيل'];
-    for (const step of steps) {
-      await goToStep(page, new RegExp(step));
-      if (step === 'Connectors' || step === 'الموصلات') {
-        await connectorCard(page, 'github').getByRole('switch').click();
-      }
-      const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-        .analyze();
-      expect(
-        results.violations.map(
-          (v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`,
-        ),
-        step,
-      ).toEqual([]);
+test('has no WCAG 2.1 AA violations on any step @mobile', async ({ page }) => {
+  for (const step of ['Who is it for', 'Start', 'Model', 'Connectors', 'Review', 'Download']) {
+    await goToStep(page, new RegExp(step));
+    if (step === 'Connectors') {
+      await connectorCard(page, 'github').getByRole('switch').click();
     }
-  });
-}
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(
+      results.violations.map(
+        (v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`,
+      ),
+      step,
+    ).toEqual([]);
+  }
+});
 
 test('the team profile adds environments, and rules nobody can meet block the download', async ({
   page,
@@ -349,24 +318,18 @@ test('the team profile adds environments, and rules nobody can meet block the do
   await expect(page.getByTestId('preview')).toContainText('environments:');
 });
 
-test('the profile and environments steps work in Arabic, right to left @mobile', async ({
-  page,
-}) => {
-  await page.evaluate(() => {
-    localStorage.setItem('kodra-agent.lang', 'ar');
-  });
-  await page.reload();
-  await expect(page.getByRole('heading', { name: 'لمن هذا الوكيل؟' })).toBeVisible();
-  await page.getByRole('radio', { name: /^صارم/ }).check();
-  await goToStep(page, /البيئات/);
+test('the profile and environments steps work at phone width @mobile', async ({ page }) => {
+  await expect(page.getByRole('heading', { name: 'Who is this agent for?' })).toBeVisible();
+  await page.getByRole('radio', { name: /^Strict/ }).check();
+  await goToStep(page, /Environments/);
   await expect(
-    page.getByRole('heading', { name: 'جمّع مساحات الأسماء والمستودعات في بيئات' }),
+    page.getByRole('heading', { name: 'Group namespaces and repositories into environments' }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'أضف بيئة إنتاج' }).click();
+  await page.getByRole('button', { name: 'Add a production environment' }).click();
   await expect(
-    page.getByText('تحتاج إلى 2 موافقين مختلفين. لا يمكن لمن طلب التغيير أن يوافق عليه.'),
+    page.getByText('Needs 2 different approvers. The person who asked cannot approve it.'),
   ).toBeVisible();
-  for (const step of [/لمن الوكيل/, /البيئات/]) {
+  for (const step of [/Who is it for/, /Environments/]) {
     await goToStep(page, step);
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

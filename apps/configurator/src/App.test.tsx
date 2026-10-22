@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from './App.tsx';
 import { I18nProvider } from './i18n.tsx';
-import ar from './locales/ar.json';
 import en from './locales/en.json';
 
 function renderApp() {
@@ -28,14 +27,6 @@ describe('App', () => {
     );
   });
 
-  it('switches to Arabic and right-to-left', () => {
-    renderApp();
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to Arabic' }));
-    expect(document.documentElement.dir).toBe('rtl');
-    expect(document.documentElement.lang).toBe('ar');
-    expect(screen.getByTestId('privacy-line').textContent).toBe(ar['app.privacy']);
-  });
-
   it('never renders a password field on any step', () => {
     renderApp();
     for (const step of ['Who is it for', 'Start', 'Model', 'Connectors', 'Review', 'Download']) {
@@ -52,12 +43,11 @@ describe('App', () => {
 });
 
 describe('locales', () => {
-  it('Arabic has every English key and no empty strings', () => {
-    expect(Object.keys(ar).sort()).toEqual(Object.keys(en).sort());
-    for (const value of Object.values(ar)) expect(value.trim()).not.toBe('');
+  it('has no empty strings', () => {
+    for (const value of Object.values(en)) expect(value.trim()).not.toBe('');
   });
 
   it('uses no em dashes', () => {
-    expect(JSON.stringify(en) + JSON.stringify(ar)).not.toContain('—');
+    expect(JSON.stringify(en)).not.toContain('—');
   });
 });
