@@ -20,6 +20,9 @@ It needs Docker and Helm where it runs. Three places work:
   app by name, and removes the container and the network afterwards.
 - **Not the Kubernetes deployment**, which never gets the Docker socket (SPEC section 9).
 
+To read the repo and report on it first, run `kodra-agent onboard` instead: see
+[onboard.md](onboard.md).
+
 ## Steps
 
 1. **Clone.** A shallow clone into a private temp folder, removed at the end. The token is
