@@ -16,7 +16,7 @@ import {
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { useLoad } from './load.ts';
 import type { PageProps } from './pages.tsx';
-import { Badge, Ltr, Page } from './ui.tsx';
+import { Badge, Mono, Page } from './ui.tsx';
 
 /** How often the open page asks again; the agent refreshes at most once a minute anyway. */
 const REFRESH_MS = 60_000;
@@ -154,8 +154,8 @@ function Headline({ view }: { view: DashboardView }) {
 }
 
 function PanelCard({ panel }: { panel: PanelResult }) {
-  const { t, lang } = useI18n();
-  const title = panel.title[lang];
+  const { t } = useI18n();
+  const title = panel.title;
   return (
     <article
       aria-label={title}
@@ -189,7 +189,7 @@ function Errors({ results }: { results: TargetResult[] }) {
         <li key={r.target ?? ''} className="text-bad-text">
           {r.target && (
             <>
-              <Ltr>{r.target}</Ltr>:{' '}
+              <Mono>{r.target}</Mono>:{' '}
             </>
           )}
           {t('dashboard.couldNotRead')} <span className="text-ink-secondary">({r.error})</span>
@@ -222,9 +222,9 @@ function Databases({ results }: { results: TargetResult[] }) {
               <li key={r.target ?? d.name} className="flex flex-col gap-1 py-2">
                 <span className="flex flex-wrap items-center justify-between gap-2">
                   <span className="min-w-0">
-                    <Ltr>{r.target ?? d.name}</Ltr>{' '}
+                    <Mono>{r.target ?? d.name}</Mono>{' '}
                     <span className="text-ink-secondary">
-                      <Ltr>{d.version ?? d.engine}</Ltr>
+                      <Mono>{d.version ?? d.engine}</Mono>
                     </span>
                   </span>
                   <span className="flex flex-wrap items-center gap-2">
@@ -254,7 +254,7 @@ function Databases({ results }: { results: TargetResult[] }) {
                 </span>
                 {d.reasons.length > 0 && (
                   <span className="text-ink-secondary">
-                    <Ltr>{d.reasons.join('; ')}</Ltr>
+                    <Mono>{d.reasons.join('; ')}</Mono>
                   </span>
                 )}
               </li>
@@ -283,7 +283,7 @@ function Workloads({ results }: { results: TargetResult[] }) {
                 className="flex flex-wrap items-center justify-between gap-2 py-2"
               >
                 <span className="min-w-0">
-                  <Ltr>{r.target ?? d.name}</Ltr>
+                  <Mono>{r.target ?? d.name}</Mono>
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="text-ink-secondary">
@@ -339,9 +339,9 @@ function Pods({ results }: { results: TargetResult[] }) {
               className="flex flex-wrap items-center justify-between gap-2 py-2"
             >
               <span className="min-w-0">
-                <Ltr>{p.name}</Ltr>{' '}
+                <Mono>{p.name}</Mono>{' '}
                 <span className="text-ink-secondary">
-                  · <Ltr>{p.namespace}</Ltr>
+                  · <Mono>{p.namespace}</Mono>
                 </span>
               </span>
               <span className="flex items-center gap-2">
@@ -407,9 +407,9 @@ function Deployments({ results }: { results: TargetResult[] }) {
                 className="flex flex-wrap items-center justify-between gap-2 py-2"
               >
                 <span className="min-w-0">
-                  <Ltr>{d.name}</Ltr>{' '}
+                  <Mono>{d.name}</Mono>{' '}
                   <span className="text-ink-secondary">
-                    · <Ltr>{d.namespace}</Ltr>
+                    · <Mono>{d.namespace}</Mono>
                   </span>
                 </span>
                 <Badge tone={ok ? 'ok' : 'bad'}>
@@ -443,7 +443,7 @@ function Events({ results }: { results: TargetResult[] }) {
             <li key={`${w.reason} ${w.object}`} className="flex flex-col gap-1 py-2">
               <span className="flex flex-wrap items-center gap-2">
                 <Badge tone="bad">{w.reason}</Badge>
-                <Ltr>{w.object}</Ltr>
+                <Mono>{w.object}</Mono>
                 {w.count > 1 && (
                   <span className="text-ink-secondary">
                     {t('dashboard.events.times', { n: num(w.count) })}
@@ -487,7 +487,7 @@ function Jobs({ results }: { results: TargetResult[] }) {
             <li key={job.name} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge tone={RUN_TONE[job.state]}>{t(state(job.state))}</Badge>
-                <Ltr>{job.name}</Ltr>
+                <Mono>{job.name}</Mono>
               </span>
               {job.url && (
                 <a
@@ -523,7 +523,7 @@ function Runs({ results }: { results: TargetResult[] }) {
             <div key={r.target ?? ''} className="flex flex-col gap-2">
               {r.target && (
                 <p className="text-sm font-medium">
-                  <Ltr>{r.target}</Ltr>
+                  <Mono>{r.target}</Mono>
                 </p>
               )}
               <div className="flex flex-wrap items-center gap-2">
@@ -554,10 +554,10 @@ function Runs({ results }: { results: TargetResult[] }) {
                       <span className="flex min-w-0 flex-wrap items-center gap-2">
                         <Badge tone={RUN_TONE[run.state]}>{t(state(run.state))}</Badge>
                         {run.name && <span>{run.name}</span>}
-                        <Ltr>{run.ref}</Ltr>
+                        <Mono>{run.ref}</Mono>
                       </span>
                       <span className="flex items-center gap-3 text-ink-secondary">
-                        {Number.isNaN(Date.parse(run.at)) ? <Ltr>{run.at}</Ltr> : time(run.at)}
+                        {Number.isNaN(Date.parse(run.at)) ? <Mono>{run.at}</Mono> : time(run.at)}
                         {run.url && (
                           <a
                             href={run.url}

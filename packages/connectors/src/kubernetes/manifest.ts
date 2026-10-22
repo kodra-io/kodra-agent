@@ -1,10 +1,8 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
-import { PATTERNS, t } from '../shared.ts';
+import { PATTERNS } from '../shared.ts';
 
-const readSummary = t(
-  'Reads pods, logs, events, deployments, and services in the listed namespaces only. Never reads Secrets.',
-  'يقرأ الحاويات والسجلات والأحداث وعمليات النشر والخدمات في مساحات الأسماء المحددة فقط. لا يقرأ الأسرار أبدا.',
-);
+const readSummary =
+  'Reads pods, logs, events, deployments, and services in the listed namespaces only. Never reads Secrets.';
 
 const readRbac =
   'get, list, watch on pods, pods/log, events, deployments, replicasets, services in the listed namespaces';
@@ -66,10 +64,8 @@ export default defineManifest({
   displayName: 'Kubernetes',
   category: 'deploy',
   status: 'available',
-  description: t(
+  description:
     'Inspect workloads in EKS, AKS, GKE, or on-prem clusters. With write access, scale deployments.',
-    'فحص أحمال العمل في EKS أو AKS أو GKE أو العناقيد المحلية. مع صلاحية الكتابة، تغيير حجم عمليات النشر.',
-  ),
   accessLevels: ['read-only', 'read-write-approved'],
   requires: [],
   configFields: [
@@ -77,30 +73,19 @@ export default defineManifest({
       kind: 'string-list',
       key: 'namespaces',
       required: true,
-      description: t(
-        'Namespaces the agent may access. Nothing outside them.',
-        'مساحات الأسماء التي يمكن للوكيل الوصول إليها، ولا شيء خارجها.',
-      ),
+      description: 'Namespaces the agent may access. Nothing outside them.',
       pattern: PATTERNS.k8sNamespace,
-      patternHint: t(
-        'use a Kubernetes namespace name: lowercase letters, digits, and hyphens',
-        'استخدم اسم مساحة أسماء صالحا: أحرف صغيرة وأرقام وشرطات',
-      ),
+      patternHint: 'use a Kubernetes namespace name: lowercase letters, digits, and hyphens',
       example: ['payments'],
     },
     {
       kind: 'string-list',
       key: 'databases',
       required: false,
-      description: t(
+      description:
         'Database workloads to watch on the console Overview, as namespace/name (a StatefulSet or Deployment). The namespace must be in the list above. For databases outside the cluster, or to check the database itself, use the Databases connector.',
-        'أحمال قواعد البيانات التي تُراقب في صفحة النظرة العامة، بصيغة namespace/name (StatefulSet أو Deployment). يجب أن تكون مساحة الأسماء في القائمة أعلاه. لقواعد البيانات خارج العنقود، أو لفحص قاعدة البيانات نفسها، استخدم موصل قواعد البيانات.',
-      ),
       pattern: PATTERNS.k8sWorkload,
-      patternHint: t(
-        'use namespace/name, like prod/mariadb',
-        'استخدم الصيغة namespace/name، مثل prod/mariadb',
-      ),
+      patternHint: 'use namespace/name, like prod/mariadb',
       example: ['payments/postgres'],
     },
   ],
@@ -114,14 +99,10 @@ export default defineManifest({
       defaultFor: ['compose'],
       // Optional inside the cluster (service account), required on Docker Compose.
       requiredOn: ['compose'],
-      description: t(
+      description:
         'Kubeconfig for the cluster. Not needed when the agent runs inside the cluster with its own service account.',
-        'ملف kubeconfig للعنقود. لا حاجة إليه عندما يعمل الوكيل داخل العنقود بحساب الخدمة الخاص به.',
-      ),
-      howToCreate: t(
+      howToCreate:
         'Create a kubeconfig for a service account bound to a namespace-scoped role. The Kubernetes bundle includes rbac.yaml with that role.',
-        'أنشئ ملف kubeconfig لحساب خدمة مرتبط بدور محصور في مساحات الأسماء. حزمة Kubernetes تتضمن الملف rbac.yaml بهذا الدور.',
-      ),
       minimumScopes: {
         'read-only': [readRbac],
         'read-write-approved': [
@@ -177,14 +158,14 @@ export default defineManifest({
   dashboard: [
     {
       id: 'pods',
-      title: t('Pods', 'الحاويات (Pods)'),
+      title: 'Pods',
       tool: 'pods_list_in_namespace',
       forEach: { setting: 'namespaces', arg: 'namespace' },
       view: { kind: 'pods' },
     },
     {
       id: 'deployments',
-      title: t('Deployments', 'عمليات النشر'),
+      title: 'Deployments',
       tool: 'resources_list',
       args: { apiVersion: 'apps/v1', kind: 'Deployment' },
       forEach: { setting: 'namespaces', arg: 'namespace' },
@@ -192,7 +173,7 @@ export default defineManifest({
     },
     {
       id: 'warnings',
-      title: t('Recent warnings', 'التحذيرات الأخيرة'),
+      title: 'Recent warnings',
       tool: 'events_list',
       forEach: { setting: 'namespaces', arg: 'namespace' },
       view: { kind: 'events' },
@@ -200,7 +181,7 @@ export default defineManifest({
     {
       // The pods of each listed database workload: ready, restarts, and status.
       id: 'databases',
-      title: t('Database pods', 'Pods قواعد البيانات'),
+      title: 'Database pods',
       tool: 'pods_list_in_namespace',
       forEach: { setting: 'databases', arg: 'namespace', scoped: true },
       view: { kind: 'workload' },
@@ -271,10 +252,7 @@ export default defineManifest({
     'read-only': [readSummary],
     'read-write-approved': [
       readSummary,
-      t(
-        'Scales deployments in those namespaces after you approve.',
-        'يغيّر حجم عمليات النشر في مساحات الأسماء تلك بعد موافقتك.',
-      ),
+      'Scales deployments in those namespaces after you approve.',
     ],
   },
 });

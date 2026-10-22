@@ -1,8 +1,6 @@
 {
   "app.productName": "Kodra AI Agent",
   "app.title": "Console",
-  "app.switchLanguage": "العربية",
-  "app.switchLanguageLabel": "Switch to Arabic",
   "app.skip": "Skip to the content",
   "app.signOut": "Sign out",
   "app.refresh": "Refresh",

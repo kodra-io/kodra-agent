@@ -203,7 +203,7 @@ describe('connectors', () => {
 
 describe('dependency rules', () => {
   it('flags CI/CD connectors whose source connector is off', () => {
-    expect(dependencyIssues(['github-actions']).map((i) => i.message.en)).toEqual([
+    expect(dependencyIssues(['github-actions']).map((i) => i.message)).toEqual([
       'GitHub Actions needs the GitHub connector, because it uses the same token.',
     ]);
     expect(dependencyIssues(['gitlab-ci']).map((i) => i.connector)).toEqual(['gitlab-ci']);
@@ -218,10 +218,6 @@ describe('dependency rules', () => {
   it('passes when the source connector is on', () => {
     expect(dependencyIssues(['github-actions', 'github'])).toEqual([]);
     expect(dependencyIssues(['gitlab-ci', 'gitlab'])).toEqual([]);
-  });
-
-  it('gives Arabic messages too', () => {
-    expect(dependencyIssues(['gitlab-ci'])[0]?.message.ar).toMatch(/[؀-ۿ]/);
   });
 
   it('reports the rule in the parsed config', () => {

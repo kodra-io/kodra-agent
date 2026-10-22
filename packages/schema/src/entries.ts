@@ -57,12 +57,12 @@ export function listValues(value: unknown): string[] {
 }
 
 function entryFieldSchema(field: EntryField): z.ZodType {
-  const description = field.description.en;
+  const description = field.description;
   switch (field.kind) {
     case 'string': {
       let s = z.string().min(1);
       if (field.pattern) {
-        s = s.regex(new RegExp(field.pattern), field.patternHint?.en ?? 'has the wrong format');
+        s = s.regex(new RegExp(field.pattern), field.patternHint ?? 'has the wrong format');
       }
       return s.meta({ description });
     }
@@ -137,5 +137,5 @@ export function entriesSchema(field: EntriesField): z.ZodType {
         }
       }
     })
-    .meta({ description: field.description.en });
+    .meta({ description: field.description });
 }

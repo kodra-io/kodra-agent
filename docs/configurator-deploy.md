@@ -38,7 +38,7 @@ first, check it, then prod.
 
 ## Checking a deploy
 
-- `/agent` redirects to `/agent/`, and the page loads in English and Arabic (right to left).
+- `/agent` redirects to `/agent/`, and the page loads.
 - The response has the `Content-Security-Policy` header with `connect-src 'none'`.
 - The browser's network panel shows no request to any other origin.
 - A bundle downloads, and its `kodra-agent.yaml` validates (`kodra-agent doctor`).

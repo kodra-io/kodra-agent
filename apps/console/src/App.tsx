@@ -260,7 +260,7 @@ function Sidebar({
   onSignedOut: () => void;
   onChanged: () => void;
 }) {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const { dark, toggle } = useTheme();
   const ready = status?.connectors.filter((c) => c.available).length ?? 0;
 
@@ -338,7 +338,7 @@ function Sidebar({
                 </span>
               </div>
               <div className="text-xs leading-[18px] text-ink-secondary">
-                <bdi dir="ltr">{status.model.split('/').at(-1)}</bdi>
+                <span>{status.model.split('/').at(-1)}</span>
                 <br />
                 {t('app.connectorsReady', { ready, total: status.connectors.length })}
               </div>
@@ -362,9 +362,7 @@ function Sidebar({
           )}
           <div className="flex flex-col gap-2.5 border-t border-line pt-2.5">
             <span className="flex min-w-0 flex-col">
-              <bdi dir="ltr" className="truncate text-[13px] font-semibold">
-                {me.user}
-              </bdi>
+              <span className="truncate text-[13px] font-semibold">{me.user}</span>
               <span className="text-xs text-ink-secondary">
                 {t(me.canApprove ? 'app.roleApprover' : 'app.roleViewer')}
               </span>
@@ -377,17 +375,6 @@ function Sidebar({
                 onClick={toggle}
               >
                 <Icon name={dark ? 'sun' : 'moon'} size={16} />
-              </button>
-              <button
-                type="button"
-                lang={lang === 'en' ? 'ar' : 'en'}
-                aria-label={t('app.switchLanguageLabel')}
-                className="inline-flex size-8 items-center justify-center rounded-lg border border-line-strong text-ink-secondary hover:text-ink"
-                onClick={() => {
-                  setLang(lang === 'en' ? 'ar' : 'en');
-                }}
-              >
-                <Icon name="languages" size={16} />
               </button>
               <button
                 type="button"
@@ -426,23 +413,6 @@ function Brand() {
   );
 }
 
-function LanguageSwitch() {
-  const { t, lang, setLang } = useI18n();
-  return (
-    <button
-      type="button"
-      className="text-sm text-ink-secondary underline underline-offset-2"
-      lang={lang === 'en' ? 'ar' : 'en'}
-      aria-label={t('app.switchLanguageLabel')}
-      onClick={() => {
-        setLang(lang === 'en' ? 'ar' : 'en');
-      }}
-    >
-      {t('app.switchLanguage')}
-    </button>
-  );
-}
-
 function Field(props: {
   id: string;
   label: string;
@@ -461,7 +431,6 @@ function Field(props: {
         id={props.id}
         type={props.type ?? 'password'}
         autoComplete={props.autoComplete}
-        dir="ltr"
         className={FIELD}
         value={props.value}
         aria-invalid={props.invalid}
@@ -572,7 +541,6 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
           {t(withToken ? 'login.usePassword' : 'login.useToken')}
         </button>
       </form>
-      <LanguageSwitch />
     </main>
   );
 }
@@ -663,7 +631,6 @@ function ChangePassword({
           {t('app.signOut')}
         </button>
       </form>
-      <LanguageSwitch />
     </main>
   );
 }

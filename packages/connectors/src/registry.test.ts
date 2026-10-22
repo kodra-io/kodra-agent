@@ -222,11 +222,8 @@ describe('connector registry', () => {
     }
   });
 
-  it('has Arabic copy for every text field', () => {
-    const texts = JSON.stringify(all);
-    const pairs = [...texts.matchAll(/"ar":"([^"]*)"/g)].map((m) => m[1] ?? '');
-    expect(pairs.length).toBeGreaterThan(50);
-    for (const ar of pairs) expect(ar).toMatch(/[؀-ۿ]/);
+  it('has copy in English only', () => {
+    expect(JSON.stringify(all)).not.toMatch(/[؀-ۿ]/);
   });
 
   it('uses no em dashes in copy', () => {

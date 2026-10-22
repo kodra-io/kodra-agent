@@ -147,18 +147,6 @@ test.describe('the operations center', () => {
     await expect(page.getByLabel('Message')).toHaveValue('');
   });
 
-  test('works in Arabic, right to left', async ({ page }) => {
-    await page.clock.setFixedTime(new Date('2026-10-19T14:00:00Z'));
-    await signIn(page, APPROVER_TOKEN);
-    await page.getByRole('button', { name: 'Switch to Arabic' }).click();
-    const ops = page.getByRole('region', { name: 'مساء الخير يا Omar' });
-    await expect(ops).toContainText('مركز العمليات');
-    await expect(ops).toContainText('يتطلب تدخلًا');
-    await expect(ops).toContainText('Pods متعثرة في dev: 1');
-    await settled(page);
-    expect((await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id)).toEqual([]);
-  });
-
   test('boots with motion, and holds still with reduced motion', async ({ page }) => {
     await signIn(page, APPROVER_TOKEN);
     const ops = page.getByRole('region', { name: /Omar$/ });
@@ -656,22 +644,6 @@ test.describe('with chat turned off', () => {
     await signIn(page);
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Chat' })).toHaveCount(0);
   });
-});
-
-test('works in Arabic, right to left', async ({ page }) => {
-  await signIn(page);
-  await page.getByRole('button', { name: 'Switch to Arabic' }).click();
-  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.locator('html')).toHaveAttribute('lang', 'ar');
-  await expect(page.getByRole('heading', { level: 1, name: 'نظرة عامة' })).toBeVisible();
-  await page.getByRole('navigation').getByRole('link', { name: 'الاستهلاك' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'الاستهلاك' })).toBeVisible();
-  await page.getByRole('navigation').getByRole('link', { name: 'المحادثة' }).click();
-  await page.getByLabel('الرسالة').fill('لماذا يعيد web التشغيل؟');
-  await page.getByRole('button', { name: 'إرسال' }).click();
-  await expect(
-    page.getByRole('log').getByRole('group', { name: 'يحتاج إلى موافقة' }),
-  ).toBeVisible();
 });
 
 test('adds an approver: the token is shown once, through the restart', async ({ page, api }) => {

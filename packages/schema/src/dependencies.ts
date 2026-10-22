@@ -1,10 +1,10 @@
-import type { LocalizedText, Manifest, Requirement } from './manifest.ts';
+import type { Manifest, Requirement } from './manifest.ts';
 
 export interface DependencyIssue {
   /** The enabled connector whose requirement is not met. */
   connector: string;
   requirement: Requirement;
-  message: LocalizedText;
+  message: string;
 }
 
 /**

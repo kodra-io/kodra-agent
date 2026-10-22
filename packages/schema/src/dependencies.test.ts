@@ -12,7 +12,7 @@ describe('checkDependencies', () => {
   it('flags a category requirement that is not met', () => {
     const issues = checkDependencies(fixtureList, ['ci']);
     expect(ids(issues)).toEqual(['ci']);
-    expect(issues[0]?.message.en).toBe('ci needs a source connector');
+    expect(issues[0]?.message).toBe('ci needs a source connector');
   });
 
   it('accepts any connector of the required category', () => {

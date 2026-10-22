@@ -17,7 +17,6 @@ import {
   type AccessLevel,
   type AgentConfig,
   type ConfigField,
-  type LocalizedText,
 } from '@kodra-agent/schema';
 import { secretRefFor } from '@kodra-agent/templates';
 import { parseDocument } from 'yaml';
@@ -281,8 +280,8 @@ export interface SecretView {
   /** An ${env:...} secret the console can replace; file secrets live on a read-only mount. */
   writable: boolean;
   ref: string;
-  description: LocalizedText;
-  howToCreate: LocalizedText;
+  description: string;
+  howToCreate: string;
 }
 
 export interface ConnectorSettings {
@@ -290,9 +289,9 @@ export interface ConnectorSettings {
   name: string;
   category: string;
   status: 'available' | 'coming-soon';
-  description: LocalizedText;
+  description: string;
   accessLevels: AccessLevel[];
-  summaries: Partial<Record<'always' | AccessLevel, LocalizedText[] | undefined>>;
+  summaries: Partial<Record<'always' | AccessLevel, string[] | undefined>>;
   enabled: boolean;
   access: AccessLevel | null;
   config: Record<string, unknown>;
@@ -319,15 +318,15 @@ export interface SettingsView {
 export interface ProviderView {
   id: string;
   name: string;
-  description: LocalizedText;
+  description: string;
   /** Where data goes, in the manifest's words. */
-  sends: LocalizedText[];
+  sends: string[];
   fields: ConfigField[];
   secrets: {
     key: string;
     envVar: string;
-    description: LocalizedText;
-    howToCreate: LocalizedText;
+    description: string;
+    howToCreate: string;
     /** Already in .env (switching back needs no new key). */
     set: boolean;
   }[];

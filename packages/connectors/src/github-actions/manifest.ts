@@ -1,34 +1,26 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
 import { GITHUB_COMMON_ARGS, GITHUB_SERVER } from '../github/server.ts';
-import { t } from '../shared.ts';
 
 /** Runs only against the GitHub connector's repos. */
 const inGithubRepos: ToolGuard[] = [
   { kind: 'repo-in-setting', ownerArg: 'owner', repoArg: 'repo', setting: 'repos', from: 'github' },
 ];
 
-const readSummary = t(
-  'Reads workflow runs and their logs with the GitHub token. Add Actions: read to that token.',
-  'يقرأ تشغيلات سير العمل وسجلاتها باستخدام رمز GitHub. أضف الصلاحية Actions: read إلى ذلك الرمز.',
-);
+const readSummary =
+  'Reads workflow runs and their logs with the GitHub token. Add Actions: read to that token.';
 
 export default defineManifest({
   id: 'github-actions',
   displayName: 'GitHub Actions',
   category: 'cicd',
   status: 'available',
-  description: t(
+  description:
     'Read workflow runs and logs. With write access, propose pipeline changes through pull requests.',
-    'قراءة تشغيلات سير العمل وسجلاتها. مع صلاحية الكتابة، اقتراح تغييرات خط الإنتاج عبر طلبات الدمج.',
-  ),
   accessLevels: ['read-only', 'read-write-approved'],
   requires: [
     {
       anyOf: [{ connector: 'github' }],
-      message: t(
-        'GitHub Actions needs the GitHub connector, because it uses the same token.',
-        'يحتاج GitHub Actions إلى موصل GitHub لأنه يستخدم الرمز نفسه.',
-      ),
+      message: 'GitHub Actions needs the GitHub connector, because it uses the same token.',
     },
   ],
   configFields: [],
@@ -51,7 +43,7 @@ export default defineManifest({
   dashboard: [
     {
       id: 'runs',
-      title: t('Workflow runs', 'تشغيلات سير العمل'),
+      title: 'Workflow runs',
       tool: 'actions_list',
       args: { method: 'list_workflow_runs', perPage: 20 },
       forEach: { setting: 'repos', from: 'github', arg: 'owner', repoArg: 'repo' },
@@ -81,10 +73,7 @@ export default defineManifest({
     'read-only': [readSummary],
     'read-write-approved': [
       readSummary,
-      t(
-        'Proposes workflow file changes through pull requests after you approve. Add Workflows: write to the GitHub token.',
-        'يقترح تغييرات ملفات سير العمل عبر طلبات الدمج بعد موافقتك. أضف الصلاحية Workflows: write إلى رمز GitHub.',
-      ),
+      'Proposes workflow file changes through pull requests after you approve. Add Workflows: write to the GitHub token.',
     ],
   },
 });

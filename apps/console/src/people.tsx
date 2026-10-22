@@ -12,7 +12,7 @@ import { useI18n } from './i18n.tsx';
 import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
 import { useStatus } from './status.ts';
-import { Badge, Ltr } from './ui.tsx';
+import { Badge, Mono } from './ui.tsx';
 
 const RESTART_TIMEOUT_MS = 90_000;
 
@@ -159,7 +159,6 @@ export function PeoplePanel({
           <div className="flex flex-wrap gap-2">
             <input
               readOnly
-              dir="ltr"
               aria-label={t('people.token')}
               value={shown.token}
               className={`${input} min-w-0 flex-1 font-mono text-sm`}
@@ -198,7 +197,7 @@ export function PeoplePanel({
       )}
       {problem && (
         <p role="alert" className="rounded-lg bg-bad-tint p-3 text-bad-text">
-          <bdi dir="ltr">{problem}</bdi>
+          <span>{problem}</span>
         </p>
       )}
       {heldNote && (
@@ -210,7 +209,7 @@ export function PeoplePanel({
         <ul aria-label={t('settings.waitingTitle')} className="flex flex-col gap-1 text-sm">
           {view.waiting.map((w) => (
             <li key={w.id} className="rounded-lg border border-line bg-raised px-3 py-2">
-              {t('settings.waitingTitle')}: <bdi dir="ltr">{w.title}</bdi>
+              {t('settings.waitingTitle')}: <span>{w.title}</span>
             </li>
           ))}
         </ul>
@@ -229,7 +228,7 @@ export function PeoplePanel({
             <li key={p.who} className="flex flex-wrap items-center justify-between gap-3 py-3">
               <div className="flex min-w-0 flex-col gap-1">
                 <span className="flex flex-wrap items-center gap-2 font-medium">
-                  <Ltr>{label(p)}</Ltr>
+                  <Mono>{label(p)}</Mono>
                   <Badge tone={p.canApprove ? 'accent' : 'plain'}>
                     {p.canApprove ? t('people.approver') : t('people.viewer')}
                   </Badge>
@@ -237,7 +236,7 @@ export function PeoplePanel({
                   {!p.tokenSet && <Badge tone="bad">{t('people.noToken')}</Badge>}
                 </span>
                 <span className="text-sm text-ink-secondary">
-                  <Ltr>{p.envVar}</Ltr>
+                  <Mono>{p.envVar}</Mono>
                 </span>
               </div>
               {view.editable &&
@@ -299,7 +298,7 @@ export function PeoplePanel({
         </ul>
         {view && view.otherApprovers.length > 0 && (
           <p className="text-sm text-ink-secondary">
-            {t('people.others')} <Ltr>{view.otherApprovers.join(', ')}</Ltr>
+            {t('people.others')} <Mono>{view.otherApprovers.join(', ')}</Mono>
           </p>
         )}
         {view?.editable && (
@@ -313,7 +312,7 @@ export function PeoplePanel({
           >
             <label className="flex min-w-0 flex-1 flex-col gap-1.5">
               <span className="font-medium">{t('people.addLabel')}</span>
-              <span className="flex items-center gap-1" dir="ltr">
+              <span className="flex items-center gap-1">
                 <span className="text-ink-secondary">console:</span>
                 <input
                   className={input}
@@ -362,7 +361,7 @@ export function PeoplePanel({
                 {view.sessions.map((s) => (
                   <tr key={s.id}>
                     <td className="py-2">
-                      <Ltr>{s.user === 'console' ? t('people.shared') : s.user}</Ltr>
+                      <Mono>{s.user === 'console' ? t('people.shared') : s.user}</Mono>
                     </td>
                     <td className="py-2">{time(s.since)}</td>
                     <td className="py-2">{time(s.lastSeen)}</td>

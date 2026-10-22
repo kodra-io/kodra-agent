@@ -47,7 +47,7 @@ const dashboard: DashboardView = {
       panels: [
         {
           id: 'pods',
-          title: { en: 'Pods', ar: 'Pods' },
+          title: 'Pods',
           view: 'pods',
           results: [
             {
@@ -63,7 +63,7 @@ const dashboard: DashboardView = {
         },
         {
           id: 'deployments',
-          title: { en: 'Deployments', ar: 'Deployments' },
+          title: 'Deployments',
           view: 'deployments',
           results: [
             { target: 'dev', data: { kind: 'deployments', ready: 1, total: 3, deployments: [] } },
@@ -77,7 +77,7 @@ const dashboard: DashboardView = {
       panels: [
         {
           id: 'pipelines',
-          title: { en: 'Pipelines', ar: 'Pipelines' },
+          title: 'Pipelines',
           view: 'runs',
           results: [
             {
@@ -249,7 +249,7 @@ const withDatabases = (db: 'ok' | 'down'): DashboardView => ({
       panels: [
         {
           id: 'databases',
-          title: { en: 'Databases', ar: 'قواعد البيانات' },
+          title: 'Databases',
           view: 'workload',
           results: [
             {
@@ -361,7 +361,7 @@ describe('pipelines today and databases', () => {
           panels: [
             {
               id: 'databases',
-              title: { en: 'Databases', ar: 'قواعد البيانات' },
+              title: 'Databases',
               view: 'database',
               results: [
                 {

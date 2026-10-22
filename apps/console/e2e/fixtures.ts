@@ -17,15 +17,15 @@ const fixtures: Record<string, unknown> = {
     {
       id: 'anthropic',
       name: 'Anthropic',
-      description: { en: 'Claude models through the Anthropic API.', ar: 'نماذج Claude.' },
-      sends: [{ en: 'Sends prompts and tool results to Anthropic.', ar: 'يرسل إلى Anthropic.' }],
+      description: 'Claude models through the Anthropic API.',
+      sends: ['Sends prompts and tool results to Anthropic.'],
       fields: [],
       secrets: [
         {
           key: 'apiKey',
           envVar: 'ANTHROPIC_API_KEY',
-          description: { en: 'Anthropic API key.', ar: 'مفتاح Anthropic.' },
-          howToCreate: { en: 'Create a key in the Claude Console.', ar: 'أنشئ مفتاحًا.' },
+          description: 'Anthropic API key.',
+          howToCreate: 'Create a key in the Claude Console.',
           set: true,
         },
       ],
@@ -35,27 +35,22 @@ const fixtures: Record<string, unknown> = {
     {
       id: 'openai',
       name: 'OpenAI',
-      description: { en: 'Models through the OpenAI API.', ar: 'النماذج عبر OpenAI.' },
-      sends: [
-        {
-          en: 'Sends prompts and tool results to OpenAI with your key.',
-          ar: 'يرسل الطلبات ونتائج الأدوات إلى OpenAI بمفتاحك.',
-        },
-      ],
+      description: 'Models through the OpenAI API.',
+      sends: ['Sends prompts and tool results to OpenAI with your key.'],
       fields: [
         {
           kind: 'url',
           key: 'baseUrl',
           required: false,
-          description: { en: 'Only for a proxy or a gateway.', ar: 'فقط لخادم وسيط.' },
+          description: 'Only for a proxy or a gateway.',
         },
       ],
       secrets: [
         {
           key: 'apiKey',
           envVar: 'OPENAI_API_KEY',
-          description: { en: 'OpenAI API key.', ar: 'مفتاح OpenAI.' },
-          howToCreate: { en: 'Create an API key in the OpenAI dashboard.', ar: 'أنشئ مفتاحًا.' },
+          description: 'OpenAI API key.',
+          howToCreate: 'Create an API key in the OpenAI dashboard.',
           set: false,
         },
       ],
@@ -98,7 +93,7 @@ const fixtures: Record<string, unknown> = {
         panels: [
           {
             id: 'pods',
-            title: { en: 'Pods', ar: 'الحاويات (Pods)' },
+            title: 'Pods',
             view: 'pods',
             results: [
               {
@@ -122,7 +117,7 @@ const fixtures: Record<string, unknown> = {
           },
           {
             id: 'deployments',
-            title: { en: 'Deployments', ar: 'عمليات النشر' },
+            title: 'Deployments',
             view: 'deployments',
             results: [
               {
@@ -141,7 +136,7 @@ const fixtures: Record<string, unknown> = {
           },
           {
             id: 'warnings',
-            title: { en: 'Recent warnings', ar: 'التحذيرات الأخيرة' },
+            title: 'Recent warnings',
             view: 'events',
             results: [
               {
@@ -163,7 +158,7 @@ const fixtures: Record<string, unknown> = {
           },
           {
             id: 'databases',
-            title: { en: 'Database pods', ar: 'Pods قواعد البيانات' },
+            title: 'Database pods',
             view: 'workload',
             results: [
               {
@@ -192,7 +187,7 @@ const fixtures: Record<string, unknown> = {
         panels: [
           {
             id: 'databases',
-            title: { en: 'Databases', ar: 'قواعد البيانات' },
+            title: 'Databases',
             view: 'database',
             results: [
               {
@@ -222,7 +217,7 @@ const fixtures: Record<string, unknown> = {
         panels: [
           {
             id: 'pipelines',
-            title: { en: 'Pipelines', ar: 'خطوط الإنتاج' },
+            title: 'Pipelines',
             view: 'runs',
             results: [
               {
@@ -271,7 +266,7 @@ const fixtures: Record<string, unknown> = {
         panels: [
           {
             id: 'jobs',
-            title: { en: 'Jobs', ar: 'المهام' },
+            title: 'Jobs',
             view: 'jobs',
             results: [
               {
@@ -306,7 +301,7 @@ const fixtures: Record<string, unknown> = {
         panels: [
           {
             id: 'runs',
-            title: { en: 'Workflow runs', ar: 'تشغيلات سير العمل' },
+            title: 'Workflow runs',
             view: 'runs',
             results: [],
             note: 'no-targets',
@@ -501,7 +496,7 @@ interface MockConversation {
   live: string[];
 }
 
-const loc = (en: string) => ({ en, ar: en });
+const loc = (en: string) => en;
 
 /** The settings the mocked agent starts with. */
 function settingsView(

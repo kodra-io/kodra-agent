@@ -3,7 +3,7 @@ import { defineManifest, type Manifest, type McpStdioRuntime } from '@kodra-agen
 import type { Component } from '../config.ts';
 import type { Launch } from '../mcp/host.ts';
 
-const t = (en: string) => ({ en, ar: en });
+const t = (en: string) => en;
 const SERVER = fileURLToPath(new URL('./fake-mcp-server.ts', import.meta.url));
 
 /** A connector manifest whose server is the fake MCP server above. */

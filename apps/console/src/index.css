@@ -94,11 +94,6 @@ body {
   @apply bg-surface text-ink font-sans antialiased;
 }
 
-/* Arabic text uses the self-hosted font; its unicode-range keeps Latin text on the stack above. */
-:lang(ar) body {
-  font-family: 'Noto Sans Arabic', var(--font-sans);
-}
-
 :focus-visible {
   outline: 2px solid var(--k-focus);
   outline-offset: 2px;
@@ -182,10 +177,6 @@ body {
 
 .kodra-stagger {
   --kodra-slide: -10px;
-}
-
-[dir='rtl'] .kodra-stagger {
-  --kodra-slide: 10px;
 }
 
 .kodra-stagger > * {

@@ -9,7 +9,7 @@ import {
 } from './api.ts';
 import { useI18n } from './i18n.tsx';
 import { useLoad } from './load.ts';
-import { Badge, ContextNote, Ltr } from './ui.tsx';
+import { Badge, ContextNote, Mono } from './ui.tsx';
 
 const input =
   'h-10 w-full rounded-lg border border-line-strong bg-surface px-3 disabled:opacity-60';
@@ -44,7 +44,7 @@ export function ProviderSwitch({
   onCancel: () => void;
   onSignedOut: () => void;
 }) {
-  const { t, lang, num } = useI18n();
+  const { t, num } = useI18n();
   const group = useId();
   const secretId = useId();
   const load = useCallback(() => get<ProviderView[]>('settings/providers'), []);
@@ -151,7 +151,7 @@ export function ProviderSwitch({
                 {p.name}
                 {p.id === current && <Badge tone="accent">{t('model.current')}</Badge>}
               </span>
-              <span className="text-sm text-ink-secondary">{p.description[lang]}</span>
+              <span className="text-sm text-ink-secondary">{p.description}</span>
             </span>
           </label>
         ))}
@@ -170,13 +170,12 @@ export function ProviderSwitch({
           {key && (
             <div className="flex flex-col gap-1.5">
               <label htmlFor={secretId} className="font-medium">
-                {key.description[lang]} <Ltr>{key.envVar}</Ltr>
+                {key.description} <Mono>{key.envVar}</Mono>
               </label>
               <input
                 id={secretId}
                 type="password"
                 autoComplete="off"
-                dir="ltr"
                 className={`${input} max-w-md`}
                 value={secret}
                 disabled={!provider.writable}
@@ -187,7 +186,7 @@ export function ProviderSwitch({
                 }}
               />
               <span className="text-xs text-ink-secondary">
-                {key.set ? t('provider.keySetHint') : key.howToCreate[lang]}
+                {key.set ? t('provider.keySetHint') : key.howToCreate}
               </span>
               {!provider.writable && !key.set && (
                 <span className="text-sm text-bad-text">{t('provider.notWritable')}</span>
@@ -241,7 +240,7 @@ export function ProviderSwitch({
                           setModel(o.name);
                         }}
                       />
-                      <Ltr>{o.name}</Ltr>
+                      <Mono>{o.name}</Mono>
                       {o.available === false && <Badge tone="plain">{t('model.notListed')}</Badge>}
                     </span>
                     <span className="flex flex-wrap gap-3 text-sm text-ink-secondary">
@@ -267,8 +266,8 @@ export function ProviderSwitch({
                   {t('provider.warnTitle', { provider: provider.name })}
                 </p>
                 {provider.sends.map((s) => (
-                  <p key={s.en} className="mt-1 text-ink-secondary">
-                    {s[lang]}
+                  <p key={s} className="mt-1 text-ink-secondary">
+                    {s}
                   </p>
                 ))}
               </div>

@@ -15,7 +15,7 @@ import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
 import { MarkdownText } from './markdown.tsx';
 import type { PageProps } from './pages.tsx';
-import { Ltr } from './ui.tsx';
+import { Mono } from './ui.tsx';
 
 const MAX_MESSAGE = 8_000;
 const MAX_ROWS = 8;
@@ -318,11 +318,9 @@ export function ChatPage({ onSignedOut, me }: PageProps) {
                       open(c.id);
                     }}
                   >
-                    <span dir="auto" className="line-clamp-2 text-[13px] font-semibold">
-                      {c.title}
-                    </span>
+                    <span className="line-clamp-2 text-[13px] font-semibold">{c.title}</span>
                     <span className="flex flex-wrap items-center gap-1.5 text-xs text-ink-secondary">
-                      {c.startedBy !== me.user && <Ltr>{c.startedBy}</Ltr>}
+                      {c.startedBy !== me.user && <Mono>{c.startedBy}</Mono>}
                       <span>{time(c.createdAt)}</span>
                       {c.busy && (
                         <span className="rounded-full bg-primary-tint px-1.5 text-[11px] font-medium text-primary-text">
@@ -350,7 +348,7 @@ export function ChatPage({ onSignedOut, me }: PageProps) {
             <Icon name="panel" size={16} />
           </button>
           <div className="flex min-w-0 flex-col">
-            <h1 id="page-title" dir="auto" className="truncate text-lg font-semibold">
+            <h1 id="page-title" className="truncate text-lg font-semibold">
               {current?.title ?? t('chat.title')}
             </h1>
             <span className="text-xs text-ink-secondary">{t('chat.policy')}</span>
@@ -400,7 +398,6 @@ export function ChatPage({ onSignedOut, me }: PageProps) {
             <div className="flex items-end gap-2 rounded-xl border border-line-strong bg-raised py-2 ps-3.5 pe-2 shadow-sm focus-within:border-primary">
               <textarea
                 id={messageId}
-                dir="auto"
                 rows={rows}
                 maxLength={MAX_MESSAGE}
                 placeholder={t(busy ? 'chat.placeholderBusy' : 'chat.placeholder')}
@@ -541,12 +538,10 @@ function TurnView({
         <div className="max-w-[85%] rounded-2xl rounded-ee-md bg-primary-tint px-3.5 py-2.5 text-[15px] leading-[22px]">
           {turn.user.by !== me.user && (
             <p className="mb-0.5 text-xs font-semibold text-ink-secondary">
-              <Ltr>{turn.user.by}</Ltr>
+              <Mono>{turn.user.by}</Mono>
             </p>
           )}
-          <p dir="auto" className="whitespace-pre-wrap">
-            {turn.user.text}
-          </p>
+          <p className="whitespace-pre-wrap">{turn.user.text}</p>
         </div>
       </div>
 
@@ -644,12 +639,8 @@ function ToolSummary({ calls }: { calls: Call[] }) {
           className={running ? 'animate-spin' : failed.length > 0 ? '' : 'text-ok-text'}
         />
         <span className="font-medium text-ink">{label}</span>
-        {!running && (
-          <bdi dir="ltr" className="font-mono text-xs">
-            {names}
-          </bdi>
-        )}
-        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} className="rtl:-scale-x-100" />
+        {!running && <span className="font-mono text-xs">{names}</span>}
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />
       </button>
       {open && (
         <ul className="mt-2 flex flex-col gap-1.5 rounded-xl border border-line bg-surface p-2.5 text-[13px]">
@@ -660,7 +651,7 @@ function ToolSummary({ calls }: { calls: Call[] }) {
             return (
               <li key={c.id} className="flex flex-col gap-1 rounded-lg bg-raised px-3 py-2">
                 <span className="flex flex-wrap items-center gap-2">
-                  <Ltr>{`${c.tool.connector}/${c.tool.tool}`}</Ltr>
+                  <Mono>{`${c.tool.connector}/${c.tool.tool}`}</Mono>
                   <span className="text-xs text-ink-secondary">
                     {has(riskKey) ? t(riskKey) : c.tool.risk}
                   </span>
@@ -670,14 +661,10 @@ function ToolSummary({ calls }: { calls: Call[] }) {
                     {has(stateKey) ? t(stateKey) : c.tool.state}
                   </span>
                 </span>
-                <bdi dir="ltr" className="font-mono text-xs break-all text-ink-secondary">
+                <span className="font-mono text-xs break-all text-ink-secondary">
                   {c.tool.args}
-                </bdi>
-                {c.tool.detail && (
-                  <span dir="auto" className="text-ink-secondary">
-                    {c.tool.detail}
-                  </span>
-                )}
+                </span>
+                {c.tool.detail && <span className="text-ink-secondary">{c.tool.detail}</span>}
               </li>
             );
           })}
@@ -722,7 +709,7 @@ function ChangeView({
           className={d.decision === 'approved' ? 'text-ok-text' : 'text-bad-text'}
         />
         <span className="font-semibold">
-          {a.title ? <bdi dir="auto">{a.title}</bdi> : <Ltr>{`${a.connector}/${a.tool}`}</Ltr>}
+          {a.title ? <span>{a.title}</span> : <Mono>{`${a.connector}/${a.tool}`}</Mono>}
         </span>
         <span className="text-ink-secondary">
           {d.decision === 'expired'
@@ -739,17 +726,13 @@ function ChangeView({
             const stateKey = `state.${s.state}`;
             return (
               <li key={s.call} className="flex flex-wrap items-center gap-2 text-[13px]">
-                <Ltr>{`${s.connector}/${s.tool}`}</Ltr>
+                <Mono>{`${s.connector}/${s.tool}`}</Mono>
                 <span
                   className={`rounded-full px-2 text-[11px] font-medium ${STATE_TONE[s.state] ?? ''}`}
                 >
                   {has(stateKey) ? t(stateKey) : s.state}
                 </span>
-                {s.detail && (
-                  <span dir="auto" className="text-ink-secondary">
-                    {s.detail}
-                  </span>
-                )}
+                {s.detail && <span className="text-ink-secondary">{s.detail}</span>}
               </li>
             );
           })}

@@ -34,7 +34,7 @@ const ALL_STEPS: readonly StepInfo[] = [
 ];
 
 export function App() {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const issueText = useIssueText();
   const { draft, dispatch, invalidLink } = useDraft();
   const [stepId, setStepId] = useState<Step>('profile');
@@ -136,17 +136,6 @@ export function App() {
             <p className="font-heading text-sm font-bold text-primary">{t('app.productName')}</p>
             <h1 className="text-2xl font-bold text-ink">{t('app.title')}</h1>
           </div>
-          <button
-            type="button"
-            lang={lang === 'en' ? 'ar' : 'en'}
-            aria-label={t('app.switchLanguageLabel')}
-            onClick={() => {
-              setLang(lang === 'en' ? 'ar' : 'en');
-            }}
-            className="rounded-md border border-line px-3 py-2 hover:bg-primary-tint"
-          >
-            {t('app.switchLanguage')}
-          </button>
         </div>
       </header>
 
@@ -280,10 +269,9 @@ function Preview({ files }: { files: readonly { path: string; content: string }[
   const current = files[Math.min(active, files.length - 1)];
 
   const onKeyDown = (e: React.KeyboardEvent, index: number) => {
-    const dir = document.documentElement.dir === 'rtl' ? -1 : 1;
     let nextIndex: number | null = null;
-    if (e.key === 'ArrowRight') nextIndex = index + dir;
-    if (e.key === 'ArrowLeft') nextIndex = index - dir;
+    if (e.key === 'ArrowRight') nextIndex = index + 1;
+    if (e.key === 'ArrowLeft') nextIndex = index - 1;
     if (e.key === 'Home') nextIndex = 0;
     if (e.key === 'End') nextIndex = files.length - 1;
     if (nextIndex === null) return;
@@ -320,7 +308,6 @@ function Preview({ files }: { files: readonly { path: string; content: string }[
             onKeyDown={(e) => {
               onKeyDown(e, i);
             }}
-            dir="ltr"
             className={`rounded-md px-2 py-1 font-mono text-xs ${
               i === active ? 'bg-primary text-white' : 'bg-primary-tint text-ink hover:bg-line'
             }`}
@@ -334,7 +321,6 @@ function Preview({ files }: { files: readonly { path: string; content: string }[
         role="tabpanel"
         aria-labelledby={`tab-${String(active)}`}
         tabIndex={0}
-        dir="ltr"
         data-testid="preview"
         className="max-h-[70vh] overflow-auto rounded-md bg-ink p-3 font-mono text-xs leading-relaxed text-white"
       >
