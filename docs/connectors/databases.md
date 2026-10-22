@@ -82,9 +82,13 @@ of someone's choosing. The console always writes these names itself and never ac
 reference from the browser; a `${file:...}` reference already in the file is kept. A database
 pointed at a new host or tunnel shows as new access in the console's review.
 
-Add databases in the console (**Settings → Connectors → Databases**), then enter each
-password under **Secrets**: it is tested against that database before it is saved, and another
-database being down does not block it. Or edit `kodra-agent.yaml` and `.env` by hand.
+Add databases in the configurator, which never asks for a password: it writes each database's
+references and lists its variables in `.env.example`. `kodra-agent init` then asks for each one
+with hidden input and tests it against that database alone (a tunnelled database once its
+tunnel key is entered too). Or add them later in the console (**Settings → Connectors →
+Databases**), then enter each password under **Secrets**: it is tested against that database
+before it is saved, and another database being down does not block it. Or edit
+`kodra-agent.yaml` and `.env` by hand.
 
 ## The database user
 

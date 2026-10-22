@@ -241,11 +241,35 @@ async function probeFor(
   use: SecretUse,
   comp: Component,
   collected: Collected,
+  existing: ReadonlyMap<string, string>,
   ctx: Context,
 ): Promise<ProbeResult> {
   const secrets: Record<string, string> = {};
   for (const [other, value] of collected) {
     if (other.component === comp.id) secrets[other.spec.key] = value;
+  }
+  // An entry's secret (a database's password, keyed orders.password) is checked against that
+  // entry only, with the entry's other secrets already in .env, and once they are all known:
+  // a tunnelled database cannot be reached before its tunnel key is entered.
+  const entry = use.spec.key.includes('.') ? use.spec.key.split('.')[0] : undefined;
+  if (entry !== undefined) {
+    const later: SecretUse[] = [];
+    for (const other of comp.secrets) {
+      if (other === use || other.spec.key.split('.')[0] !== entry) continue;
+      if (secrets[other.spec.key] !== undefined) continue;
+      const value =
+        other.ref.scheme === 'env'
+          ? (existing.get(other.ref.name) ?? ctx.env[other.ref.name])
+          : undefined;
+      if (value) secrets[other.spec.key] = value;
+      else if (comp.secrets.indexOf(other) > comp.secrets.indexOf(use)) later.push(other);
+    }
+    if (later.length > 0) {
+      return {
+        status: 'skip',
+        message: `checked once ${later.map((o) => o.spec.key).join(' and ')} is entered`,
+      };
+    }
   }
   return runProbe(use.spec.probe, {
     component: comp,
@@ -253,6 +277,7 @@ async function probeFor(
     fetch: ctx.fetch,
     kubernetes: ctx.kubernetes,
     timeoutMs: ctx.probeTimeoutMs,
+    ...(entry !== undefined ? { only: use.spec.key } : {}),
     ...(ctx.endpoints ? { endpoints: ctx.endpoints } : {}),
   });
 }
@@ -346,7 +371,7 @@ async function interactively(
 
     ctx.redactor.add(value);
     collected.set(use, value);
-    const result = await probeFor(use, comp, collected, ctx);
+    const result = await probeFor(use, comp, collected, existing, ctx);
     report(use, result, ctx);
     if (result.status !== 'fail') return null;
 
@@ -383,7 +408,7 @@ async function fromEnvironment(
   }
   ctx.redactor.add(value);
   collected.set(use, value);
-  const result = await probeFor(use, comp, collected, ctx);
+  const result = await probeFor(use, comp, collected, existing, ctx);
   report(use, result, ctx);
   return result.status === 'fail' ? `${label} failed its check.` : null;
 }

@@ -136,7 +136,7 @@ describe('compose bundle', () => {
     const readme = file(generateBundle(draft), 'README.md');
     expect(readme).toContain('- `KODRA_CONSOLE_TOKEN`: the team: view and chat, cannot approve');
     expect(readme).toContain('- `KODRA_CONSOLE_TOKEN_ON_CALL`: console:on-call: can approve');
-    expect(readme).toContain('lets you chat with the agent');
+    expect(readme).toContain('You can also chat with the agent there.');
     const k8s = file(generateBundle({ ...kubernetesDraft(), policy: draft.policy }), 'README.md');
     expect(k8s).toContain("jsonpath='{.data.KODRA_CONSOLE_TOKEN_ON_CALL}' | base64 -d");
   });

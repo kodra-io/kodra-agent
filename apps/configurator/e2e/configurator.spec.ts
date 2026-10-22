@@ -71,6 +71,81 @@ test('builds a starter config step by step and downloads a valid bundle', async 
   ]);
 });
 
+test('adds databases, one through a tunnel, and the bundle names their secrets', async ({
+  page,
+}) => {
+  await fillBasics(page);
+  await enableConnector(page, 'databases', 'Databases');
+  const card = connectorCard(page, 'databases');
+  await expect(card.getByText('None yet. Add them here, or later in the console.')).toBeVisible();
+  await expect(card.getByText('Each database you add names its own secrets here.')).toBeVisible();
+
+  await card.getByRole('button', { name: 'Add database' }).click();
+  await card.getByRole('textbox', { name: 'Name', exact: true }).fill('Orders');
+  // Shown on the entry, and under what the setup will ask for.
+  await expect(card.getByText('KODRA_DB_ORDERS_PASSWORD')).toHaveCount(2);
+  await card.getByLabel(/^Host name or IP address/).fill('orders.internal');
+  await card.getByLabel('Database user.').fill('kodra_monitor');
+
+  await card.getByRole('button', { name: 'Add database' }).click();
+  const second = card.locator('[data-entry="1"]');
+  await second.getByRole('textbox', { name: 'Name', exact: true }).fill('billing');
+  await second.getByLabel('Database engine.').selectOption('postgres');
+  await second.getByLabel(/^Host name or IP address/).fill('10.0.3.12');
+  await second.getByLabel('Database user.').fill('kodra_monitor');
+  await second.getByText('More settings').click();
+  await second.getByLabel(/^SSH tunnel: the bastion host/).fill('bastion.example.com');
+  await second.getByLabel(/^SSH tunnel: the user on the bastion/).fill('kodra');
+  await expect(second.getByText('KODRA_DB_BILLING_TUNNEL_KEY')).toBeVisible();
+  // A tunnel needs the bastion's host key: the download stays blocked until it is set.
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('problems').getByText('This field is required.')).toBeVisible();
+  await goToStep(page, /Connectors/);
+  await second.getByLabel(/host key/i).fill(`SHA256:${'A'.repeat(43)}`);
+
+  const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(axe.violations).toEqual([]);
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+
+  await goToStep(page, /Review/);
+  await expect(page.getByText('Everything checks out. You can download your agent.')).toBeVisible();
+  await expect(page.getByText('Databases (billing):')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download kodra-agent-payments-team-agent.zip' }).click();
+  const zip = await JSZip.loadAsync(await readFile(await (await downloadPromise).path()));
+  const root = 'kodra-agent-payments-team-agent/';
+  const result = parseAgentConfig(
+    (await zip.file(`${root}kodra-agent.yaml`)?.async('string')) ?? '',
+  );
+  expect(result.ok ? [] : result.issues).toEqual([]);
+  if (result.ok) {
+    expect(result.config.spec.connectors['databases']?.config?.['databases']).toMatchObject([
+      { name: 'orders', password: '${env:KODRA_DB_ORDERS_PASSWORD}' },
+      {
+        name: 'billing',
+        engine: 'postgres',
+        tunnelHost: 'bastion.example.com',
+        tunnelKey: '${env:KODRA_DB_BILLING_TUNNEL_KEY}',
+      },
+    ]);
+  }
+  const env = await zip.file(`${root}.env.example`)?.async('string');
+  expect(env?.split('\n').filter((l) => l.startsWith('KODRA_DB_'))).toEqual([
+    'KODRA_DB_ORDERS_PASSWORD=',
+    'KODRA_DB_BILLING_PASSWORD=',
+    'KODRA_DB_BILLING_TUNNEL_KEY=',
+  ]);
+
+  // The databases are part of a shared link.
+  await page.reload();
+  await goToStep(page, /Connectors/);
+  await expect(
+    connectorCard(page, 'databases').getByRole('textbox', { name: 'Name', exact: true }),
+  ).toHaveCount(2);
+});
+
 test('dependency warnings show inline and block the download', async ({ page }) => {
   await fillBasics(page);
   await enableConnector(page, 'github-actions', 'GitHub Actions');

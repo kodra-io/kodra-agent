@@ -1,6 +1,9 @@
 import { dependencyIssues, getModelProvider, parseAgentConfig } from '@kodra-agent/connectors';
 import {
   DEFAULT_AUDIT_PATH,
+  ENTRY_NAME,
+  entryEnvVar,
+  entrySecretWanted,
   formatSecretRef,
   isConsoleApprover,
   isSecretRequired,
@@ -9,6 +12,8 @@ import {
   SCHEMA_API_VERSION,
   type ConfigField,
   type EffectivePolicy,
+  type EntriesField,
+  type EntryField,
   type LocalizedText,
   type Manifest,
   type PolicyProblem,
@@ -16,7 +21,13 @@ import {
   type SecretSpec,
 } from '@kodra-agent/schema';
 import { stringify } from 'yaml';
-import { enabledConnectors, splitList, type AgentDraft } from './draft.ts';
+import {
+  enabledConnectors,
+  splitList,
+  type AgentDraft,
+  type ConnectorDraft,
+  type EntryDraft,
+} from './draft.ts';
 
 export type StepId = 'profile' | 'start' | 'model' | 'connectors' | 'environments' | 'review';
 
@@ -27,6 +38,8 @@ export type DraftIssue = { field: string; step: StepId } & (
   | { code: 'pattern'; hint?: LocalizedText | undefined }
   | { code: 'integer-range'; min: number; max: number }
   | { code: 'name-format' }
+  | { code: 'entry-name' }
+  | { code: 'entry-duplicate'; value: string }
   | { code: 'approver-format'; value: string }
   | { code: 'approver-console-off'; value: string }
   | { code: 'dependency'; message: LocalizedText }
@@ -62,6 +75,72 @@ export function includedSecrets(
   return manifest.secrets.filter(
     (s) => isSecretRequired(s, target) || optionalChosen.includes(s.key),
   );
+}
+
+/** An entry's value for one of its fields, as the config holds it; undefined when empty. */
+function entryFieldValue(f: EntryField, raw: string | undefined): unknown {
+  const value = (raw ?? '').trim();
+  if (value === '') return undefined;
+  if (f.kind === 'integer') return /^-?\d+$/.test(value) ? Number(value) : value;
+  if (f.kind === 'boolean') return value === 'true';
+  return value;
+}
+
+/**
+ * An `entries` setting as kodra-agent.yaml holds it. Secrets are references to the variable
+ * named for the entry (KODRA_DB_ORDERS_PASSWORD), the only ones the schema accepts.
+ */
+export function entriesValue(
+  field: EntriesField,
+  entries: readonly EntryDraft[],
+): Record<string, unknown>[] {
+  return entries.map((entry) => {
+    const name = (entry['name'] ?? '').trim();
+    const out: Record<string, unknown> = { name };
+    for (const f of field.fields) {
+      if (f.kind === 'secret') {
+        if (entrySecretWanted(f, entry) && name !== '') {
+          out[f.key] = formatSecretRef({ scheme: 'env', name: entryEnvVar(field, name, f.envVar) });
+        }
+        continue;
+      }
+      const value = entryFieldValue(f, entry[f.key]);
+      if (value !== undefined) out[f.key] = value;
+    }
+    return out;
+  });
+}
+
+/**
+ * The secrets a connector's entries name (a password per database), as the agent's `init`
+ * asks for them: optional, keyed `<entry>.<field>`, checked with the connector's health probe.
+ */
+export function entrySecrets(
+  manifest: Manifest,
+  connector: ConnectorDraft | undefined,
+): SecretSpec[] {
+  const out: SecretSpec[] = [];
+  for (const field of manifest.configFields) {
+    if (field.kind !== 'entries') continue;
+    for (const entry of connector?.entries?.[field.key] ?? []) {
+      const name = (entry['name'] ?? '').trim();
+      if (!ENTRY_NAME.test(name)) continue;
+      for (const f of field.fields) {
+        if (f.kind !== 'secret' || !entrySecretWanted(f, entry)) continue;
+        out.push({
+          key: `${name}.${f.key}`,
+          envVar: entryEnvVar(field, name, f.envVar),
+          defaultRef: 'env',
+          required: false,
+          description: f.description,
+          howToCreate: f.howToCreate,
+          minimumScopes: {},
+          probe: manifest.healthProbe ?? `${manifest.id}.connect`,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 function fieldValue(field: ConfigField, raw: string | undefined): unknown {
@@ -137,6 +216,12 @@ export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
     const out: Record<string, unknown> = { enabled: true };
     if (manifest.accessLevels.length > 0) out['access'] = entry.access;
     const config = fieldsObject(manifest.configFields, entry.config);
+    for (const field of manifest.configFields) {
+      const list = field.kind === 'entries' ? (entry.entries?.[field.key] ?? []) : [];
+      if (field.kind === 'entries' && list.length > 0) {
+        config[field.key] = entriesValue(field, list);
+      }
+    }
     if (Object.keys(config).length > 0) out['config'] = config;
     const secrets = includedSecrets(manifest, entry.optionalSecrets, draft.target);
     if (secrets.length > 0) {
@@ -222,9 +307,54 @@ function validateField(field: ConfigField, raw: string | undefined, id: string, 
         : [{ field: id, step, code: 'integer-range' as const, min: field.min, max: field.max }];
     }
     case 'entries':
-      // Entries (like databases) are added in the console, where their secrets are checked.
+      // Checked entry by entry: validateEntries.
       return [];
   }
+}
+
+/** Every problem with an `entries` setting's entries, keyed `<id>.<index>.<field>`. */
+function validateEntries(field: EntriesField, entries: readonly EntryDraft[], id: string) {
+  const step = 'connectors' as const;
+  const issues: DraftIssue[] = [];
+  const names = entries.map((e) => (e['name'] ?? '').trim());
+  entries.forEach((entry, i) => {
+    const at = (key: string) => `${id}.${String(i)}.${key}`;
+    const name = names[i] ?? '';
+    if (name === '') issues.push({ field: at('name'), step, code: 'required' });
+    else if (!ENTRY_NAME.test(name) || name.length > 40) {
+      issues.push({ field: at('name'), step, code: 'entry-name' });
+    } else if (names.indexOf(name) !== i) {
+      issues.push({ field: at('name'), step, code: 'entry-duplicate', value: name });
+    }
+    for (const f of field.fields) {
+      if (f.kind === 'secret' || f.kind === 'boolean') continue;
+      const value = (entry[f.key] ?? '').trim();
+      if (value === '') {
+        const hasDefault = 'default' in f && f.default !== undefined;
+        const withOther =
+          'requiredWith' in f &&
+          f.requiredWith !== undefined &&
+          (entry[f.requiredWith] ?? '').trim() !== '';
+        if ((f.required && !hasDefault) || withOther) {
+          issues.push({ field: at(f.key), step, code: 'required' });
+        }
+        continue;
+      }
+      if (f.kind === 'string' && f.pattern && !new RegExp(f.pattern).test(value)) {
+        issues.push({ field: at(f.key), step, code: 'pattern', hint: f.patternHint });
+      }
+      if (f.kind === 'integer') {
+        const n = Number(value);
+        if (!/^\d+$/.test(value) || n < f.min || n > f.max) {
+          issues.push({ field: at(f.key), step, code: 'integer-range', min: f.min, max: f.max });
+        }
+      }
+      if (f.kind === 'choice' && !f.options.includes(value)) {
+        issues.push({ field: at(f.key), step, code: 'pattern', hint: undefined });
+      }
+    }
+  });
+  return issues;
 }
 
 /**
@@ -253,6 +383,16 @@ export function validateDraft(draft: AgentDraft): DraftIssue[] {
     }
     const entry = draft.connectors[manifest.id];
     for (const field of manifest.configFields) {
+      if (field.kind === 'entries') {
+        issues.push(
+          ...validateEntries(
+            field,
+            entry?.entries?.[field.key] ?? [],
+            `connector.${manifest.id}.${field.key}`,
+          ),
+        );
+        continue;
+      }
       issues.push(
         ...validateField(
           field,

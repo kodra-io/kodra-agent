@@ -18,6 +18,19 @@ export function entryEnvVar(field: EntriesField, name: string, secret: string): 
   return `${field.envPrefix}${name.toUpperCase().replaceAll('-', '_')}_${secret}`;
 }
 
+/**
+ * Whether an entry uses one of its secret fields: always, unless it goes with another field
+ * (a tunnel's key with its host) that the entry leaves empty.
+ */
+export function entrySecretWanted(
+  f: Extract<EntryField, { kind: 'secret' }>,
+  entry: Readonly<Record<string, unknown>>,
+): boolean {
+  if (f.required || f.requiredWith === undefined) return true;
+  const other = entry[f.requiredWith];
+  return other !== undefined && other !== null && other !== '';
+}
+
 /** The entries of a setting value, keeping only objects with a name. */
 export function entriesOf(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];

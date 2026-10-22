@@ -379,7 +379,7 @@
                         "minLength": 1,
                         "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\\/[a-z0-9]([-.a-z0-9]{0,251}[a-z0-9])?$"
                       },
-                      "description": "Database workloads to watch on the console Overview, as namespace/name (a StatefulSet or Deployment). The namespace must be in the list above. Leave empty to show no databases."
+                      "description": "Database workloads to watch on the console Overview, as namespace/name (a StatefulSet or Deployment). The namespace must be in the list above. For databases outside the cluster, or to check the database itself, use the Databases connector."
                     }
                   },
                   "required": [

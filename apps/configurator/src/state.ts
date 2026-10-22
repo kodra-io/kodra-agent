@@ -5,6 +5,7 @@ import {
   decodeDraft,
   defaultOptionalSecrets,
   emptyDraft,
+  emptyEntry,
   emptyEnvironment,
   MAX_ENVIRONMENTS,
   encodeDraft,
@@ -12,6 +13,7 @@ import {
   withConsoleAdmin,
   type AgentDraft,
   type DestructivePolicy,
+  type EntryDraft,
   type Target,
 } from '@kodra-agent/templates';
 import { useEffect, useReducer, useState } from 'react';
@@ -36,6 +38,9 @@ export type Action =
   | { type: 'access'; id: string; value: AccessLevel }
   | { type: 'connectorField'; id: string; key: string; value: string }
   | { type: 'optionalSecret'; id: string; key: string; included: boolean }
+  | { type: 'entryAdd'; id: string; key: string }
+  | { type: 'entryRemove'; id: string; key: string; index: number }
+  | { type: 'entryField'; id: string; key: string; index: number; field: string; value: string }
   | { type: 'approvers'; value: string }
   | { type: 'expires'; value: string }
   | { type: 'destructive'; value: DestructivePolicy }
@@ -123,6 +128,21 @@ export function reducer(draft: AgentDraft, action: Action): AgentDraft {
           ? [...new Set([...c.optionalSecrets, action.key])]
           : c.optionalSecrets.filter((k) => k !== action.key),
       }));
+    case 'entryAdd': {
+      const field = getConnector(action.id)?.configFields.find((f) => f.key === action.key);
+      if (field?.kind !== 'entries') return draft;
+      return updateEntries(draft, action.id, action.key, (list) =>
+        list.length >= field.max ? list : [...list, emptyEntry(field)],
+      );
+    }
+    case 'entryRemove':
+      return updateEntries(draft, action.id, action.key, (list) =>
+        list.filter((_, i) => i !== action.index),
+      );
+    case 'entryField':
+      return updateEntries(draft, action.id, action.key, (list) =>
+        list.map((e, i) => (i === action.index ? { ...e, [action.field]: action.value } : e)),
+      );
     case 'approvers':
       return { ...draft, policy: { ...draft.policy, approvers: action.value } };
     case 'expires':
@@ -151,6 +171,18 @@ function updateConnector(
 ): AgentDraft {
   const entry = draft.connectors[id];
   return entry ? { ...draft, connectors: { ...draft.connectors, [id]: update(entry) } } : draft;
+}
+
+function updateEntries(
+  draft: AgentDraft,
+  id: string,
+  key: string,
+  update: (list: EntryDraft[]) => EntryDraft[],
+): AgentDraft {
+  return updateConnector(draft, id, (c) => ({
+    ...c,
+    entries: { ...c.entries, [key]: update(c.entries?.[key] ?? []) },
+  }));
 }
 
 function initialState(): { draft: AgentDraft; invalidLink: boolean } {

@@ -1,25 +1,40 @@
 import { connectors, getModelProvider, modelProviders } from '@kodra-agent/connectors';
 import {
+  ENTRY_NAME,
+  entryEnvVar,
   isSecretRequired,
   type Category,
   type ConfigField,
+  type EntriesField,
+  type EntryField,
   type Manifest,
   type ModelProvider,
   type SecretSpec,
 } from '@kodra-agent/schema';
 import {
+  entrySecrets,
   includedSecrets,
   quickstartCommands,
   type AgentDraft,
   type DestructivePolicy,
   type DraftIssue,
+  type EntryDraft,
   type StepId,
 } from '@kodra-agent/templates';
 import type { Dispatch } from 'react';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { ApprovalRulesSummary } from './policy-steps.tsx';
 import type { Action } from './state.ts';
-import { Badge, CopyButton, RadioCards, Section, Switch, TextField, useIssueText } from './ui.tsx';
+import {
+  Badge,
+  CopyButton,
+  RadioCards,
+  Section,
+  SelectField,
+  Switch,
+  TextField,
+  useIssueText,
+} from './ui.tsx';
 
 export interface StepProps {
   draft: AgentDraft;
@@ -137,6 +152,7 @@ export function StartStep({ draft, dispatch, errorFor, touch }: StepProps) {
 export function ModelStep({ draft, dispatch, errorFor, touch }: StepProps) {
   const { t, lt } = useI18n();
   const provider = getModelProvider(draft.model.provider);
+  const suggestions = Object.keys(provider?.pricing?.models ?? {});
   return (
     <div className="flex flex-col gap-6">
       <RadioCards<ModelProvider>
@@ -155,9 +171,11 @@ export function ModelStep({ draft, dispatch, errorFor, touch }: StepProps) {
       />
       <TextField
         label={t('model.name')}
-        hint={t('model.nameHint')}
+        hint={t(suggestions.length > 0 ? 'model.nameHintSuggested' : 'model.nameHint')}
         value={draft.model.name}
         fieldId="model.name"
+        suggestions={suggestions}
+        placeholder={suggestions[0]}
         required
         ltr
         error={errorFor('model.name')}
@@ -227,6 +245,9 @@ function ConnectorCard({
     ...((access && manifest.permissionsSummary[access]) ?? []),
   ];
   const headingId = `connector-${manifest.id}`;
+  // Entries (databases) name their own secrets, one set per entry.
+  const entriesField = manifest.configFields.find((f): f is EntriesField => f.kind === 'entries');
+  const named = entrySecrets(manifest, entry);
   const cardError = errorFor(`connector.${manifest.id}`);
 
   return (
@@ -283,12 +304,17 @@ function ConnectorCard({
 
           {manifest.configFields.map((field) => {
             const fieldId = `connector.${manifest.id}.${field.key}`;
-            // Entries (databases) are added in the console, where each password is tested.
             if (field.kind === 'entries') {
               return (
-                <p key={field.key} className="text-sm text-ink-secondary">
-                  {lt(field.description)} {t('connectors.entriesInConsole')}
-                </p>
+                <EntriesEditor
+                  key={field.key}
+                  connectorId={manifest.id}
+                  field={field}
+                  entries={entry.entries?.[field.key] ?? []}
+                  dispatch={dispatch}
+                  errorFor={errorFor}
+                  touch={touch}
+                />
               );
             }
             return (
@@ -317,8 +343,19 @@ function ConnectorCard({
               </ul>
             </Section>
             <Section title={t('connectors.needs')}>
+              {entriesField ? (
+                named.length > 0 ? (
+                  <SecretNames secrets={named} />
+                ) : (
+                  <p className="text-sm text-ink-secondary">
+                    {t('connectors.entrySecrets', { noun: lt(entriesField.noun) })}
+                  </p>
+                )
+              ) : null}
               {manifest.secrets.length === 0 ? (
-                <p className="text-sm text-ink-secondary">{t('connectors.noSecrets')}</p>
+                entriesField ? null : (
+                  <p className="text-sm text-ink-secondary">{t('connectors.noSecrets')}</p>
+                )
               ) : (
                 <>
                   <SecretNames
@@ -361,6 +398,201 @@ function ConnectorCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * An `entries` setting (databases): add, name, and fill in each entry. Secrets are never
+ * typed here: each shows the variable it will come from, which init asks for.
+ */
+function EntriesEditor(props: {
+  connectorId: string;
+  field: EntriesField;
+  entries: readonly EntryDraft[];
+  dispatch: StepProps['dispatch'];
+  errorFor: StepProps['errorFor'];
+  touch: StepProps['touch'];
+}) {
+  const { t, lt } = useI18n();
+  const { connectorId: id, field, entries, dispatch } = props;
+  const prefix = `connector.${id}.${field.key}`;
+  return (
+    <fieldset className="flex flex-col gap-3">
+      <legend className="mb-1 font-medium">{lt(field.description)}</legend>
+      <p className="text-sm text-ink-secondary">
+        {entries.length === 0 ? t('entries.none') : t('entries.secretsNote')}
+      </p>
+      {entries.map((entry, i) => (
+        <EntryCard
+          // Entries have no id until named; their place in the list is stable while editing.
+          key={i}
+          index={i}
+          field={field}
+          entry={entry}
+          fieldId={(key) => `${prefix}.${String(i)}.${key}`}
+          errorFor={props.errorFor}
+          touch={props.touch}
+          onSet={(key, value) => {
+            dispatch({ type: 'entryField', id, key: field.key, index: i, field: key, value });
+          }}
+          onRemove={() => {
+            dispatch({ type: 'entryRemove', id, key: field.key, index: i });
+          }}
+        />
+      ))}
+      {entries.length < field.max ? (
+        <button
+          type="button"
+          className="self-start rounded-md border border-line px-3 py-2 text-sm hover:bg-primary-tint"
+          onClick={() => {
+            dispatch({ type: 'entryAdd', id, key: field.key });
+          }}
+        >
+          {t('entries.add', { noun: lt(field.noun) })}
+        </button>
+      ) : null}
+    </fieldset>
+  );
+}
+
+function EntryCard(props: {
+  index: number;
+  field: EntriesField;
+  entry: EntryDraft;
+  fieldId: (key: string) => string;
+  errorFor: StepProps['errorFor'];
+  touch: StepProps['touch'];
+  onSet: (key: string, value: string) => void;
+  onRemove: () => void;
+}) {
+  const { t, lt } = useI18n();
+  const { field, entry } = props;
+  const name = (entry['name'] ?? '').trim();
+  // Up front: what every entry needs, and its own secret (a password). The rest, like a
+  // tunnel, under More settings.
+  const first = (f: EntryField) =>
+    ('required' in f && f.required) || (f.kind === 'secret' && f.requiredWith === undefined);
+  const main = field.fields.filter(first);
+  const more = field.fields.filter((f) => !first(f));
+  const render = (f: EntryField) => {
+    const fieldId = props.fieldId(f.key);
+    if (f.kind === 'secret') {
+      return (
+        <div key={f.key} className="flex flex-col gap-1">
+          <span className="font-medium">{lt(f.description)}</span>
+          <span className="text-sm text-ink-secondary">
+            {ENTRY_NAME.test(name) ? (
+              <>
+                {t('entries.secret')}{' '}
+                <code dir="ltr" className="rounded bg-primary-tint px-1.5 py-0.5 font-mono">
+                  {entryEnvVar(field, name, f.envVar)}
+                </code>
+              </>
+            ) : (
+              t('entries.secretNoName')
+            )}
+          </span>
+        </div>
+      );
+    }
+    if (f.kind === 'choice') {
+      return (
+        <SelectField
+          key={f.key}
+          label={lt(f.description)}
+          value={entry[f.key] ?? f.default ?? ''}
+          options={f.options}
+          allowEmpty={!f.required && f.default === undefined}
+          required={f.required}
+          fieldId={fieldId}
+          error={props.errorFor(fieldId)}
+          onChange={(value) => {
+            props.onSet(f.key, value);
+          }}
+        />
+      );
+    }
+    if (f.kind === 'boolean') {
+      return (
+        <label key={f.key} className="flex items-center gap-2 font-medium">
+          <input
+            type="checkbox"
+            className="accent-primary"
+            checked={(entry[f.key] ?? String(f.default)) === 'true'}
+            onChange={(e) => {
+              props.onSet(f.key, String(e.target.checked));
+            }}
+          />
+          {lt(f.description)}
+        </label>
+      );
+    }
+    const placeholder =
+      f.kind === 'integer' ? (f.default !== undefined ? String(f.default) : undefined) : f.example;
+    return (
+      <TextField
+        key={f.key}
+        label={lt(f.description)}
+        value={entry[f.key] ?? ''}
+        fieldId={fieldId}
+        placeholder={placeholder}
+        required={f.required && !('default' in f && f.default !== undefined)}
+        inputMode={f.kind === 'integer' ? 'numeric' : 'text'}
+        ltr
+        error={props.errorFor(fieldId)}
+        onChange={(value) => {
+          props.onSet(f.key, value);
+        }}
+        onBlur={() => {
+          props.touch(fieldId);
+        }}
+      />
+    );
+  };
+  const nameId = props.fieldId('name');
+  return (
+    <div
+      data-entry={props.index}
+      className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-48 flex-1">
+          <TextField
+            label={t('entries.name')}
+            hint={t('entries.nameHint')}
+            value={entry['name'] ?? ''}
+            fieldId={nameId}
+            placeholder="orders"
+            required
+            ltr
+            error={props.errorFor(nameId)}
+            onChange={(value) => {
+              props.onSet('name', value.toLowerCase());
+            }}
+            onBlur={() => {
+              props.touch(nameId);
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-line bg-white px-3 py-2 text-sm hover:bg-primary-tint"
+          onClick={props.onRemove}
+        >
+          {t('entries.remove', { name: name || t('entries.new') })}
+        </button>
+      </div>
+      {main.map(render)}
+      {more.length > 0 ? (
+        <details
+          className="rounded-lg border border-line bg-white p-3"
+          open={more.some((f) => f.kind !== 'secret' && (entry[f.key] ?? '') !== '')}
+        >
+          <summary className="cursor-pointer font-medium">{t('entries.more')}</summary>
+          <div className="mt-3 flex flex-col gap-4">{more.map(render)}</div>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
@@ -411,12 +643,15 @@ export function ReviewStep(
   const enabled = connectors.filter((c) => draft.connectors[c.id]?.enabled === true);
   const secrets = [
     ...(provider?.secrets ?? []).map((s) => ({ owner: provider?.displayName ?? '', s })),
-    ...enabled.flatMap((m) =>
-      includedSecrets(m, draft.connectors[m.id]?.optionalSecrets ?? [], draft.target).map((s) => ({
-        owner: m.displayName,
+    ...enabled.flatMap((m) => [
+      ...includedSecrets(m, draft.connectors[m.id]?.optionalSecrets ?? [], draft.target).map(
+        (s) => ({ owner: m.displayName, s }),
+      ),
+      ...entrySecrets(m, draft.connectors[m.id]).map((s) => ({
+        owner: `${m.displayName} (${s.key.slice(0, s.key.indexOf('.'))})`,
         s,
       })),
-    ),
+    ]),
   ];
 
   return (
