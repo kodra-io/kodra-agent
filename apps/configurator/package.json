@@ -13,7 +13,6 @@
     "test:e2e": "playwright test -c e2e"
   },
   "dependencies": {
-    "@fontsource/noto-sans-arabic": "5.3.0",
     "@kodra-agent/connectors": "workspace:*",
     "@kodra-agent/schema": "workspace:*",
     "@kodra-agent/templates": "workspace:*",

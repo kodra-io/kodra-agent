@@ -52,7 +52,6 @@ function ConfigFieldInput(props: {
   onChange: (value: string) => void;
   onBlur: () => void;
 }) {
-  const { lt } = useI18n();
   const { field } = props;
   const example =
     'example' in field && field.example !== undefined
@@ -62,13 +61,12 @@ function ConfigFieldInput(props: {
       : undefined;
   return (
     <TextField
-      label={lt(field.description)}
+      label={field.description}
       value={props.value}
       fieldId={props.fieldId}
       placeholder={example}
       required={field.required && !('default' in field && field.default !== undefined)}
       inputMode={field.kind === 'integer' ? 'numeric' : field.kind === 'url' ? 'url' : 'text'}
-      ltr
       error={props.error}
       onChange={props.onChange}
       onBlur={props.onBlur}
@@ -77,7 +75,7 @@ function ConfigFieldInput(props: {
 }
 
 function SecretNames({ secrets, access }: { secrets: SecretSpec[]; access?: string | undefined }) {
-  const { t, lt } = useI18n();
+  const { t } = useI18n();
   return (
     <ul className="flex flex-col gap-2">
       {secrets.map((secret) => {
@@ -90,15 +88,15 @@ function SecretNames({ secrets, access }: { secrets: SecretSpec[]; access?: stri
         return (
           <li key={secret.key} className="text-sm">
             {secret.defaultRef === 'env' ? (
-              <code dir="ltr" className="rounded bg-primary-tint px-1.5 py-0.5 font-mono">
+              <code className="rounded bg-primary-tint px-1.5 py-0.5 font-mono">
                 {secret.envVar}
               </code>
             ) : (
               <span className="font-medium">{t('connectors.fileSecret')}</span>
             )}{' '}
-            <span className="text-ink-secondary">{lt(secret.description)}</span>
+            <span className="text-ink-secondary">{secret.description}</span>
             {scopes.length > 0 ? (
-              <span dir="auto" className="block text-ink-secondary">
+              <span className="block text-ink-secondary">
                 {t('connectors.scopes', { scopes: scopes.join('; ') })}
               </span>
             ) : null}
@@ -120,7 +118,6 @@ export function StartStep({ draft, dispatch, errorFor, touch }: StepProps) {
         fieldId="name"
         placeholder="payments-team-agent"
         required
-        ltr
         error={errorFor('name')}
         onChange={(value) => {
           dispatch({ type: 'name', value });
@@ -150,7 +147,7 @@ export function StartStep({ draft, dispatch, errorFor, touch }: StepProps) {
 }
 
 export function ModelStep({ draft, dispatch, errorFor, touch }: StepProps) {
-  const { t, lt } = useI18n();
+  const { t } = useI18n();
   const provider = getModelProvider(draft.model.provider);
   const suggestions = Object.keys(provider?.pricing?.models ?? {});
   return (
@@ -166,7 +163,7 @@ export function ModelStep({ draft, dispatch, errorFor, touch }: StepProps) {
         options={modelProviders.map((p) => ({
           value: p.id as ModelProvider,
           label: p.displayName,
-          description: lt(p.description),
+          description: p.description,
         }))}
       />
       <TextField
@@ -177,7 +174,6 @@ export function ModelStep({ draft, dispatch, errorFor, touch }: StepProps) {
         suggestions={suggestions}
         placeholder={suggestions[0]}
         required
-        ltr
         error={errorFor('model.name')}
         onChange={(value) => {
           dispatch({ type: 'modelName', value });
@@ -208,8 +204,8 @@ export function ModelStep({ draft, dispatch, errorFor, touch }: StepProps) {
           <p className="text-sm text-ink-secondary">{t('model.noKey')}</p>
         )}
         {provider?.permissionsSummary.always?.map((line) => (
-          <p key={line.en} className="text-sm text-ink-secondary">
-            {lt(line)}
+          <p key={line} className="text-sm text-ink-secondary">
+            {line}
           </p>
         ))}
       </Section>
@@ -235,7 +231,7 @@ function ConnectorCard({
   errorFor,
   touch,
 }: StepProps & { manifest: Manifest }) {
-  const { t, lt } = useI18n();
+  const { t } = useI18n();
   const entry = draft.connectors[manifest.id];
   const enabled = entry?.enabled === true;
   const comingSoon = manifest.status === 'coming-soon';
@@ -264,7 +260,7 @@ function ConnectorCard({
             {manifest.displayName}
             {comingSoon ? <Badge>{t('connectors.comingSoon')}</Badge> : null}
           </h4>
-          <p className="text-sm text-ink-secondary">{lt(manifest.description)}</p>
+          <p className="text-sm text-ink-secondary">{manifest.description}</p>
         </div>
         <Switch
           checked={enabled}
@@ -338,7 +334,7 @@ function ConnectorCard({
             <Section title={t('connectors.canDo')}>
               <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
                 {summary.map((line) => (
-                  <li key={line.en}>{lt(line)}</li>
+                  <li key={line}>{line}</li>
                 ))}
               </ul>
             </Section>
@@ -348,7 +344,7 @@ function ConnectorCard({
                   <SecretNames secrets={named} />
                 ) : (
                   <p className="text-sm text-ink-secondary">
-                    {t('connectors.entrySecrets', { noun: lt(entriesField.noun) })}
+                    {t('connectors.entrySecrets', { noun: entriesField.noun })}
                   </p>
                 )
               ) : null}
@@ -387,7 +383,7 @@ function ConnectorCard({
                                 : t('connectors.fileSecret'),
                           })}{' '}
                           ({t('connectors.optional')}):{' '}
-                          <span className="text-ink-secondary">{lt(secret.description)}</span>
+                          <span className="text-ink-secondary">{secret.description}</span>
                         </span>
                       </label>
                     ))}
@@ -413,12 +409,12 @@ function EntriesEditor(props: {
   errorFor: StepProps['errorFor'];
   touch: StepProps['touch'];
 }) {
-  const { t, lt } = useI18n();
+  const { t } = useI18n();
   const { connectorId: id, field, entries, dispatch } = props;
   const prefix = `connector.${id}.${field.key}`;
   return (
     <fieldset className="flex flex-col gap-3">
-      <legend className="mb-1 font-medium">{lt(field.description)}</legend>
+      <legend className="mb-1 font-medium">{field.description}</legend>
       <p className="text-sm text-ink-secondary">
         {entries.length === 0 ? t('entries.none') : t('entries.secretsNote')}
       </p>
@@ -448,7 +444,7 @@ function EntriesEditor(props: {
             dispatch({ type: 'entryAdd', id, key: field.key });
           }}
         >
-          {t('entries.add', { noun: lt(field.noun) })}
+          {t('entries.add', { noun: field.noun })}
         </button>
       ) : null}
     </fieldset>
@@ -465,7 +461,7 @@ function EntryCard(props: {
   onSet: (key: string, value: string) => void;
   onRemove: () => void;
 }) {
-  const { t, lt } = useI18n();
+  const { t } = useI18n();
   const { field, entry } = props;
   const name = (entry['name'] ?? '').trim();
   // Up front: what every entry needs, and its own secret (a password). The rest, like a
@@ -479,12 +475,12 @@ function EntryCard(props: {
     if (f.kind === 'secret') {
       return (
         <div key={f.key} className="flex flex-col gap-1">
-          <span className="font-medium">{lt(f.description)}</span>
+          <span className="font-medium">{f.description}</span>
           <span className="text-sm text-ink-secondary">
             {ENTRY_NAME.test(name) ? (
               <>
                 {t('entries.secret')}{' '}
-                <code dir="ltr" className="rounded bg-primary-tint px-1.5 py-0.5 font-mono">
+                <code className="rounded bg-primary-tint px-1.5 py-0.5 font-mono">
                   {entryEnvVar(field, name, f.envVar)}
                 </code>
               </>
@@ -499,7 +495,7 @@ function EntryCard(props: {
       return (
         <SelectField
           key={f.key}
-          label={lt(f.description)}
+          label={f.description}
           value={entry[f.key] ?? f.default ?? ''}
           options={f.options}
           allowEmpty={!f.required && f.default === undefined}
@@ -523,7 +519,7 @@ function EntryCard(props: {
               props.onSet(f.key, String(e.target.checked));
             }}
           />
-          {lt(f.description)}
+          {f.description}
         </label>
       );
     }
@@ -532,13 +528,12 @@ function EntryCard(props: {
     return (
       <TextField
         key={f.key}
-        label={lt(f.description)}
+        label={f.description}
         value={entry[f.key] ?? ''}
         fieldId={fieldId}
         placeholder={placeholder}
         required={f.required && !('default' in f && f.default !== undefined)}
         inputMode={f.kind === 'integer' ? 'numeric' : 'text'}
-        ltr
         error={props.errorFor(fieldId)}
         onChange={(value) => {
           props.onSet(f.key, value);
@@ -564,7 +559,6 @@ function EntryCard(props: {
             fieldId={nameId}
             placeholder="orders"
             required
-            ltr
             error={props.errorFor(nameId)}
             onChange={(value) => {
               props.onSet('name', value.toLowerCase());
@@ -637,7 +631,7 @@ export function ReviewStep(
   },
 ) {
   const { draft, dispatch, errorFor, touch, issues, goTo } = props;
-  const { t, lt } = useI18n();
+  const { t } = useI18n();
   const issueText = useIssueText();
   const provider = getModelProvider(draft.model.provider);
   const enabled = connectors.filter((c) => draft.connectors[c.id]?.enabled === true);
@@ -665,7 +659,7 @@ export function ReviewStep(
               </p>
               <ul className="list-disc ps-5 text-sm">
                 {(provider.permissionsSummary.always ?? []).map((line) => (
-                  <li key={line.en}>{lt(line)}</li>
+                  <li key={line}>{line}</li>
                 ))}
               </ul>
             </li>
@@ -684,7 +678,7 @@ export function ReviewStep(
                 </p>
                 <ul className="list-disc ps-5 text-sm">
                   {lines.map((line) => (
-                    <li key={line.en}>{lt(line)}</li>
+                    <li key={line}>{line}</li>
                   ))}
                 </ul>
               </li>
@@ -703,7 +697,7 @@ export function ReviewStep(
               <li key={`${owner}-${s.key}`}>
                 <span className="font-medium">{owner}:</span>{' '}
                 {s.defaultRef === 'env' ? (
-                  <code dir="ltr" className="rounded bg-primary-tint px-1.5 py-0.5 font-mono">
+                  <code className="rounded bg-primary-tint px-1.5 py-0.5 font-mono">
                     {s.envVar}
                   </code>
                 ) : (
@@ -723,7 +717,6 @@ export function ReviewStep(
           fieldId="policy.approvers"
           placeholder="U0123ABCD, console:omar"
           required
-          ltr
           error={errorFor('policy.approvers')}
           onChange={(value) => {
             dispatch({ type: 'approvers', value });
@@ -738,7 +731,6 @@ export function ReviewStep(
           fieldId="policy.expiresAfterMinutes"
           inputMode="numeric"
           required
-          ltr
           error={errorFor('policy.expiresAfterMinutes')}
           onChange={(value) => {
             dispatch({ type: 'expires', value });
@@ -852,7 +844,6 @@ export function DownloadStep(props: {
           {commands.map((cmd) => (
             <li key={cmd} className="flex flex-wrap items-center gap-2">
               <code
-                dir="ltr"
                 tabIndex={0}
                 className="min-w-0 flex-1 overflow-x-auto rounded-md bg-ink px-3 py-2 font-mono text-sm whitespace-pre text-white"
               >

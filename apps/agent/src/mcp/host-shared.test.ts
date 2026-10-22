@@ -70,9 +70,7 @@ describe('shared secrets and settings', () => {
   };
 
   it('passes a required connector’s secret and setting, with the suffix', async () => {
-    const requires: Manifest['requires'] = [
-      { anyOf: [{ connector: 'fakek8s' }], message: { en: 'x', ar: 'x' } },
-    ];
+    const requires: Manifest['requires'] = [{ anyOf: [{ connector: 'fakek8s' }], message: 'x' }];
     const h = await start([
       { component: component(child(requires)), access: 'read-only', secrets: {}, ...shared },
     ]);

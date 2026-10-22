@@ -1,11 +1,8 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
-import { PATTERNS, t } from '../shared.ts';
+import { PATTERNS } from '../shared.ts';
 import { GITLAB_DENY_PATTERN, GITLAB_HIDDEN, GITLAB_SERVER } from './server.ts';
 
-const readSummary = t(
-  'Reads code, issues, and merge requests in the listed projects.',
-  'يقرأ الشيفرة والمشكلات وطلبات الدمج في المشاريع المحددة.',
-);
+const readSummary = 'Reads code, issues, and merge requests in the listed projects.';
 
 const inProjects: ToolGuard = {
   kind: 'repo-in-setting',
@@ -59,10 +56,8 @@ export default defineManifest({
   displayName: 'GitLab',
   category: 'source',
   status: 'available',
-  description: t(
+  description:
     'Read projects, issues, and merge requests. With write access, open branches and merge requests.',
-    'قراءة المشاريع والمشكلات وطلبات الدمج. مع صلاحية الكتابة، إنشاء فروع وفتح طلبات دمج.',
-  ),
   accessLevels: ['read-only', 'read-write-approved'],
   requires: [],
   configFields: [
@@ -70,22 +65,16 @@ export default defineManifest({
       kind: 'url',
       key: 'url',
       required: true,
-      description: t(
-        'GitLab address. Change it for self-managed GitLab.',
-        'عنوان GitLab. غيّره إذا كان GitLab مستضافا لديك.',
-      ),
+      description: 'GitLab address. Change it for self-managed GitLab.',
       default: 'https://gitlab.com',
     },
     {
       kind: 'string-list',
       key: 'projects',
       required: true,
-      description: t('Projects the agent may use.', 'المشاريع التي يمكن للوكيل استخدامها.'),
+      description: 'Projects the agent may use.',
       pattern: PATTERNS.gitlabProject,
-      patternHint: t(
-        'use group/project, like acme/payments-api',
-        'استخدم الصيغة group/project، مثل acme/payments-api',
-      ),
+      patternHint: 'use group/project, like acme/payments-api',
       example: ['acme/payments-api'],
     },
   ],
@@ -95,14 +84,9 @@ export default defineManifest({
       envVar: 'GITLAB_TOKEN',
       defaultRef: 'env',
       required: true,
-      description: t(
-        'GitLab token the agent uses for the projects above.',
-        'رمز GitLab الذي يستخدمه الوكيل للمشاريع أعلاه.',
-      ),
-      howToCreate: t(
+      description: 'GitLab token the agent uses for the projects above.',
+      howToCreate:
         'In GitLab, create a personal, project, or group access token with the scopes below.',
-        'في GitLab، أنشئ رمز وصول شخصيا أو خاصا بالمشروع أو بالمجموعة بالصلاحيات أدناه.',
-      ),
       minimumScopes: {
         'read-only': ['read_api', 'read_repository'],
         'read-write-approved': ['api'],
@@ -166,10 +150,7 @@ export default defineManifest({
     'read-only': [readSummary],
     'read-write-approved': [
       readSummary,
-      t(
-        'Creates branches and opens merge requests after you approve. Never pushes to the default branch and never merges.',
-        'ينشئ فروعا ويفتح طلبات دمج بعد موافقتك. لا يدفع أبدا إلى الفرع الافتراضي ولا يدمج أبدا.',
-      ),
+      'Creates branches and opens merge requests after you approve. Never pushes to the default branch and never merges.',
     ],
   },
 });

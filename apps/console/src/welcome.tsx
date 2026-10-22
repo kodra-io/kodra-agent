@@ -15,7 +15,7 @@ import {
 } from './briefing.ts';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
-import { Badge, Ltr } from './ui.tsx';
+import { Badge, Mono } from './ui.tsx';
 
 function useClock(): Date {
   const [now, setNow] = useState(() => new Date());
@@ -105,7 +105,7 @@ export function Welcome({
   go: (path: string) => void;
   chat: boolean;
 }) {
-  const { t, lang, num, time } = useI18n();
+  const { t, num, time } = useI18n();
   const now = useClock();
   const [dashboard, setDashboard] = useState<DashboardView | null>(null);
 
@@ -119,8 +119,7 @@ export function Welcome({
   }, []);
   useEffect(loadDashboard, [loadDashboard, status]);
 
-  const locale = lang === 'ar' ? 'ar-u-nu-latn' : 'en';
-  const date = new Intl.DateTimeFormat(locale, {
+  const date = new Intl.DateTimeFormat('en', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -174,7 +173,6 @@ export function Welcome({
             <time
               dateTime={now.toISOString()}
               className="relative font-mono text-lg font-semibold tabular-nums"
-              dir="ltr"
             >
               {clock}
             </time>
@@ -265,7 +263,8 @@ export function Welcome({
           sub={
             overview?.lastInvestigation ? (
               <>
-                <Ltr>{overview.lastInvestigation.alert}</Ltr>, {time(overview.lastInvestigation.ts)}
+                <Mono>{overview.lastInvestigation.alert}</Mono>,{' '}
+                {time(overview.lastInvestigation.ts)}
               </>
             ) : (
               t('investigations.empty')
@@ -319,7 +318,7 @@ export function Welcome({
       </ul>
 
       {/* The queue and the systems board. */}
-      <div className="grid divide-line max-lg:divide-y lg:grid-cols-[3fr_2fr] lg:divide-x rtl:lg:divide-x-reverse">
+      <div className="grid divide-line max-lg:divide-y lg:grid-cols-[3fr_2fr] lg:divide-x">
         <section
           aria-labelledby="queue-title"
           className="kodra-boot kodra-boot-3 min-w-0 p-5 md:p-6"
@@ -343,13 +342,13 @@ export function Welcome({
                       </Badge>
                     </span>
                     <span className="min-w-0 flex-1 text-sm">
-                      <bdi dir="auto">{t(item.key, item.vars)}</bdi>
+                      <span>{t(item.key, item.vars)}</span>
                     </span>
                     {item.to && (
                       <Icon
                         name="chevronRight"
                         size={16}
-                        className="shrink-0 text-ink-secondary group-hover:text-primary-text rtl:-scale-x-100"
+                        className="shrink-0 text-ink-secondary group-hover:text-primary-text"
                       />
                     )}
                   </>
@@ -402,7 +401,7 @@ export function Welcome({
                   />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="font-semibold">
-                      <bdi dir="auto">{s.name}</bdi>
+                      <span>{s.name}</span>
                     </span>
                     <span className="text-xs text-ink-secondary">
                       {t(s.metric.key, s.metric.vars)}
@@ -419,15 +418,13 @@ export function Welcome({
       {/* Status line. */}
       <div className="kodra-boot kodra-boot-4 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-5 py-3 md:px-6">
         <p className="font-mono text-xs text-ink-secondary">
-          <Ltr>{status.model}</Ltr> · <Ltr>{`v${status.version}`}</Ltr> · {t('overview.uptime')}{' '}
+          <Mono>{status.model}</Mono> · <Mono>{`v${status.version}`}</Mono> · {t('overview.uptime')}{' '}
           {uptime}
           {overview?.auditHead && (
             <>
               {' '}
               · {t('welcome.audit', { seq: overview.auditHead.seq })}{' '}
-              <bdi dir="ltr" title={overview.auditHead.hash}>
-                {overview.auditHead.hash.slice(0, 12)}
-              </bdi>
+              <span title={overview.auditHead.hash}>{overview.auditHead.hash.slice(0, 12)}</span>
             </>
           )}
           {dashboard && <> · {t('welcome.updated', { time: time(dashboard.updatedAt) })}</>}

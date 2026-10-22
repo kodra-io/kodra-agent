@@ -1,25 +1,19 @@
 import { defineManifest } from '@kodra-agent/schema';
-import { PATTERNS, t } from './shared.ts';
+import { PATTERNS } from './shared.ts';
 
 /**
  * Model providers. They are selected with spec.model.provider, not spec.connectors, and
  * their configFields and secrets map one to one onto the keys of spec.model.
  */
 
-const redactNote = t(
-  'Secrets are removed from everything sent to the model.',
-  'تُحذف الأسرار من كل ما يُرسل إلى النموذج.',
-);
+const redactNote = 'Secrets are removed from everything sent to the model.';
 
 export const anthropic = defineManifest({
   id: 'anthropic',
   displayName: 'Anthropic',
   category: 'model',
   status: 'available',
-  description: t(
-    'Claude models through the Anthropic API.',
-    'نماذج Claude عبر واجهة Anthropic البرمجية.',
-  ),
+  description: 'Claude models through the Anthropic API.',
   accessLevels: [],
   requires: [],
   configFields: [
@@ -27,10 +21,7 @@ export const anthropic = defineManifest({
       kind: 'url',
       key: 'baseUrl',
       required: false,
-      description: t(
-        'Only for a proxy or gateway in front of the Anthropic API.',
-        'فقط عند استخدام خادم وسيط أو بوابة أمام واجهة Anthropic.',
-      ),
+      description: 'Only for a proxy or gateway in front of the Anthropic API.',
     },
   ],
   secrets: [
@@ -39,11 +30,8 @@ export const anthropic = defineManifest({
       envVar: 'ANTHROPIC_API_KEY',
       defaultRef: 'env',
       required: true,
-      description: t('Anthropic API key.', 'مفتاح واجهة Anthropic البرمجية.'),
-      howToCreate: t(
-        'Create an API key in the Anthropic Console.',
-        'أنشئ مفتاحا في Anthropic Console.',
-      ),
+      description: 'Anthropic API key.',
+      howToCreate: 'Create an API key in the Anthropic Console.',
       minimumScopes: {},
       probe: 'anthropic.list-models',
     },
@@ -101,13 +89,7 @@ export const anthropic = defineManifest({
     },
   },
   permissionsSummary: {
-    always: [
-      t(
-        'Sends prompts and tool results to Anthropic with your key.',
-        'يرسل الطلبات ونتائج الأدوات إلى Anthropic بمفتاحك.',
-      ),
-      redactNote,
-    ],
+    always: ['Sends prompts and tool results to Anthropic with your key.', redactNote],
   },
 });
 
@@ -116,7 +98,7 @@ export const openai = defineManifest({
   displayName: 'OpenAI',
   category: 'model',
   status: 'available',
-  description: t('Models through the OpenAI API.', 'النماذج عبر واجهة OpenAI البرمجية.'),
+  description: 'Models through the OpenAI API.',
   accessLevels: [],
   requires: [],
   configFields: [
@@ -124,10 +106,7 @@ export const openai = defineManifest({
       kind: 'url',
       key: 'baseUrl',
       required: false,
-      description: t(
-        'Only for a proxy, a gateway, or an OpenAI-compatible server.',
-        'فقط عند استخدام خادم وسيط أو بوابة أو خادم متوافق مع OpenAI.',
-      ),
+      description: 'Only for a proxy, a gateway, or an OpenAI-compatible server.',
     },
   ],
   secrets: [
@@ -136,11 +115,8 @@ export const openai = defineManifest({
       envVar: 'OPENAI_API_KEY',
       defaultRef: 'env',
       required: true,
-      description: t('OpenAI API key.', 'مفتاح واجهة OpenAI البرمجية.'),
-      howToCreate: t(
-        'Create an API key in the OpenAI platform dashboard.',
-        'أنشئ مفتاحا في لوحة تحكم منصة OpenAI.',
-      ),
+      description: 'OpenAI API key.',
+      howToCreate: 'Create an API key in the OpenAI platform dashboard.',
       minimumScopes: {},
       probe: 'openai.list-models',
     },
@@ -148,13 +124,7 @@ export const openai = defineManifest({
   tools: {},
   runtime: null,
   permissionsSummary: {
-    always: [
-      t(
-        'Sends prompts and tool results to OpenAI with your key.',
-        'يرسل الطلبات ونتائج الأدوات إلى OpenAI بمفتاحك.',
-      ),
-      redactNote,
-    ],
+    always: ['Sends prompts and tool results to OpenAI with your key.', redactNote],
   },
 });
 
@@ -163,10 +133,7 @@ export const azureOpenai = defineManifest({
   displayName: 'Azure OpenAI',
   category: 'model',
   status: 'available',
-  description: t(
-    'Models deployed in your Azure OpenAI resource.',
-    'النماذج المنشورة في مورد Azure OpenAI الخاص بك.',
-  ),
+  description: 'Models deployed in your Azure OpenAI resource.',
   accessLevels: [],
   requires: [],
   configFields: [
@@ -174,14 +141,14 @@ export const azureOpenai = defineManifest({
       kind: 'url',
       key: 'endpoint',
       required: true,
-      description: t('Azure OpenAI resource endpoint.', 'عنوان مورد Azure OpenAI.'),
+      description: 'Azure OpenAI resource endpoint.',
       example: 'https://my-resource.openai.azure.com',
     },
     {
       kind: 'string',
       key: 'deployment',
       required: true,
-      description: t('Deployment name in that resource.', 'اسم النشر في ذلك المورد.'),
+      description: 'Deployment name in that resource.',
     },
   ],
   secrets: [
@@ -190,11 +157,8 @@ export const azureOpenai = defineManifest({
       envVar: 'AZURE_OPENAI_API_KEY',
       defaultRef: 'env',
       required: true,
-      description: t('Azure OpenAI API key.', 'مفتاح Azure OpenAI.'),
-      howToCreate: t(
-        'Copy a key from your Azure OpenAI resource, under Keys and Endpoint.',
-        'انسخ مفتاحا من مورد Azure OpenAI، من قسم Keys and Endpoint.',
-      ),
+      description: 'Azure OpenAI API key.',
+      howToCreate: 'Copy a key from your Azure OpenAI resource, under Keys and Endpoint.',
       minimumScopes: {},
       probe: 'azure-openai.list-models',
     },
@@ -202,13 +166,7 @@ export const azureOpenai = defineManifest({
   tools: {},
   runtime: null,
   permissionsSummary: {
-    always: [
-      t(
-        'Sends prompts and tool results to your Azure OpenAI resource.',
-        'يرسل الطلبات ونتائج الأدوات إلى مورد Azure OpenAI الخاص بك.',
-      ),
-      redactNote,
-    ],
+    always: ['Sends prompts and tool results to your Azure OpenAI resource.', redactNote],
   },
 });
 
@@ -217,10 +175,7 @@ export const bedrock = defineManifest({
   displayName: 'AWS Bedrock',
   category: 'model',
   status: 'available',
-  description: t(
-    'Models through Amazon Bedrock in your AWS account.',
-    'النماذج عبر Amazon Bedrock في حساب AWS الخاص بك.',
-  ),
+  description: 'Models through Amazon Bedrock in your AWS account.',
   accessLevels: [],
   requires: [],
   configFields: [
@@ -228,9 +183,9 @@ export const bedrock = defineManifest({
       kind: 'string',
       key: 'region',
       required: true,
-      description: t('AWS region where Bedrock runs.', 'منطقة AWS التي يعمل فيها Bedrock.'),
+      description: 'AWS region where Bedrock runs.',
       pattern: PATTERNS.awsRegion,
-      patternHint: t('use an AWS region, like eu-central-1', 'استخدم منطقة AWS، مثل eu-central-1'),
+      patternHint: 'use an AWS region, like eu-central-1',
       example: 'eu-central-1',
     },
   ],
@@ -240,10 +195,7 @@ export const bedrock = defineManifest({
   runtime: null,
   permissionsSummary: {
     always: [
-      t(
-        'Sends prompts and tool results to Amazon Bedrock in your account. Uses the standard AWS credentials, such as an IAM role.',
-        'يرسل الطلبات ونتائج الأدوات إلى Amazon Bedrock في حسابك. يستخدم بيانات اعتماد AWS المعتادة، مثل دور IAM.',
-      ),
+      'Sends prompts and tool results to Amazon Bedrock in your account. Uses the standard AWS credentials, such as an IAM role.',
       redactNote,
     ],
   },
@@ -254,10 +206,7 @@ export const ollama = defineManifest({
   displayName: 'Ollama',
   category: 'model',
   status: 'available',
-  description: t(
-    'Models on your own Ollama server. Works without internet access.',
-    'النماذج على خادم Ollama الخاص بك. يعمل دون اتصال بالإنترنت.',
-  ),
+  description: 'Models on your own Ollama server. Works without internet access.',
   accessLevels: [],
   requires: [],
   configFields: [
@@ -265,7 +214,7 @@ export const ollama = defineManifest({
       kind: 'url',
       key: 'baseUrl',
       required: true,
-      description: t('Ollama server address.', 'عنوان خادم Ollama.'),
+      description: 'Ollama server address.',
       example: 'http://ollama:11434',
     },
   ],
@@ -274,11 +223,6 @@ export const ollama = defineManifest({
   tools: {},
   runtime: null,
   permissionsSummary: {
-    always: [
-      t(
-        'Sends prompts to your own Ollama server. Nothing leaves your network.',
-        'يرسل الطلبات إلى خادم Ollama الخاص بك. لا شيء يغادر شبكتك.',
-      ),
-    ],
+    always: ['Sends prompts to your own Ollama server. Nothing leaves your network.'],
   },
 });

@@ -5,7 +5,7 @@ import { useI18n, type MessageKey } from './i18n.tsx';
 
 /** Turns a draft issue into a message in the current language. */
 export function useIssueText() {
-  const { t, lt } = useI18n();
+  const { t } = useI18n();
   return (issue: DraftIssue): string => {
     switch (issue.code) {
       case 'required':
@@ -13,7 +13,7 @@ export function useIssueText() {
       case 'url':
         return t('error.url');
       case 'pattern':
-        return issue.hint ? lt(issue.hint) : t('error.pattern');
+        return issue.hint ? issue.hint : t('error.pattern');
       case 'integer-range':
         return t('error.integerRange', { min: issue.min, max: issue.max });
       case 'name-format':
@@ -27,7 +27,7 @@ export function useIssueText() {
       case 'approver-console-off':
         return t('error.approverConsoleOff', { value: issue.value });
       case 'dependency':
-        return lt(issue.message);
+        return issue.message;
       case 'coming-soon':
         return t('error.comingSoon');
       case 'environment-name':
@@ -74,8 +74,6 @@ interface TextFieldProps {
   error?: string | undefined;
   placeholder?: string | undefined;
   inputMode?: 'text' | 'numeric' | 'url' | undefined;
-  /** Keeps values like URLs and ids left-to-right inside Arabic pages. */
-  ltr?: boolean;
   required?: boolean;
   onBlur?: () => void;
   fieldId?: string;
@@ -108,7 +106,6 @@ export function TextField(props: TextFieldProps) {
         data-field={props.fieldId}
         type="text"
         value={props.value}
-        dir={props.ltr ? 'ltr' : undefined}
         inputMode={props.inputMode}
         list={suggestions.length > 0 ? listId : undefined}
         placeholder={props.placeholder}
@@ -165,7 +162,6 @@ export function SelectField(props: {
         id={id}
         data-field={props.fieldId}
         value={props.value}
-        dir="ltr"
         required={props.required}
         aria-invalid={props.error ? true : undefined}
         aria-describedby={props.error ? errorId : undefined}
@@ -277,9 +273,7 @@ export function Switch(props: {
       <span
         aria-hidden="true"
         className={`inline-block size-4 rounded-full transition-transform ${
-          props.checked
-            ? 'translate-x-6 bg-white rtl:-translate-x-6'
-            : 'translate-x-1 bg-ink-secondary rtl:-translate-x-1'
+          props.checked ? 'translate-x-6 bg-white' : 'translate-x-1 bg-ink-secondary'
         }`}
       />
     </button>

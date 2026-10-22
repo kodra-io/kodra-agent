@@ -14,7 +14,6 @@ import {
   type EffectivePolicy,
   type EntriesField,
   type EntryField,
-  type LocalizedText,
   type Manifest,
   type PolicyProblem,
   type PolicySource,
@@ -35,14 +34,14 @@ export type StepId = 'profile' | 'start' | 'model' | 'connectors' | 'environment
 export type DraftIssue = { field: string; step: StepId } & (
   | { code: 'required' }
   | { code: 'url' }
-  | { code: 'pattern'; hint?: LocalizedText | undefined }
+  | { code: 'pattern'; hint?: string | undefined }
   | { code: 'integer-range'; min: number; max: number }
   | { code: 'name-format' }
   | { code: 'entry-name' }
   | { code: 'entry-duplicate'; value: string }
   | { code: 'approver-format'; value: string }
   | { code: 'approver-console-off'; value: string }
-  | { code: 'dependency'; message: LocalizedText }
+  | { code: 'dependency'; message: string }
   | { code: 'coming-soon' }
   | { code: 'environment-name' }
   | { code: 'namespace-format'; value: string }

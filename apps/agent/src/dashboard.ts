@@ -2,7 +2,6 @@ import {
   listValues,
   type DashboardPanel,
   type DashboardView,
-  type LocalizedText,
   type Manifest,
 } from '@kodra-agent/schema';
 import { parse as parseYaml } from 'yaml';
@@ -119,7 +118,7 @@ export interface TargetResult {
 
 export interface PanelResult {
   id: string;
-  title: LocalizedText;
+  title: string;
   view: DashboardView['kind'];
   results: TargetResult[];
   /** Why the card has nothing to show, like no namespaces listed. */

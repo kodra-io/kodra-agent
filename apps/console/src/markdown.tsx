@@ -44,10 +44,7 @@ const components: Components = {
       <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.86em]">{children}</code>
     ),
   pre: ({ children }) => (
-    <pre
-      dir="ltr"
-      className="my-3 overflow-x-auto rounded-lg border border-line bg-muted px-3.5 py-3 font-mono text-[12.5px] leading-[19px]"
-    >
+    <pre className="my-3 overflow-x-auto rounded-lg border border-line bg-muted px-3.5 py-3 font-mono text-[12.5px] leading-[19px]">
       {children}
     </pre>
   ),
@@ -67,7 +64,7 @@ const components: Components = {
 
 export function MarkdownText({ text }: { text: string }) {
   return (
-    <div dir="auto" className="text-[15px] leading-6 break-words">
+    <div className="text-[15px] leading-6 break-words">
       <Markdown remarkPlugins={[remarkGfm]} components={components} skipHtml>
         {text}
       </Markdown>

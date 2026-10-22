@@ -10,7 +10,6 @@ import {
   type EntryField,
   type ConnectorSettings,
   type ConnectorView,
-  type Localized,
   type SettingsPatch,
   type SettingsPreview,
   type SettingsView,
@@ -25,7 +24,7 @@ import { ModelPicker } from './model-picker.tsx';
 import { PeoplePanel } from './people.tsx';
 import { ProviderSwitch } from './provider-switch.tsx';
 import { useStatus } from './status.ts';
-import { Badge, Ltr } from './ui.tsx';
+import { Badge, Mono } from './ui.tsx';
 
 type Tab = 'connectors' | 'policy' | 'limits' | 'console' | 'people';
 const TABS: { id: Tab; label: MessageKey }[] = [
@@ -225,7 +224,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
           <ul className="flex flex-col gap-1 text-sm">
             {view.waiting.map((w) => (
               <li key={w.id}>
-                <bdi dir="ltr">{w.title}</bdi>{' '}
+                <span>{w.title}</span>{' '}
                 <span className="text-ink-secondary">
                   {t('settings.waitingBy', { who: w.requestedBy, time: time(w.expiresAt) })}
                 </span>
@@ -406,7 +405,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
                 role="alert"
                 className="rounded-lg bg-bad-tint p-2.5 text-sm text-bad-text"
               >
-                <bdi dir="ltr">{e}</bdi>
+                <span>{e}</span>
               </p>
             ))}
             {preview?.diff && <DiffView text={preview.diff} label={t('settings.diff')} />}
@@ -535,11 +534,6 @@ function Toggle({
   );
 }
 
-function useText() {
-  const { lang } = useI18n();
-  return (text: Localized) => text[lang];
-}
-
 function ConnectorList({
   view,
   live,
@@ -552,7 +546,6 @@ function ConnectorList({
   onOpen: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const text = useText();
   const enabled = (c: ConnectorSettings) => patch.connectors?.[c.id]?.enabled ?? c.enabled;
   const on = view.connectors.filter(enabled);
   const off = view.connectors.filter((c) => !enabled(c));
@@ -580,7 +573,7 @@ function ConnectorList({
                       <Badge tone="accent">{t('settings.afterSave')}</Badge>
                     )}
                   </div>
-                  <p className="text-[13px] text-ink-secondary">{text(c.description)}</p>
+                  <p className="text-[13px] text-ink-secondary">{c.description}</p>
                   {access && (
                     <span className="self-start">
                       <Badge tone={access === 'read-write-approved' ? 'accent' : 'plain'}>
@@ -597,7 +590,7 @@ function ConnectorList({
                     }}
                   >
                     {t('settings.configureShort')}
-                    <Icon name="chevronRight" size={14} className="rtl:-scale-x-100" />
+                    <Icon name="chevronRight" size={14} />
                   </button>
                 </article>
               </li>
@@ -622,7 +615,7 @@ function ConnectorList({
               >
                 <span className="font-semibold">{c.name}</span>
                 <span className="text-[13px] text-ink-secondary">
-                  {c.status === 'coming-soon' ? t('settings.comingSoon') : text(c.description)}
+                  {c.status === 'coming-soon' ? t('settings.comingSoon') : c.description}
                 </span>
               </button>
             </li>
@@ -657,7 +650,6 @@ function ConnectorEditor({
   onSignedOut: () => void;
 }) {
   const { t } = useI18n();
-  const text = useText();
   const enabled = patch.enabled ?? c.enabled;
   const access = patch.access ?? c.access ?? c.accessLevels[0] ?? null;
   const value = (key: string) =>
@@ -698,7 +690,7 @@ function ConnectorEditor({
           )}
         </div>
       </div>
-      <p className="-mt-2 text-ink-secondary">{text(c.description)}</p>
+      <p className="-mt-2 text-ink-secondary">{c.description}</p>
 
       {results && (
         <ul
@@ -710,17 +702,15 @@ function ConnectorEditor({
               <Badge tone={r.status === 'pass' ? 'ok' : r.status === 'fail' ? 'bad' : 'plain'}>
                 {t(`settings.check.${r.status}` as MessageKey)}
               </Badge>
-              <Ltr>{r.check}</Ltr>
-              <span dir="auto" className="text-ink-secondary">
-                {r.message}
-              </span>
+              <Mono>{r.check}</Mono>
+              <span className="text-ink-secondary">{r.message}</span>
             </li>
           ))}
         </ul>
       )}
       {live && !live.available && (
         <p role="note" className="rounded-xl bg-bad-tint p-3 text-sm text-bad-text">
-          <strong>{t('connectors.reason')}:</strong> <bdi dir="ltr">{live.reason}</bdi>
+          <strong>{t('connectors.reason')}:</strong> <span>{live.reason}</span>
           {live.hint && (
             <>
               <br />
@@ -768,8 +758,8 @@ function ConnectorEditor({
                 <span className="flex flex-col gap-0.5">
                   <span className="font-semibold">{t(`access.${level}` as MessageKey)}</span>
                   {(c.summaries[level] ?? []).map((s) => (
-                    <span key={s.en} className="text-sm text-ink-secondary">
-                      {text(s)}
+                    <span key={s} className="text-sm text-ink-secondary">
+                      {s}
                     </span>
                   ))}
                 </span>
@@ -837,11 +827,10 @@ function FieldEditor({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useI18n();
-  const text = useText();
   const id = useId();
   const label = (
     <label htmlFor={id} className="font-medium">
-      {text(f.description)}
+      {f.description}
       {f.required && <span className="text-bad-text"> *</span>}
     </label>
   );
@@ -866,7 +855,7 @@ function FieldEditor({
           disabled={disabled}
           onChange={onChange}
         />
-        {f.patternHint && <span className="text-xs text-ink-secondary">{text(f.patternHint)}</span>}
+        {f.patternHint && <span className="text-xs text-ink-secondary">{f.patternHint}</span>}
       </div>
     );
   }
@@ -876,7 +865,6 @@ function FieldEditor({
       <input
         id={id}
         className={input}
-        dir="ltr"
         type={f.kind === 'integer' ? 'number' : f.kind === 'url' ? 'url' : 'text'}
         {...(f.kind === 'integer' ? { min: f.min, max: f.max } : {})}
         placeholder={f.kind === 'integer' ? '' : (f.example ?? '')}
@@ -888,7 +876,7 @@ function FieldEditor({
         }}
       />
       {f.kind === 'string' && f.patternHint && (
-        <span className="text-xs text-ink-secondary">{text(f.patternHint)}</span>
+        <span className="text-xs text-ink-secondary">{f.patternHint}</span>
       )}
       {f.kind === 'integer' && (
         <span className="text-xs text-ink-secondary">
@@ -923,7 +911,6 @@ function EntriesEditor({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useI18n();
-  const text = useText();
   const set = (i: number, key: string, v: unknown) => {
     onChange(
       entries.map((e, j) => {
@@ -939,7 +926,7 @@ function EntriesEditor({
   return (
     <fieldset className="flex flex-col gap-3">
       <legend className="mb-1.5 font-medium">
-        {text(field.description)}
+        {field.description}
         {field.required && <span className="text-bad-text"> *</span>}
       </legend>
       {entries.length === 0 && (
@@ -973,7 +960,7 @@ function EntriesEditor({
           }}
         >
           <Icon name="plus" size={16} />
-          {t('settings.entries.add', { noun: text(field.noun) })}
+          {t('settings.entries.add', { noun: field.noun })}
         </button>
       )}
     </fieldset>
@@ -1027,7 +1014,6 @@ function EntryCard({
           <input
             id={nameId}
             className={input}
-            dir="ltr"
             value={name}
             placeholder="orders"
             disabled={disabled}
@@ -1074,25 +1060,21 @@ function EntryInput({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useI18n();
-  const text = useText();
   const id = useId();
   const label = (
     <label htmlFor={id} className="text-sm font-medium">
-      {text(f.description)}
+      {f.description}
       {'required' in f && f.required && <span className="text-bad-text"> *</span>}
     </label>
   );
   if (f.kind === 'secret') {
     return (
       <div className="flex flex-col gap-1">
-        <span className="text-sm font-medium">{text(f.description)}</span>
+        <span className="text-sm font-medium">{f.description}</span>
         <span className="text-xs text-ink-secondary">
           {secretRef ? (
             <>
-              {t('settings.entries.secret')}{' '}
-              <bdi dir="ltr" className="font-mono">
-                {secretRef}
-              </bdi>
+              {t('settings.entries.secret')} <span className="font-mono">{secretRef}</span>
             </>
           ) : (
             t('settings.entries.secretNoName')
@@ -1112,7 +1094,7 @@ function EntryInput({
             onChange(e.target.checked);
           }}
         />
-        {text(f.description)}
+        {f.description}
       </label>
     );
   }
@@ -1123,7 +1105,6 @@ function EntryInput({
         <select
           id={id}
           className={input}
-          dir="ltr"
           value={typeof value === 'string' ? value : (f.default ?? '')}
           disabled={disabled}
           onChange={(e) => {
@@ -1146,7 +1127,6 @@ function EntryInput({
       <input
         id={id}
         className={input}
-        dir="ltr"
         type={f.kind === 'integer' ? 'number' : 'text'}
         {...(f.kind === 'integer' ? { min: f.min, max: f.max } : {})}
         placeholder={
@@ -1164,7 +1144,7 @@ function EntryInput({
         }}
       />
       {f.kind === 'string' && f.patternHint && (
-        <span className="text-xs text-ink-secondary">{text(f.patternHint)}</span>
+        <span className="text-xs text-ink-secondary">{f.patternHint}</span>
       )}
     </div>
   );
@@ -1197,7 +1177,7 @@ function TagInput({
           key={v}
           className="inline-flex items-center gap-1 rounded-full border border-line bg-raised py-0.5 ps-2.5 pe-1 font-mono text-[12.5px]"
         >
-          <bdi dir="ltr">{v}</bdi>
+          <span>{v}</span>
           {!disabled && (
             <button
               type="button"
@@ -1215,7 +1195,6 @@ function TagInput({
       {!disabled && (
         <input
           id={id}
-          dir="ltr"
           className="h-7 min-w-40 flex-1 bg-transparent text-sm outline-none"
           placeholder={placeholder ? t('settings.addHint', { example: placeholder }) : ''}
           value={draft}
@@ -1249,7 +1228,6 @@ function SecretEditor({
   onSaved: (action: Promise<unknown>) => void;
 }) {
   const { t } = useI18n();
-  const text = useText();
   const id = useId();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
@@ -1281,9 +1259,7 @@ function SecretEditor({
             <span className="font-medium">{s.label}</span>
             <span className="text-xs text-ink-secondary">
               {s.set ? t('settings.secret.set') : t('settings.secret.missing')} ·{' '}
-              <bdi dir="ltr" className="font-mono">
-                {s.ref}
-              </bdi>
+              <span className="font-mono">{s.ref}</span>
             </span>
           </span>
         </span>
@@ -1302,7 +1278,7 @@ function SecretEditor({
       {!s.writable && (
         <p className="text-sm text-ink-secondary">{t('settings.secret.file', { path: s.ref })}</p>
       )}
-      <p className="text-sm text-ink-secondary">{text(s.howToCreate)}</p>
+      <p className="text-sm text-ink-secondary">{s.howToCreate}</p>
       {editing && (
         <form
           className="flex flex-col gap-2"
@@ -1318,7 +1294,6 @@ function SecretEditor({
             id={id}
             type="password"
             autoComplete="off"
-            dir="ltr"
             className={input}
             value={value}
             onChange={(e) => {

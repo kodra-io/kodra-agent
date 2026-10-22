@@ -101,9 +101,7 @@ export function ContextNote({ warning }: { warning: ContextWarning }) {
   );
 }
 
-/** Technical values (names, ids, arguments) read left to right in both languages. */
-export const Ltr = ({ children }: { children: ReactNode }) => (
-  <bdi dir="ltr" className="font-mono text-xs">
-    {children}
-  </bdi>
+/** Technical values: names, ids, arguments. */
+export const Mono = ({ children }: { children: ReactNode }) => (
+  <span className="font-mono text-xs">{children}</span>
 );

@@ -1,10 +1,8 @@
 import { defineManifest, type McpStdioRuntime } from '@kodra-agent/schema';
-import { PATTERNS, t } from '../shared.ts';
+import { PATTERNS } from '../shared.ts';
 
-const chainNote = t(
-  'Leave both AWS keys empty to use the standard AWS credentials, such as an IAM role for the service account.',
-  'اترك مفتاحي AWS فارغين لاستخدام بيانات اعتماد AWS المعتادة، مثل دور IAM لحساب الخدمة.',
-);
+const chainNote =
+  'Leave both AWS keys empty to use the standard AWS credentials, such as an IAM role for the service account.';
 
 const readPolicy = [
   'eks:Describe*, eks:List*',
@@ -36,10 +34,7 @@ export default defineManifest({
   displayName: 'AWS',
   category: 'cloud',
   status: 'available',
-  description: t(
-    'Read EKS clusters and CloudWatch metrics, logs, and alarms. Read-only.',
-    'قراءة عناقيد EKS ومقاييس CloudWatch وسجلاته وتنبيهاته. للقراءة فقط.',
-  ),
+  description: 'Read EKS clusters and CloudWatch metrics, logs, and alarms. Read-only.',
   accessLevels: ['read-only'],
   requires: [],
   configFields: [
@@ -47,21 +42,19 @@ export default defineManifest({
       kind: 'string',
       key: 'region',
       required: true,
-      description: t('AWS region.', 'منطقة AWS.'),
+      description: 'AWS region.',
       pattern: PATTERNS.awsRegion,
-      patternHint: t('use an AWS region, like eu-central-1', 'استخدم منطقة AWS، مثل eu-central-1'),
+      patternHint: 'use an AWS region, like eu-central-1',
       example: 'eu-central-1',
     },
     {
       kind: 'string-list',
       key: 'services',
       required: false,
-      description: t(
+      description:
         'AWS services the agent can read: eks, cloudwatch. Each one adds tools the model reads on every question, so leave out what you do not need.',
-        'خدمات AWS التي يمكن للوكيل قراءتها: eks و cloudwatch. كل خدمة تضيف أدوات يقرؤها النموذج مع كل سؤال، فاترك ما لا تحتاجه.',
-      ),
       pattern: '^(eks|cloudwatch)$',
-      patternHint: t('use eks or cloudwatch', 'استخدم eks أو cloudwatch'),
+      patternHint: 'use eks or cloudwatch',
       default: ['eks', 'cloudwatch'],
       example: ['eks'],
     },
@@ -73,7 +66,7 @@ export default defineManifest({
       defaultRef: 'env',
       required: false,
       defaultFor: ['compose'],
-      description: t('AWS access key id.', 'معرّف مفتاح الوصول في AWS.'),
+      description: 'AWS access key id.',
       howToCreate: chainNote,
       minimumScopes: { 'read-only': readPolicy },
       probe: 'aws.get-caller-identity',
@@ -84,7 +77,7 @@ export default defineManifest({
       defaultRef: 'env',
       required: false,
       defaultFor: ['compose'],
-      description: t('AWS secret access key.', 'مفتاح الوصول السري في AWS.'),
+      description: 'AWS secret access key.',
       howToCreate: chainNote,
       minimumScopes: { 'read-only': readPolicy },
       probe: 'aws.get-caller-identity',
@@ -163,14 +156,8 @@ export default defineManifest({
   ],
   permissionsSummary: {
     'read-only': [
-      t(
-        'Reads EKS clusters and CloudWatch metrics, logs, and alarms. Changes nothing.',
-        'يقرأ عناقيد EKS ومقاييس CloudWatch وسجلاته وتنبيهاته. لا يغيّر شيئا.',
-      ),
-      t(
-        'CloudWatch Logs Insights queries are billed by AWS for the data they scan.',
-        'تفرض AWS رسوما على استعلامات CloudWatch Logs Insights حسب حجم البيانات التي تفحصها.',
-      ),
+      'Reads EKS clusters and CloudWatch metrics, logs, and alarms. Changes nothing.',
+      'CloudWatch Logs Insights queries are billed by AWS for the data they scan.',
     ],
   },
 });

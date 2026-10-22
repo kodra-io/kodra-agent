@@ -25,15 +25,6 @@ h4 {
   @apply font-heading;
 }
 
-/* Arabic text uses the self-hosted font; its unicode-range keeps Latin text on the stack above. */
-:lang(ar) body,
-:lang(ar) h1,
-:lang(ar) h2,
-:lang(ar) h3,
-:lang(ar) h4 {
-  font-family: 'Noto Sans Arabic', var(--font-sans);
-}
-
 :focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;

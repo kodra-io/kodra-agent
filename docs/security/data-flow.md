@@ -36,7 +36,7 @@ definitions, and tool output, all redacted and masked. With `spec.models` and
 - **Secrets:** `apiKey` (`ANTHROPIC_API_KEY`), sent as the `x-api-key` header.
 - **Data:** the model input above. Anthropic's data retention terms for your account apply.
 
-Reviewed manifest: `anthropic@5e90383fd109`
+Reviewed manifest: `anthropic@add210b7712c`
 
 ### OpenAI
 
@@ -44,7 +44,7 @@ Reviewed manifest: `anthropic@5e90383fd109`
 - **Secrets:** `apiKey`, sent as a bearer token.
 - **Data:** the model input above. OpenAI's data retention terms for your account apply.
 
-Reviewed manifest: `openai@33fd99730eff`
+Reviewed manifest: `openai@76108a00e998`
 
 ### Azure OpenAI
 
@@ -52,7 +52,7 @@ Reviewed manifest: `openai@33fd99730eff`
 - **Secrets:** `apiKey`, sent as the `api-key` header.
 - **Data:** the model input above, processed in your Azure tenant and region.
 
-Reviewed manifest: `azure-openai@f55b96df22ef`
+Reviewed manifest: `azure-openai@9d093d77be60`
 
 ### Amazon Bedrock
 
@@ -61,7 +61,7 @@ Reviewed manifest: `azure-openai@f55b96df22ef`
   environment), signed with SigV4.
 - **Data:** the model input above, processed in your AWS account and region.
 
-Reviewed manifest: `bedrock@f23c84d59f32`
+Reviewed manifest: `bedrock@d78644cb7f87`
 
 ### Ollama
 
@@ -70,7 +70,7 @@ Reviewed manifest: `bedrock@f23c84d59f32`
 - **Data:** the model input above. Nothing leaves your network unless your Ollama server does
   so itself. The strict profile example pins production to a local model this way.
 
-Reviewed manifest: `ollama@86010b375609`
+Reviewed manifest: `ollama@85a89abebe6d`
 
 ## Connectors
 
@@ -84,7 +84,7 @@ Reviewed manifest: `ollama@86010b375609`
 - **Writes, after approval:** branches, files, and pull requests in those repos, never on the
   default branch.
 
-Reviewed manifest: `github@dbd071da3c11`
+Reviewed manifest: `github@53262b64299a`
 
 ### GitHub Actions
 
@@ -96,7 +96,7 @@ Reviewed manifest: `github@dbd071da3c11`
 
 - **Console dashboard:** The latest workflow runs per repo (status, branch, link), read with the same read tool and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `github-actions@13a106b833a8`
+Reviewed manifest: `github-actions@98ad5a079546`
 
 ### GitLab
 
@@ -107,7 +107,7 @@ Reviewed manifest: `github-actions@13a106b833a8`
 - **Writes, after approval:** branches, files, and merge requests in those projects, never on
   the default branch.
 
-Reviewed manifest: `gitlab@15e1cd27df2b`
+Reviewed manifest: `gitlab@faea4a86ca05`
 
 ### GitLab CI
 
@@ -120,7 +120,7 @@ Reviewed manifest: `gitlab@15e1cd27df2b`
 
 - **Console dashboard:** The latest pipelines per project (status, ref, link), read with the same read tool and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `gitlab-ci@4daa8ae5c78e`
+Reviewed manifest: `gitlab-ci@8d810c0836c0`
 
 ### Jenkins
 
@@ -135,7 +135,7 @@ Reviewed manifest: `gitlab-ci@4daa8ae5c78e`
 - **Console dashboard:** the listed jobs and their last result, read with the same read tool
   and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `jenkins@bfdaa531f01b`
+Reviewed manifest: `jenkins@5dc940545a4a`
 
 ### Docker
 
@@ -146,7 +146,7 @@ Reviewed manifest: `jenkins@bfdaa531f01b`
 - **Writes, after approval:** builds and runs the image `ship` creates, then removes it. With
   Compose, only the one-shot `kodra-builder` service mounts the socket.
 
-Reviewed manifest: `docker@34bd0adb3e3c`
+Reviewed manifest: `docker@41c1c3542fc5`
 
 ### Kubernetes
 
@@ -163,7 +163,7 @@ Reviewed manifest: `docker@34bd0adb3e3c`
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@a656618bb8af`
+Reviewed manifest: `kubernetes@dc6b585b4403`
 
 ### Prometheus
 
@@ -173,7 +173,7 @@ Reviewed manifest: `kubernetes@a656618bb8af`
 - **Secrets:** `bearerToken`, optional.
 - **Reads only:** queries, targets, and alerts.
 
-Reviewed manifest: `prometheus@3f1aa025d61c`
+Reviewed manifest: `prometheus@2795d0671e50`
 
 ### Grafana
 
@@ -183,7 +183,7 @@ Reviewed manifest: `prometheus@3f1aa025d61c`
 - **Reads only:** dashboards, data source queries, and alert rules. The server runs with
   `--disable-write` and `--usage-stats=disabled`.
 
-Reviewed manifest: `grafana@b7a337946901`
+Reviewed manifest: `grafana@7f75e39a5623`
 
 ### AWS
 
@@ -195,7 +195,7 @@ Reviewed manifest: `grafana@b7a337946901`
 - **Reads only:** EKS clusters and resources, CloudWatch metrics, logs, and alarms. Sensitive
   data access and writes are turned off in the servers.
 
-Reviewed manifest: `aws@7a940bcd91bd`
+Reviewed manifest: `aws@8af663b4aaeb`
 
 ### Databases
 
@@ -213,7 +213,7 @@ Reviewed manifest: `aws@7a940bcd91bd`
 - **Console dashboard:** each database's state, version, connections, and lag, from the same
   read tool, shown only in the console and on Overview. Not audited (nothing changes).
 
-Reviewed manifest: `databases@50201c186489`
+Reviewed manifest: `databases@9a6c9822fadc`
 
 ### Slack
 
@@ -224,4 +224,4 @@ Reviewed manifest: `databases@50201c186489`
   arguments, and reason, redacted and masked). Anyone in the channel can read them, and your
   Slack workspace's retention settings apply.
 
-Reviewed manifest: `slack@5fad394de57a`
+Reviewed manifest: `slack@f166c79a8cf2`

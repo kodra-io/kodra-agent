@@ -2,7 +2,7 @@ import { useCallback, useId, useState } from 'react';
 import { get, post, type ContextWarning, type ModelOptionsView } from './api.ts';
 import { useI18n } from './i18n.tsx';
 import { useLoad } from './load.ts';
-import { Badge, ContextNote, Ltr } from './ui.tsx';
+import { Badge, ContextNote, Mono } from './ui.tsx';
 
 const input =
   'h-10 w-full rounded-lg border border-line-strong bg-surface px-3 disabled:opacity-60';
@@ -76,7 +76,6 @@ export function ModelPicker({
         </label>
         <input
           id={otherId}
-          dir="ltr"
           className={`${input} max-w-sm`}
           value={value}
           disabled={!canEdit}
@@ -124,7 +123,7 @@ export function ModelPicker({
                     onChange(o.name);
                   }}
                 />
-                <Ltr>{o.name}</Ltr>
+                <Mono>{o.name}</Mono>
                 {o.name === current && <Badge tone="accent">{t('model.current')}</Badge>}
                 {o.available === false && <Badge tone="plain">{t('model.notListed')}</Badge>}
               </span>
@@ -164,7 +163,6 @@ export function ModelPicker({
           {showOther && (
             <input
               aria-label={t('model.otherName')}
-              dir="ltr"
               className={`${input} max-w-sm`}
               value={value}
               onChange={(e) => {
