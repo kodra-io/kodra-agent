@@ -184,6 +184,62 @@ describe('init on compose', () => {
     );
     expect(await readFile(join(dir, '.env'), 'utf8')).not.toContain('PROMETHEUS_TOKEN');
   });
+
+  it('checks each database on its own, once its tunnel key is entered too', async () => {
+    server = await anthropicServer('good-key-1234');
+    // Nothing listens on port 1, so every check fails fast; what matters is which runs when.
+    const { dir, path } = await setup(
+      [
+        '    databases:',
+        '      enabled: true',
+        '      config:',
+        '        databases:',
+        '          - name: orders',
+        '            engine: mariadb',
+        '            host: 127.0.0.1',
+        '            port: 1',
+        '            user: kodra_monitor',
+        '            password: ${env:KODRA_DB_ORDERS_PASSWORD}',
+        '          - name: billing',
+        '            engine: postgres',
+        '            host: 127.0.0.1',
+        '            port: 1',
+        '            user: kodra_monitor',
+        '            password: ${env:KODRA_DB_BILLING_PASSWORD}',
+        '            tunnelHost: 127.0.0.1',
+        '            tunnelPort: 1',
+        '            tunnelUser: kodra',
+        `            tunnelHostKey: SHA256:${'A'.repeat(43)}`,
+        '            tunnelKey: ${env:KODRA_DB_BILLING_TUNNEL_KEY}',
+      ].join('\n'),
+    );
+    const prompter = scriptedPrompter([
+      'good-key-1234',
+      'orders-pw-1234',
+      'keep',
+      'billing-pw-1234',
+      'not-a-key',
+      'keep',
+    ]);
+    const t = testContext({ prompter, endpoints: { anthropic: server.url } });
+
+    expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
+    const out = t.output();
+    const lines = out.split('\n');
+    const orders = lines.find((l) => l.includes('FAIL  Databases orders.password'));
+    expect(orders).toContain('orders: down');
+    expect(orders).not.toContain('billing');
+    expect(out).toContain(
+      'SKIP  Databases billing.password (KODRA_DB_BILLING_PASSWORD): checked once billing.tunnelKey is entered',
+    );
+    const billing = lines.find((l) => l.includes('FAIL  Databases billing.tunnelKey'));
+    expect(billing).toContain('billing: down');
+    expect(billing).not.toContain('orders');
+    const env = await readFile(join(dir, '.env'), 'utf8');
+    expect(env).toContain('KODRA_DB_ORDERS_PASSWORD=orders-pw-1234'); // gitleaks:allow
+    expect(env).toContain('KODRA_DB_BILLING_TUNNEL_KEY=not-a-key');
+    expect(out).not.toContain('billing-pw-1234');
+  });
 });
 
 describe('init with no secrets to ask for', () => {

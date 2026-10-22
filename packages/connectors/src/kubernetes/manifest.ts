@@ -93,8 +93,8 @@ export default defineManifest({
       key: 'databases',
       required: false,
       description: t(
-        'Database workloads to watch on the console Overview, as namespace/name (a StatefulSet or Deployment). The namespace must be in the list above. Leave empty to show no databases.',
-        'أحمال قواعد البيانات التي تُراقب في صفحة النظرة العامة، بصيغة namespace/name (StatefulSet أو Deployment). يجب أن تكون مساحة الأسماء في القائمة أعلاه. اتركها فارغة لعدم عرض قواعد بيانات.',
+        'Database workloads to watch on the console Overview, as namespace/name (a StatefulSet or Deployment). The namespace must be in the list above. For databases outside the cluster, or to check the database itself, use the Databases connector.',
+        'أحمال قواعد البيانات التي تُراقب في صفحة النظرة العامة، بصيغة namespace/name (StatefulSet أو Deployment). يجب أن تكون مساحة الأسماء في القائمة أعلاه. لقواعد البيانات خارج العنقود، أو لفحص قاعدة البيانات نفسها، استخدم موصل قواعد البيانات.',
       ),
       pattern: PATTERNS.k8sWorkload,
       patternHint: t(

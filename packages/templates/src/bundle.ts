@@ -15,6 +15,7 @@ import {
   CONSOLE_PORT,
   configYaml,
   effectivePolicy,
+  entrySecrets,
   includedSecrets,
   secretRefFor,
 } from './config.ts';
@@ -59,6 +60,10 @@ function secretsInUse(draft: AgentDraft): SecretUse[] {
     const entry = draft.connectors[manifest.id];
     for (const spec of includedSecrets(manifest, entry?.optionalSecrets ?? [], draft.target)) {
       uses.push({ owner: manifest.displayName, spec, access: entry?.access });
+    }
+    for (const spec of entrySecrets(manifest, entry)) {
+      const name = spec.key.slice(0, spec.key.indexOf('.'));
+      uses.push({ owner: `${manifest.displayName} (${name})`, spec });
     }
   }
   return uses;
@@ -462,9 +467,13 @@ function readme(draft: AgentDraft): string {
     lines.push(
       '### Web console',
       '',
-      draft.console.chat
-        ? 'The console shows status, activity, usage, and approvals, and lets you chat with the agent. Changes still need an approver.'
-        : 'The console shows status, activity, usage, and approvals. Chat is off.',
+      [
+        'The console has an Overview of your systems and what needs attention, a Dashboard,',
+        'approvals, activity, and usage, and Settings for the model, connectors, and secrets.',
+        draft.console.chat
+          ? 'You can also chat with the agent there. Changes still need an approver.'
+          : 'Chat is off.',
+      ].join(' '),
       '',
       [
         'Sign in as `admin` with the password `admin`. The console asks for a new password right away.',

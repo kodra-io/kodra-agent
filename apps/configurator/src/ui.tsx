@@ -18,6 +18,10 @@ export function useIssueText() {
         return t('error.integerRange', { min: issue.min, max: issue.max });
       case 'name-format':
         return t('error.nameFormat');
+      case 'entry-name':
+        return t('error.entryName');
+      case 'entry-duplicate':
+        return t('error.entryDuplicate', { value: issue.value });
       case 'approver-format':
         return t('error.approverFormat', { value: issue.value });
       case 'approver-console-off':
@@ -75,15 +79,19 @@ interface TextFieldProps {
   required?: boolean;
   onBlur?: () => void;
   fieldId?: string;
+  /** Suggestions the browser offers while typing (a datalist). */
+  suggestions?: readonly string[] | undefined;
 }
 
 export function TextField(props: TextFieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
+  const listId = `${id}-list`;
   const describedBy = [props.hint ? hintId : '', props.error ? errorId : '']
     .filter(Boolean)
     .join(' ');
+  const suggestions = props.suggestions ?? [];
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="font-medium">
@@ -102,6 +110,7 @@ export function TextField(props: TextFieldProps) {
         value={props.value}
         dir={props.ltr ? 'ltr' : undefined}
         inputMode={props.inputMode}
+        list={suggestions.length > 0 ? listId : undefined}
         placeholder={props.placeholder}
         required={props.required}
         aria-invalid={props.error ? true : undefined}
@@ -116,6 +125,64 @@ export function TextField(props: TextFieldProps) {
           props.error ? 'border-red-700' : 'border-line'
         }`}
       />
+      {suggestions.length > 0 ? (
+        <datalist id={listId}>
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      ) : null}
+      {props.error ? (
+        <p id={errorId} className="text-sm text-red-700">
+          {props.error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A choice from a short list of fixed values, like a database engine. */
+export function SelectField(props: {
+  label: string;
+  value: string;
+  options: readonly string[];
+  /** Offers an empty choice first (a setting that can be left out). */
+  allowEmpty?: boolean;
+  required?: boolean;
+  error?: string | undefined;
+  fieldId?: string;
+  onChange: (value: string) => void;
+}) {
+  const id = useId();
+  const errorId = `${id}-error`;
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="font-medium">
+        {props.label}
+        {props.required ? <span aria-hidden="true"> *</span> : null}
+      </label>
+      <select
+        id={id}
+        data-field={props.fieldId}
+        value={props.value}
+        dir="ltr"
+        required={props.required}
+        aria-invalid={props.error ? true : undefined}
+        aria-describedby={props.error ? errorId : undefined}
+        onChange={(e) => {
+          props.onChange(e.target.value);
+        }}
+        className={`rounded-md border bg-white px-3 py-2 text-ink ${
+          props.error ? 'border-red-700' : 'border-line'
+        }`}
+      >
+        {props.allowEmpty ? <option value="" /> : null}
+        {props.options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
       {props.error ? (
         <p id={errorId} className="text-sm text-red-700">
           {props.error}

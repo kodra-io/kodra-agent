@@ -10,6 +10,7 @@ import {
 import {
   entriesOf,
   entryEnvVar,
+  entrySecretWanted,
   type EntriesField,
   formatIssue,
   isConsoleApprover,
@@ -174,12 +175,7 @@ export function entriesWithRefs(
         if (value !== undefined && value !== null && value !== '') out[f.key] = value;
         continue;
       }
-      const wanted =
-        f.required ||
-        (f.requiredWith === undefined
-          ? true
-          : ![undefined, null, ''].includes(entry[f.requiredWith] as string));
-      if (!wanted) continue;
+      if (!entrySecretWanted(f, entry)) continue;
       const kept = was?.[f.key];
       out[f.key] =
         typeof kept === 'string' && kept.startsWith('${file:')

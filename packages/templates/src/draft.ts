@@ -8,6 +8,7 @@ import {
   CONSOLE_ADMIN,
   PROFILES,
   type AccessLevel,
+  type EntriesField,
   type Manifest,
   type ModelProvider,
   type Profile,
@@ -68,6 +69,23 @@ export interface ConnectorDraft {
   config: Record<string, string>;
   /** Optional secrets the user chose to include. */
   optionalSecrets: string[];
+  /**
+   * `entries` settings (databases), by field key. Each entry is its name and its other fields
+   * as typed; its secrets are never typed, only named for it.
+   */
+  entries?: Record<string, EntryDraft[]>;
+}
+
+/** One entry of an `entries` setting, as typed: `name` plus the entry's non-secret fields. */
+export type EntryDraft = Record<string, string>;
+
+/** A new entry: required choices start on their default (or first) option. */
+export function emptyEntry(field: EntriesField): EntryDraft {
+  const entry: EntryDraft = { name: '' };
+  for (const f of field.fields) {
+    if (f.kind === 'choice' && f.required) entry[f.key] = f.default ?? f.options[0] ?? '';
+  }
+  return entry;
 }
 
 export function emptyDraft(): AgentDraft {
@@ -160,6 +178,8 @@ const draftSchema = z.strictObject({
       access: z.enum(['read-only', 'read-write-approved']),
       config: z.record(z.string(), str),
       optionalSecrets: z.array(z.string()).max(20),
+      // Links made before entries (databases) in the configurator leave them out.
+      entries: z.record(z.string(), z.array(z.record(z.string(), str)).max(50)).optional(),
     }),
   ),
   policy: z.strictObject({
@@ -256,8 +276,26 @@ export function decodeDraft(hash: string): DecodeResult {
       },
       optionalSecrets: entry.optionalSecrets.filter((k) => optional.includes(k)),
     };
+    const entries = decodeEntries(manifest, entry.entries ?? {});
+    if (Object.keys(entries).length > 0) result.connectors[id].entries = entries;
   }
   return { ok: true, draft: result };
+}
+
+/** Entries a manifest defines, each cut to its fields (never a secret) and its maximum. */
+function decodeEntries(
+  manifest: Manifest,
+  raw: Record<string, Record<string, string>[]>,
+): Record<string, EntryDraft[]> {
+  const out: Record<string, EntryDraft[]> = {};
+  for (const field of manifest.configFields) {
+    if (field.kind !== 'entries') continue;
+    const list = raw[field.key];
+    if (!list || list.length === 0) continue;
+    const keys = ['name', ...field.fields.filter((f) => f.kind !== 'secret').map((f) => f.key)];
+    out[field.key] = list.slice(0, field.max).map((e) => pick(e, keys));
+  }
+  return out;
 }
 
 function pick(record: Record<string, string>, keys: readonly string[]): Record<string, string> {
