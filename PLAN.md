@@ -531,6 +531,16 @@ Build in this order. Each connector follows the process in `CLAUDE.md`: license 
 
 Done when the report is right on the sample repos and the fixtures (a monorepo, an unsupported stack, a committed credential, settings in each language), one approval opens the PR with the report, and the credential's value appears nowhere.
 
+### M28: Set up every connector from the console
+
+Nobody edits `kodra-agent.yaml` or `.env`, or copies files by hand, once the agent runs. See `docs/console.md`.
+
+- **Steps in the manifests.** Every secret, and settings like a bastion's host key, says how to get it: sentences, links (prefilled token pages where the forge supports them), and commands for Linux, macOS, and Windows (PowerShell), filled with the agent's own settings. Commands produce a value or a file; nothing runs them.
+- **File secrets in the console.** A kubeconfig or an SSH key is pasted or uploaded, its shape checked, the connector's own check run with it, then saved as an owner-only file in the bundle (Compose) or in the agent's Secret (Kubernetes), with the config pointed at it.
+- **What is missing** shows on each connector. EKS kubeconfigs that run `aws eks get-token` get optional AWS keys on the Kubernetes connector.
+
+Done when every available connector's secrets have steps (a test), a kubeconfig and a tunnel key go from the console to a working connector without a file edit, and a broken file is refused in plain words.
+
 ---
 
 ## 9. Status
@@ -550,6 +560,7 @@ Update this table at the end of every milestone.
 | Design partners: five to ten, notes in docs/partners | After launch | Not started |     |
 | M26 Onboard a repo                                   | After launch | Done        | #67 |
 | M27 Scheduled checks and the daily digest            | After launch | Done        | #68 |
+| M28 Set up every connector from the console          | After launch | In review   |     |
 
 Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 

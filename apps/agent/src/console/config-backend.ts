@@ -31,6 +31,18 @@ export interface ConfigBackend {
   save(text: string, previous: string): Promise<void>;
   /** Sets and removes environment values (.env, or the Secret). */
   writeEnv(set: ReadonlyMap<string, string>, remove: readonly string[]): Promise<void>;
+  /**
+   * Whether file secrets (a kubeconfig, an SSH key) are saved as files: on Docker Compose, in
+   * the bundle folder's secrets/. On Kubernetes they go in the agent's Secret like any other.
+   */
+  readonly filesWritable: boolean;
+  /** Saves a file secret, owner-only, and returns the absolute path to refer to it by. */
+  writeSecretFile(name: string, content: string): Promise<string>;
+}
+
+/** A path as a ${file:...} reference writes it: Windows paths lose their drive (M28). */
+export function refPath(path: string): string {
+  return path.replace(/^[A-Za-z]:/, '').replaceAll('\\', '/');
 }
 
 export function fileBackend(configPath: string): ConfigBackend {
@@ -53,6 +65,13 @@ export function fileBackend(configPath: string): ConfigBackend {
         envPath,
         renderEnvFile(dropEnvKeys(existing, remove), set, ENV_HEADER),
       );
+    },
+    filesWritable: true,
+    async writeSecretFile(name, content) {
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error('bad secret file name');
+      const path = join(dirname(configPath), 'secrets', name);
+      await writePrivateFile(path, content);
+      return refPath(path);
     },
   };
 }
@@ -189,6 +208,10 @@ export function kubernetesBackend(
         [PREVIOUS_KEY]: previous,
         [BASE_KEY]: baseHash,
       });
+    },
+    filesWritable: false,
+    writeSecretFile() {
+      return Promise.reject(new Error("file secrets go in the agent's Secret on Kubernetes"));
     },
     async writeEnv(set, remove) {
       if (!secret) throw new Error('the agent has no Secret to write to (existingSecret)');

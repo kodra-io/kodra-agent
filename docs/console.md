@@ -176,10 +176,33 @@ How a change is saved:
    token, so a restart does not end them.
 5. **Undo last change** puts the previous file back the same way.
 
-Secrets are write-only. **Replace** checks a new value with the connector's own check first,
-and only then writes it to `.env`; the value is never shown again, logged, or sent anywhere.
-Secrets that are files (a kubeconfig) live on a read-only mount: put the new file on the host
-and restart.
+Secrets are write-only. **Add** or **Replace** checks a new value with the connector's own
+check first, and only then saves it; the value is never shown again, logged, or sent anywhere.
+
+### Setting up a connector from the console
+
+Everything a connector needs can be set here, without editing files on the host:
+
+- A connector that still needs a secret says so at the top of its page (**Still needed**).
+- Each secret, and settings like a bastion's host key, has **How to get this**: the steps from
+  the connector's manifest, with this agent's own settings filled in (its namespaces, repos,
+  the database's host and user). Commands come for **Linux**, **macOS**, and **Windows**
+  (PowerShell), with a **Copy** button. The console guesses your system and remembers the one
+  you pick, in this browser only. Commands only produce a value or a file for you to paste:
+  nothing runs them for you. A setting that is not plainly safe to paste into a shell (or is
+  not set yet) stays a visible `<placeholder>` for you to fill in.
+- Files (a kubeconfig, an SSH private key for a database tunnel) are pasted or uploaded
+  (48 KiB at most). Their shape is checked first, in plain words: a kubeconfig needs a
+  current context, and an SSH key must not have a passphrase. Then the connector's own check
+  runs with the new file, and only then is it saved: on Docker Compose as an owner-only file
+  in the bundle folder's `secrets/` (like `secrets/kubernetes-kubeconfig`), on Kubernetes in
+  the agent's Secret. The config is pointed at it in the same step (audited, kept for Undo),
+  and the agent restarts.
+- The steps for a kubeconfig make a service account with a read-only Role in each of the
+  connector's namespaces and a kubeconfig with its token. That works on any cluster, EKS
+  included, without cloud keys. An EKS kubeconfig that runs `aws eks get-token` works too:
+  set the Kubernetes connector's two optional AWS keys (tested once the kubeconfig and both
+  keys are there), or keep `AWS_*` in the agent's environment as before.
 
 ### On Kubernetes
 

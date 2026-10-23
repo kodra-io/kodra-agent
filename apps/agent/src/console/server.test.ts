@@ -190,7 +190,7 @@ describe('console server', () => {
     expect((await say({ ...good, cookie: 'kodra_console=nope' }, '{}')).status).toBe(401);
     expect((await say({ ...good, origin: 'https://evil.example' }, '{}')).status).toBe(403);
     expect((await say(good, '[1]')).status).toBe(400);
-    expect((await say(good, JSON.stringify({ text: 'x'.repeat(17 * 1024) }))).status).toBe(400);
+    expect((await say(good, JSON.stringify({ text: 'x'.repeat(65 * 1024) }))).status).toBe(400);
   });
 
   it('refuses unknown methods and routes', async () => {

@@ -34,6 +34,12 @@ export const anthropic = defineManifest({
       howToCreate: 'Create an API key in the Anthropic Console.',
       minimumScopes: {},
       probe: 'anthropic.list-models',
+      steps: [
+        {
+          text: 'Create a key in the Claude Console, copy it, and paste it here. It is tested before it is saved.',
+          link: 'https://console.anthropic.com/settings/keys',
+        },
+      ],
     },
   ],
   tools: {},
@@ -119,6 +125,12 @@ export const openai = defineManifest({
       howToCreate: 'Create an API key in the OpenAI platform dashboard.',
       minimumScopes: {},
       probe: 'openai.list-models',
+      steps: [
+        {
+          text: 'Create a key in the OpenAI platform, copy it, and paste it here. It is tested before it is saved.',
+          link: 'https://platform.openai.com/api-keys',
+        },
+      ],
     },
   ],
   tools: {},
@@ -161,6 +173,15 @@ export const azureOpenai = defineManifest({
       howToCreate: 'Copy a key from your Azure OpenAI resource, under Keys and Endpoint.',
       minimumScopes: {},
       probe: 'azure-openai.list-models',
+      steps: [
+        {
+          text: 'In the Azure portal, open your Azure OpenAI resource, then Keys and Endpoint, and copy Key 1. Or, with the Azure CLI:',
+          run: {
+            all: 'az cognitiveservices account keys list --name <resource-name> --resource-group <resource-group> --query key1 --output tsv',
+          },
+        },
+        { text: 'Paste the key here. It is tested before it is saved.' },
+      ],
     },
   ],
   tools: {},

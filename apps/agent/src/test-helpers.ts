@@ -69,12 +69,22 @@ export function scriptedPrompter(answers: (string | boolean)[]): Prompter & { as
 }
 
 export function fakeKubernetes(behavior: Partial<KubernetesClient> = {}): KubernetesFactory & {
-  calls: { kubeconfig: string | undefined; op: string; args: unknown[] }[];
+  calls: {
+    kubeconfig: string | undefined;
+    op: string;
+    args: unknown[];
+    execEnv?: Readonly<Record<string, string>> | undefined;
+  }[];
 } {
-  const calls: { kubeconfig: string | undefined; op: string; args: unknown[] }[] = [];
-  const factory = ((kubeconfig?: string) => ({
+  const calls: {
+    kubeconfig: string | undefined;
+    op: string;
+    args: unknown[];
+    execEnv?: Readonly<Record<string, string>> | undefined;
+  }[] = [];
+  const factory = ((kubeconfig?: string, execEnv?: Readonly<Record<string, string>>) => ({
     listPods: async (ns: string, timeout: number) => {
-      calls.push({ kubeconfig, op: 'listPods', args: [ns, timeout] });
+      calls.push({ kubeconfig, op: 'listPods', args: [ns, timeout], execEnv });
       return behavior.listPods ? behavior.listPods(ns, timeout) : 1;
     },
     upsertSecret: async (ns: string, name: string, data: Record<string, string>) => {

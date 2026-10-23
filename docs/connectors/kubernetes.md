@@ -73,7 +73,15 @@ and this MCP server use it.
   `--profile` (or `AWS_PROFILE`), and `--output json`.
 - **Credentials:** the standard AWS chain: environment variables, `~/.aws` profiles including
   SSO, web identity, and instance roles. This server inherits the `AWS_*` variables for it,
-  and the values of the secret ones are registered with the redactor.
+  and the values of the secret ones are registered with the redactor. The connector's
+  optional secrets `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_K8S_AWS_ACCESS_KEY_ID`,
+  `KODRA_K8S_AWS_SECRET_ACCESS_KEY`), set in the console, go to the server as `AWS_*` over the
+  inherited ones, and to `aws eks get-token` when the console tests the kubeconfig. Their
+  steps make an IAM user with an EKS access entry limited to `AmazonEKSViewPolicy` on the
+  connector's namespaces.
+- **Or no AWS keys at all:** the console's steps for a kubeconfig make a service account with
+  a read-only Role per namespace and a kubeconfig with its token, which EKS accepts like any
+  cluster.
 - **Running `init` from the image:** the bundle README has an EKS variant of the command that
   also mounts `~/.aws` read-only and passes `AWS_PROFILE`. With SSO, run `aws sso login` first,
   because the mount is read-only.

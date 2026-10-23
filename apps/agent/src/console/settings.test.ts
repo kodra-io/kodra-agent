@@ -1,6 +1,7 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseAgentConfig } from '@kodra-agent/connectors';
+import { getConnector, parseAgentConfig } from '@kodra-agent/connectors';
+import { utils } from 'ssh2';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AuditLog } from '../audit.ts';
 import { Redactor } from '../redactor.ts';
@@ -13,7 +14,7 @@ import {
   tempDir,
 } from '../test-helpers.ts';
 import { CONFIG_KEY, fileBackend, kubernetesBackend } from './config-backend.ts';
-import { moreAccess, patchConfigText, SettingsStore } from './settings.ts';
+import { moreAccess, patchConfigText, setSecretRef, SettingsStore } from './settings.ts';
 
 const NEW_TOKEN = 'glpat-settings-new-token-4d1c2b3a'; // gitleaks:allow
 const WRONG_TOKEN = 'glpat-wrong-token-0000000000'; // gitleaks:allow
@@ -410,5 +411,157 @@ ${entries}  policy:`,
     expect(result.message).not.toContain('c4n4ry');
     await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
     expect(JSON.stringify(await audit())).not.toContain('c4n4ry');
+  });
+});
+
+describe('file secrets from the console (M28)', () => {
+  const KUBECONFIG = `apiVersion: v1
+kind: Config
+clusters:
+  - name: prod
+    cluster:
+      server: https://203.0.113.10:6443
+contexts:
+  - name: kodra-agent
+    context: { cluster: prod, user: kodra-agent }
+current-context: kodra-agent
+users:
+  - name: kodra-agent
+    user:
+      token: kubeconfig-c4n4ry-token-0123456789
+`;
+
+  const withKubernetes = async (configPath: string) => {
+    await writeFile(
+      configPath,
+      (await readFile(configPath, 'utf8')).replace(
+        '  policy:',
+        `    kubernetes:
+      enabled: true
+      access: read-only
+      config:
+        namespaces: [payments, web]
+  policy:`,
+      ),
+    );
+  };
+
+  it('shows how to make a kubeconfig, then saves an uploaded one as a file the config points at', async () => {
+    const { dir, configPath, store, audit } = await setup();
+    await withKubernetes(configPath);
+    const kubernetes = async () =>
+      (await store.view(null)).connectors.find((c) => c.id === 'kubernetes');
+    const before = await kubernetes();
+    const secret = before?.secrets.find((s) => s.key === 'kubeconfig');
+    // Needed on Docker Compose, not there yet, and the console can take it.
+    expect(secret).toMatchObject({
+      required: true,
+      set: false,
+      writable: true,
+      format: 'kubeconfig',
+    });
+    expect(before?.missing).toEqual(['kubeconfig']);
+    // The steps carry this connector's namespaces, for each system.
+    const roles = secret?.steps[1]?.run;
+    expect(roles?.linux).toContain('for ns in payments web; do');
+    expect(roles?.windows).toContain("foreach ($ns in 'payments web'.Split(' '))");
+    expect(secret?.steps.at(-1)?.run).toBeUndefined();
+
+    // A kubeconfig without a current context is refused before anything is tried.
+    const broken = await store.setSecret(
+      'kubernetes',
+      'kubeconfig',
+      KUBECONFIG.replace('current-context: kodra-agent\n', ''),
+      'console:omar',
+    );
+    expect(broken.status).toBe('fail');
+    expect(broken.message).toContain('current-context');
+
+    const result = await store.setSecret('kubernetes', 'kubeconfig', KUBECONFIG, 'console:omar');
+    expect(result).toMatchObject({ status: 'pass' });
+    const file = join(dir, 'secrets', 'kubernetes-kubeconfig');
+    expect(await readFile(file, 'utf8')).toBe(KUBECONFIG);
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const config = await readFile(configPath, 'utf8');
+    expect(config).toContain(`kubeconfig: \${file:${posixPath(file)}}`);
+    expect(parseAgentConfig(config).ok).toBe(true);
+    // Nothing went to .env, and the token is in no record.
+    await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
+    const records = JSON.stringify(await audit());
+    expect(records).toContain('replaced Kubernetes kubeconfig (file ');
+    expect(records).not.toContain('c4n4ry');
+    const after = await kubernetes();
+    expect(after?.secrets.find((s) => s.key === 'kubeconfig')).toMatchObject({ set: true });
+    expect(after?.missing).toEqual([]);
+  });
+
+  it('points a database at its uploaded tunnel key, and refuses one with a passphrase', async () => {
+    const { configPath, store } = await setup();
+    await writeFile(
+      configPath,
+      (await readFile(configPath, 'utf8')).replace(
+        '  policy:',
+        `    databases:
+      enabled: true
+      access: read-only
+      config:
+        databases:
+          - name: orders
+            engine: mariadb
+            host: db.internal
+            port: 3306
+            user: monitor
+            password: \${env:KODRA_DB_ORDERS_PASSWORD}
+            tunnelHost: bastion.example.com
+            tunnelUser: tunnel
+            tunnelHostKey: SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8
+            tunnelKey: \${env:KODRA_DB_ORDERS_TUNNEL_KEY}
+  policy:`,
+      ),
+    );
+    const view = await store.view(null);
+    const databases = view.connectors.find((c) => c.id === 'databases');
+    const key = databases?.secrets.find((s) => s.key === 'orders.tunnelKey');
+    expect(key?.format).toBe('ssh-private-key');
+    // The entry's own values go into its steps; the port defaults to 22.
+    expect(key?.steps[1]?.run?.linux).toContain('permitopen=\\"db.internal:3306\\"');
+    expect(key?.steps[1]?.run?.linux).toContain('ssh -p 22 tunnel@bastion.example.com');
+    expect(databases?.entrySteps['orders']?.['tunnelHostKey']?.[1]?.run?.macos).toBe(
+      'ssh-keyscan -t ed25519 -p 22 bastion.example.com | ssh-keygen -lf -',
+    );
+    expect(databases?.entrySteps['']?.['tunnelHostKey']?.[1]?.run?.macos).toBe(
+      'ssh-keyscan -t ed25519 -p 22 <tunnelHost> | ssh-keygen -lf -',
+    );
+
+    const locked = utils.generateKeyPairSync('ed25519', {
+      passphrase: 'p',
+      cipher: 'aes256-ctr',
+      rounds: 4,
+    });
+    expect(
+      await store.setSecret('databases', 'orders.tunnelKey', locked.private, 'console:omar'),
+    ).toMatchObject({
+      status: 'fail',
+      message: 'that key has a passphrase; the agent cannot type one',
+    });
+    expect(await readFile(configPath, 'utf8')).toContain('${env:KODRA_DB_ORDERS_TUNNEL_KEY}');
+  });
+
+  it('writes the reference into the entry it belongs to, keeping the layout', () => {
+    const text = `apiVersion: kodra.io/v1alpha1
+spec:
+  connectors:
+    { databases: { config: { databases: [ { name: a, tunnelKey: "\${env:KODRA_DB_A_TUNNEL_KEY}" }, { name: b } ] } } }
+`;
+    const manifest = getConnector('databases');
+    if (!manifest) throw new Error('no databases');
+    const next = setSecretRef(text, manifest, 'a.tunnelKey', '${file:/etc/kodra-agent/secrets/x}');
+    expect(next).toContain('tunnelKey: "${file:/etc/kodra-agent/secrets/x}"');
+    expect(next).not.toContain('KODRA_DB_A_TUNNEL_KEY');
+    expect(setSecretRef(next, manifest, 'a.tunnelKey', '${file:/etc/kodra-agent/secrets/x}')).toBe(
+      next,
+    );
+    // An entry that is not there changes nothing.
+    expect(setSecretRef(text, manifest, 'zzz.tunnelKey', '${file:/x}')).toBe(text);
   });
 });

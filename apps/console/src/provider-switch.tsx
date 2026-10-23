@@ -8,6 +8,7 @@ import {
   type ProviderView,
 } from './api.ts';
 import { useI18n } from './i18n.tsx';
+import { SetupSteps } from './setup-steps.tsx';
 import { useLoad } from './load.ts';
 import { Badge, ContextNote, Mono } from './ui.tsx';
 
@@ -187,6 +188,7 @@ export function ProviderSwitch({
               />
               <span className="text-xs text-ink-secondary">
                 {key.set ? t('provider.keySetHint') : key.howToCreate}
+                {!key.set && <SetupSteps steps={key.steps} />}
               </span>
               {!provider.writable && !key.set && (
                 <span className="text-sm text-bad-text">{t('provider.notWritable')}</span>

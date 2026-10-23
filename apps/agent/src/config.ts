@@ -145,6 +145,8 @@ function entrySecrets(manifest: Manifest, settings: Record<string, unknown>): Se
             howToCreate: f.howToCreate,
             minimumScopes: {},
             probe: manifest.healthProbe ?? `${manifest.id}.connect`,
+            ...(f.format ? { format: f.format } : {}),
+            ...(f.steps ? { steps: f.steps } : {}),
           },
           ref: parsed.ref,
         });

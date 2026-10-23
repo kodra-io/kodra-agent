@@ -1,8 +1,34 @@
-import { defineManifest, type McpStdioRuntime } from '@kodra-agent/schema';
+import { defineManifest, type McpStdioRuntime, type SetupStep } from '@kodra-agent/schema';
 import { PATTERNS } from '../shared.ts';
 
 const chainNote =
   'Leave both AWS keys empty to use the standard AWS credentials, such as an IAM role for the service account.';
+
+const POLICY =
+  '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["eks:Describe*","eks:List*","cloudwatch:Get*","cloudwatch:List*","cloudwatch:Describe*","logs:Describe*","logs:Get*","logs:FilterLogEvents","logs:StartQuery","logs:GetQueryResults"],"Resource":"*"}]}';
+
+const UNIX_KEY = `echo '${POLICY}' > kodra-agent-policy.json
+aws iam create-user --user-name kodra-agent
+aws iam put-user-policy --user-name kodra-agent --policy-name kodra-agent-read --policy-document file://kodra-agent-policy.json
+aws iam create-access-key --user-name kodra-agent`;
+
+/** An IAM user with the read policy above, and its key (M28). */
+const keySteps: SetupStep[] = [
+  {
+    text: 'Leave both keys empty to use the standard AWS credentials instead, such as an IAM role for the service account.',
+  },
+  {
+    text: 'Or create an IAM user that can only read EKS and CloudWatch, and its access key. Copy AccessKeyId and SecretAccessKey from the output; AWS shows the secret only once.',
+    run: {
+      linux: UNIX_KEY,
+      macos: UNIX_KEY,
+      windows: `Set-Content -Path kodra-agent-policy.json -Value '${POLICY}'
+aws iam create-user --user-name kodra-agent
+aws iam put-user-policy --user-name kodra-agent --policy-name kodra-agent-read --policy-document file://kodra-agent-policy.json
+aws iam create-access-key --user-name kodra-agent`,
+    },
+  },
+];
 
 const readPolicy = [
   'eks:Describe*, eks:List*',
@@ -70,6 +96,7 @@ export default defineManifest({
       howToCreate: chainNote,
       minimumScopes: { 'read-only': readPolicy },
       probe: 'aws.get-caller-identity',
+      steps: keySteps,
     },
     {
       key: 'secretAccessKey',
@@ -81,6 +108,7 @@ export default defineManifest({
       howToCreate: chainNote,
       minimumScopes: { 'read-only': readPolicy },
       probe: 'aws.get-caller-identity',
+      steps: keySteps,
     },
   ],
   healthProbe: 'aws.get-caller-identity',

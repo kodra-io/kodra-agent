@@ -1,4 +1,5 @@
 import { defineManifest } from '@kodra-agent/schema';
+import { HOST_KEY_STEPS, HOST_STEPS, PASSWORD_STEPS, TUNNEL_KEY_STEPS } from './steps.ts';
 
 /** A host name or an IP address (v4, or v6 in brackets or plain). */
 const HOST =
@@ -38,6 +39,7 @@ export default defineManifest({
           pattern: HOST,
           patternHint: 'use a host name or an IP address',
           example: 'orders.abc123.eu-central-1.rds.amazonaws.com',
+          steps: HOST_STEPS,
         },
         {
           kind: 'integer',
@@ -72,6 +74,7 @@ export default defineManifest({
           howToCreate:
             'Create a user that can only read server status (see docs/connectors/databases.md for the grant per engine), then enter its password here. It is tested before it is saved.',
           envVar: 'PASSWORD',
+          steps: PASSWORD_STEPS,
         },
         {
           kind: 'choice',
@@ -116,10 +119,11 @@ export default defineManifest({
           required: false,
           requiredWith: 'tunnelHost',
           description:
-            'SSH tunnel: the bastion’s host key fingerprint. The tunnel is refused if it does not match. Get it with: ssh-keyscan bastion | ssh-keygen -lf -',
+            'SSH tunnel: the bastion’s host key fingerprint. The tunnel is refused if it does not match.',
           pattern: '^SHA256:[A-Za-z0-9+/]{43}=?$',
           patternHint:
             'use a SHA256 fingerprint, like SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8',
+          steps: HOST_KEY_STEPS,
         },
         {
           kind: 'secret',
@@ -130,6 +134,8 @@ export default defineManifest({
           howToCreate:
             'Make a key just for this (ssh-keygen -t ed25519), and limit it on the bastion to port forwarding to this database: in authorized_keys, restrict,port-forwarding,permitopen="db-host:port". Paste the private key here.',
           envVar: 'TUNNEL_KEY',
+          format: 'ssh-private-key',
+          steps: TUNNEL_KEY_STEPS,
         },
         {
           kind: 'integer',
