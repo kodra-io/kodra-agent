@@ -40,7 +40,25 @@ export interface AgentDraft {
   console: { enabled: boolean; chat: boolean };
   /** Named groups of namespaces and repos with their own approval rules. */
   environments: EnvironmentDraft[];
+  /** A daily digest of the read-only checks (M27), as typed. */
+  checks: ChecksDraft;
 }
+
+export interface ChecksDraft {
+  enabled: boolean;
+  /** "09:00", 24-hour local time. */
+  at: string;
+  days: 'weekdays' | 'every-day';
+  timezone: string;
+}
+
+/** Suggested when the checks are turned on; the page fills in the browser's time zone. */
+export const DEFAULT_CHECKS: ChecksDraft = {
+  enabled: false,
+  at: '09:00',
+  days: 'weekdays',
+  timezone: 'UTC',
+};
 
 /** An environment as typed: lists are comma- or space-separated; empty approvers use the default. */
 export interface EnvironmentDraft {
@@ -99,6 +117,7 @@ export function emptyDraft(): AgentDraft {
     policy: { approvers: CONSOLE_ADMIN, expiresAfterMinutes: '15', destructiveActions: 'deny' },
     console: { enabled: true, chat: true },
     environments: [],
+    checks: { ...DEFAULT_CHECKS },
   };
 }
 
@@ -201,6 +220,15 @@ const draftSchema = z.strictObject({
     )
     .max(MAX_ENVIRONMENTS)
     .optional(),
+  // Links made before the checks existed leave them out: off.
+  checks: z
+    .strictObject({
+      enabled: z.boolean(),
+      at: str,
+      days: z.enum(['weekdays', 'every-day']),
+      timezone: str,
+    })
+    .optional(),
 });
 
 function toBase64Url(text: string): string {
@@ -259,6 +287,7 @@ export function decodeDraft(hash: string): DecodeResult {
     policy: raw.policy,
     console: { enabled: raw.console?.enabled ?? true, chat: raw.console?.chat ?? true },
     environments: raw.environments ?? [],
+    checks: raw.checks ?? { ...DEFAULT_CHECKS },
   };
   for (const [id, entry] of Object.entries(raw.connectors)) {
     const manifest = getConnector(id);

@@ -36,6 +36,10 @@ export function useIssueText() {
         return t('error.namespaceFormat', { value: issue.value });
       case 'repo-format':
         return t('error.repoFormat', { value: issue.value });
+      case 'time-format':
+        return t('error.timeFormat');
+      case 'timezone':
+        return t('error.timezone');
       case 'policy': {
         const v = issue.problem.vars;
         const who = t(`policy.who.${String(v['scope'])}` as MessageKey, { name: v['name'] ?? '' });

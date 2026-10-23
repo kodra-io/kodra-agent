@@ -45,7 +45,8 @@ export type Action =
   | { type: 'expires'; value: string }
   | { type: 'destructive'; value: DestructivePolicy }
   | { type: 'console'; enabled: boolean }
-  | { type: 'consoleChat'; chat: boolean };
+  | { type: 'consoleChat'; chat: boolean }
+  | { type: 'checks'; patch: Partial<AgentDraft['checks']> };
 
 export function reducer(draft: AgentDraft, action: Action): AgentDraft {
   switch (action.type) {
@@ -161,6 +162,8 @@ export function reducer(draft: AgentDraft, action: Action): AgentDraft {
       };
     case 'consoleChat':
       return { ...draft, console: { ...draft.console, chat: action.chat } };
+    case 'checks':
+      return { ...draft, checks: { ...draft.checks, ...action.patch } };
   }
 }
 

@@ -1208,6 +1208,69 @@
           },
           "additionalProperties": false
         },
+        "checks": {
+          "description": "Scheduled read-only checks: a digest of what is broken, posted to Slack and the console.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "schedules": {
+              "default": [],
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
+                  },
+                  "at": {
+                    "type": "string"
+                  },
+                  "days": {
+                    "default": [
+                      "sun",
+                      "mon",
+                      "tue",
+                      "wed",
+                      "thu",
+                      "fri",
+                      "sat"
+                    ],
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "sun",
+                        "mon",
+                        "tue",
+                        "wed",
+                        "thu",
+                        "fri",
+                        "sat"
+                      ]
+                    }
+                  },
+                  "timezone": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "at",
+                  "timezone"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "quietWhenClean": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
         "limits": {
           "description": "Limits for each question the agent answers, and a monthly budget.",
           "default": {},

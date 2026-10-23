@@ -119,3 +119,23 @@ describe('splitList', () => {
     expect(splitList(' a, b\nc  d,,')).toEqual(['a', 'b', 'c', 'd']);
   });
 });
+
+describe('daily checks in a shared link', () => {
+  it('keeps them, and an older link without them decodes with them off', () => {
+    const draft = composeDraft();
+    draft.checks = { enabled: true, at: '07:15', days: 'every-day', timezone: 'Europe/Berlin' };
+    const decoded = decodeDraft(encodeDraft(draft));
+    expect(decoded.ok && decoded.draft.checks).toEqual(draft.checks);
+
+    const older: Partial<ReturnType<typeof composeDraft>> = composeDraft();
+    delete older.checks;
+    const old = decodeDraft(encodeRaw(older));
+    expect(old.ok && old.draft.checks.enabled).toBe(false);
+    // A crafted link cannot sneak in a value the page could not produce.
+    expect(
+      decodeDraft(
+        encodeRaw({ ...older, checks: { enabled: true, days: 'hourly', at: '', timezone: '' } }),
+      ).ok,
+    ).toBe(false);
+  });
+});

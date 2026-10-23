@@ -57,6 +57,17 @@ register(
   () => text('WIPED'),
 );
 
+// `--pods <file>` lists pods from a file, read on every call (checks tests change it between runs).
+const podsAt = process.argv.indexOf('--pods');
+const podsPath = podsAt === -1 ? undefined : process.argv[podsAt + 1];
+if (podsPath) {
+  register(
+    'pods_list_in_namespace',
+    { description: 'List pods in a namespace', inputSchema: { namespace: z.string() } },
+    async () => text(await readFile(podsPath, 'utf8')),
+  );
+}
+
 // `--record <file>` adds source-control tools that append each call as a JSON line (ship tests).
 const recordAt = process.argv.indexOf('--record');
 const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1];

@@ -33,7 +33,7 @@ export const NO_TRACER: AgentTracer = {
 };
 
 /** Turn kinds by task id prefix; anything else is "other". */
-const TASK_KINDS = new Set(['alert', 'slack', 'console', 'chat', 'ship', 'doctor']);
+const TASK_KINDS = new Set(['alert', 'slack', 'console', 'chat', 'ship', 'doctor', 'checks']);
 
 export function taskKind(task: string): string {
   const prefix = task.split('-')[0] ?? '';

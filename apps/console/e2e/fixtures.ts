@@ -84,6 +84,49 @@ const fixtures: Record<string, unknown> = {
       },
     ],
   },
+  checks: {
+    schedules: [
+      { name: 'morning', at: '08:30', days: ['mon', 'tue', 'wed', 'thu', 'fri'], timezone: 'UTC' },
+    ],
+    latest: {
+      at: '2026-10-19T08:30:00.000Z',
+      trigger: 'morning',
+      fresh: [
+        {
+          id: 'kubernetes:pods:dev:web-1',
+          check: 'pods',
+          severity: 'critical',
+          title: 'Pod web-1 is CrashLoopBackOff (7 restarts)',
+          where: 'dev',
+          since: '2026-10-19T08:30:00.000Z',
+        },
+      ],
+      ongoing: [
+        {
+          id: 'gitlab-ci:pipelines:acme/api:main',
+          check: 'pipelines',
+          severity: 'warning',
+          title: 'The pipeline on main is failing (failed)',
+          where: 'acme/api',
+          url: 'https://gitlab.com/acme/api/-/pipelines/102',
+          since: '2026-10-16T08:30:00.000Z',
+        },
+      ],
+      resolved: [
+        {
+          id: 'db',
+          check: 'databases',
+          severity: 'warning',
+          title: 'Database orders is degraded',
+          where: 'orders',
+        },
+      ],
+      gaps: [],
+      ran: ['pods', 'pipelines', 'databases', 'agent'],
+      skipped: ['jobs', 'alerts'],
+      auditHead: { seq: 120, hash: 'ab'.repeat(32) },
+    },
+  },
   dashboard: {
     updatedAt: '2026-10-09T10:00:00.000Z',
     connectors: [
@@ -1187,6 +1230,24 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           c.busy = false;
         }
         return route.fulfill({ json: { result: approve ? 'approved' : 'denied' } });
+      }
+      if (name === 'checks/run') {
+        const checks = fixtures['checks'] as { latest: Record<string, unknown> };
+        return route.fulfill({
+          json: {
+            latest: {
+              ...checks.latest,
+              at: '2026-10-19T09:00:00.000Z',
+              trigger: `run by ${user.name}`,
+              fresh: [],
+              ongoing: [],
+              resolved: [
+                ...(checks.latest['fresh'] as unknown[]),
+                ...(checks.latest['ongoing'] as unknown[]),
+              ],
+            },
+          },
+        });
       }
       return route.fulfill({ status: 404, json: { error: 'not found' } });
     }

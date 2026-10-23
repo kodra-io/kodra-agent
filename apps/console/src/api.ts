@@ -26,6 +26,40 @@ export interface OverviewView {
   auditHead?: { seq: number; hash: string } | null;
 }
 
+/** One problem a check found. Built from parsed, redacted fields by the agent. */
+export interface CheckFinding {
+  id: string;
+  check: string;
+  severity: 'critical' | 'warning';
+  title: string;
+  where: string;
+  url?: string;
+  /** When it was first seen (new and ongoing findings). */
+  since?: string;
+}
+
+export interface CheckDigest {
+  at: string;
+  trigger: string;
+  fresh: CheckFinding[];
+  ongoing: CheckFinding[];
+  resolved: CheckFinding[];
+  gaps: { check: string; where: string; reason: string }[];
+  ran: string[];
+  skipped: string[];
+  auditHead: { seq: number; hash: string } | null;
+}
+
+export interface ChecksView {
+  latest: CheckDigest | null;
+  schedules: { name: string; at: string; days: string[]; timezone: string }[];
+}
+
+/** Runs the read-only checks now; the digest is saved and shown, not posted to Slack. */
+export function runChecks(): Promise<{ latest: CheckDigest }> {
+  return post('checks/run', {});
+}
+
 export function pauseAgent(): Promise<unknown> {
   return post('agent/pause', {});
 }

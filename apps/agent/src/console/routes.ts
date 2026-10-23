@@ -1,7 +1,9 @@
 import { getModelProvider } from '@kodra-agent/connectors';
 import { auditHead } from '../audit.ts';
 import { modelOptions } from '../model-options.ts';
-import { ConnectorDashboard } from '../dashboard.ts';
+import type { CheckRunner } from '../checks/runner.ts';
+import { connectorDashboard } from '../checks/setup.ts';
+import type { ConnectorDashboard } from '../dashboard.ts';
 import type { PolicyGate } from './policy-gate.ts';
 import type { Runtime } from '../runtime.ts';
 import type { ConsoleApprovals } from './approvals.ts';
@@ -58,20 +60,13 @@ export function consoleApi(
   pending: ConsoleApprovals,
   chat: ConsoleChat | null,
   settings?: { store: SettingsStore; restart: () => void; people?: People; gate?: PolicyGate },
+  extra: { dashboard?: ConnectorDashboard; checks?: CheckRunner } = {},
 ): ConsoleApi {
   const auditPath = runtime.config.spec.audit.path;
   const model = `${runtime.config.spec.model.provider}/${runtime.config.spec.model.name}`;
   const text = (q: URLSearchParams, key: string) => q.get(key) ?? undefined;
-  // The dashboard only reads, so it never asks for approval.
-  const deps = runtime.deps({
-    request: () => Promise.resolve({ decision: 'denied', by: 'dashboard' }),
-  });
-  const dashboard = new ConnectorDashboard({
-    host: deps.host,
-    redactor: deps.redactor,
-    policy: { destructiveActions: deps.policy.destructiveActions, self: deps.policy.self ?? null },
-    manifests: runtime.inputs.map((i) => i.component.manifest),
-  });
+  const dashboard = extra.dashboard ?? connectorDashboard(runtime);
+  const { checks } = extra;
 
   const routes: Record<string, ApiRoute> = {
     status: async () => ({
@@ -136,6 +131,16 @@ export function consoleApi(
     },
   };
   const streams: Record<string, StreamRoute> = {};
+
+  if (checks) {
+    routes['checks'] = () => ({ latest: checks.latest, schedules: checks.schedules });
+    // Read-only and free, so anyone signed in may run the checks. The digest is saved and
+    // shown here; only scheduled runs post to Slack.
+    actions['checks/run'] = async ({ user }) => {
+      const digest = await checks.run(`run by ${user.name}`, { post: false, commit: true });
+      return { status: 200, body: { latest: digest } };
+    };
+  }
 
   if (chat) {
     routes['chat'] = () => chat.list();

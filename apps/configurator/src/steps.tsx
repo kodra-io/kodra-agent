@@ -14,6 +14,7 @@ import {
 import {
   entrySecrets,
   includedSecrets,
+  digestDestination,
   quickstartCommands,
   type AgentDraft,
   type DestructivePolicy,
@@ -776,6 +777,82 @@ export function ReviewStep(
               label={t('review.consoleChatSwitch')}
               onChange={(chat) => {
                 dispatch({ type: 'consoleChat', chat });
+              }}
+            />
+          </div>
+        )}
+      </Section>
+
+      <Section title={t('review.checks')}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-2 text-sm text-ink-secondary">
+            <p>{t('review.checksText')}</p>
+            {draft.checks.enabled && (
+              <p
+                data-testid="checks-where"
+                className={digestDestination(draft) === 'log' ? 'text-warn-text' : undefined}
+              >
+                {t(`review.checksWhere.${digestDestination(draft)}`)}
+              </p>
+            )}
+          </div>
+          <Switch
+            checked={draft.checks.enabled}
+            label={t('review.checksSwitch')}
+            onChange={(enabled) => {
+              // Suggest the browser's own time zone the first time (read locally, never sent).
+              const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              dispatch({
+                type: 'checks',
+                patch:
+                  enabled && draft.checks.timezone === 'UTC' && zone
+                    ? { enabled, timezone: zone }
+                    : { enabled },
+              });
+            }}
+          />
+        </div>
+        {draft.checks.enabled && (
+          <div className="mt-4 flex flex-col gap-4">
+            <TextField
+              label={t('review.checksAt')}
+              hint={t('review.checksAtHint')}
+              value={draft.checks.at}
+              fieldId="checks.at"
+              inputMode="numeric"
+              required
+              error={errorFor('checks.at')}
+              onChange={(at) => {
+                dispatch({ type: 'checks', patch: { at } });
+              }}
+              onBlur={() => {
+                touch('checks.at');
+              }}
+            />
+            <RadioCards<'weekdays' | 'every-day'>
+              legend={t('review.checksDays')}
+              name="checks-days"
+              value={draft.checks.days}
+              onChange={(days) => {
+                dispatch({ type: 'checks', patch: { days } });
+              }}
+              options={[
+                { value: 'weekdays', label: t('review.checksWeekdays') },
+                { value: 'every-day', label: t('review.checksEveryDay') },
+              ]}
+            />
+            <TextField
+              label={t('review.checksZone')}
+              hint={t('review.checksZoneHint')}
+              value={draft.checks.timezone}
+              fieldId="checks.timezone"
+              required
+              error={errorFor('checks.timezone')}
+              onChange={(timezone) => {
+                dispatch({ type: 'checks', patch: { timezone } });
+              }}
+              onBlur={() => {
+                touch('checks.timezone');
               }}
             />
           </div>

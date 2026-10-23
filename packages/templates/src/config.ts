@@ -7,6 +7,8 @@ import {
   formatSecretRef,
   isConsoleApprover,
   isSecretRequired,
+  isTimeZone,
+  minuteOfDay,
   policyProblems,
   resolvePolicy,
   SCHEMA_API_VERSION,
@@ -19,7 +21,7 @@ import {
   type PolicySource,
   type SecretSpec,
 } from '@kodra-agent/schema';
-import { stringify } from 'yaml';
+import { Document, isScalar } from 'yaml';
 import {
   enabledConnectors,
   splitList,
@@ -46,6 +48,8 @@ export type DraftIssue = { field: string; step: StepId } & (
   | { code: 'environment-name' }
   | { code: 'namespace-format'; value: string }
   | { code: 'repo-format'; value: string }
+  | { code: 'time-format' }
+  | { code: 'timezone' }
   | { code: 'policy'; problem: PolicyProblem }
   | { code: 'schema'; message: string }
 );
@@ -258,6 +262,22 @@ export function draftToConfig(draft: AgentDraft): Record<string, unknown> {
       audit: { path: DEFAULT_AUDIT_PATH },
       telemetry: { enabled: false },
       console: { enabled: draft.console.enabled, port: CONSOLE_PORT, chat: draft.console.chat },
+      ...(draft.checks.enabled
+        ? {
+            checks: {
+              schedules: [
+                {
+                  name: 'daily',
+                  at: draft.checks.at.trim(),
+                  ...(draft.checks.days === 'weekdays'
+                    ? { days: ['mon', 'tue', 'wed', 'thu', 'fri'] }
+                    : {}),
+                  timezone: draft.checks.timezone.trim(),
+                },
+              ],
+            },
+          }
+        : {}),
     },
   };
 }
@@ -268,7 +288,11 @@ export function configYaml(draft: AgentDraft): string {
     '# Secret values never go in this file, only references to where they live.',
     '# yaml-language-server: $schema=https://raw.githubusercontent.com/kodra-io/kodra-agent/main/schema/kodra-agent.schema.json',
   ].join('\n');
-  return `${header}\n${stringify(draftToConfig(draft), { lineWidth: 0 })}`;
+  const doc = new Document(draftToConfig(draft));
+  // "09:00" stays a string for YAML 1.1 readers too, which would read 09:00 as 540.
+  const at = doc.getIn(['spec', 'checks', 'schedules', 0, 'at'], true);
+  if (isScalar(at)) at.type = 'QUOTE_DOUBLE';
+  return `${header}\n${doc.toString({ lineWidth: 0 })}`;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -426,6 +450,15 @@ export function validateDraft(draft: AgentDraft): DraftIssue[] {
         code: 'approver-console-off',
         value,
       });
+    }
+  }
+  if (draft.checks.enabled) {
+    if (minuteOfDay(draft.checks.at.trim()) === null) {
+      issues.push({ field: 'checks.at', step: 'review', code: 'time-format' });
+    }
+    const zone = draft.checks.timezone.trim();
+    if (zone === '' || !isTimeZone(zone)) {
+      issues.push({ field: 'checks.timezone', step: 'review', code: 'timezone' });
     }
   }
   draft.environments.forEach((env, i) => {
