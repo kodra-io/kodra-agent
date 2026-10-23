@@ -7,7 +7,7 @@ your own environment with your own model key. The agent builds, containerizes, p
 ships code, then watches your monitoring and works with your team in Slack. It asks for
 approval before it changes anything.
 
-> **Status: early release (v0.3.7).** Ready to try with design partners. The product is
+> **Status: early release (v0.3.8).** Ready to try with design partners. The product is
 > described in [SPEC.md](SPEC.md), and what comes next in [PLAN.md](PLAN.md).
 
 ## Principles
@@ -62,16 +62,16 @@ Actions), and comes with an SPDX SBOM, build provenance, and `SHA256SUMS`.
 
 ```sh
 # The image and the chart were built by this repository's release workflow.
-cosign verify ghcr.io/kodra-io/kodra-agent:0.3.7 \
+cosign verify ghcr.io/kodra-io/kodra-agent:0.3.8 \
   --certificate-identity-regexp '^https://github.com/kodra-io/kodra-agent/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-cosign verify ghcr.io/kodra-io/charts/kodra-agent:0.3.7 \
+cosign verify ghcr.io/kodra-io/charts/kodra-agent:0.3.8 \
   --certificate-identity-regexp '^https://github.com/kodra-io/kodra-agent/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # The SBOM attached to the image, and the files on the GitHub release.
-docker buildx imagetools inspect ghcr.io/kodra-io/kodra-agent:0.3.7 --format '{{ json .SBOM }}'
-gh release download v0.3.7 --repo kodra-io/kodra-agent
+docker buildx imagetools inspect ghcr.io/kodra-io/kodra-agent:0.3.8 --format '{{ json .SBOM }}'
+gh release download v0.3.8 --repo kodra-io/kodra-agent
 sha256sum -c SHA256SUMS
 ```
 
