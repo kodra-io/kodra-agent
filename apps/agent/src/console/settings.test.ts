@@ -1,7 +1,7 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getConnector, parseAgentConfig } from '@kodra-agent/connectors';
-import { utils } from 'ssh2';
+import ssh2 from 'ssh2';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AuditLog } from '../audit.ts';
 import { Redactor } from '../redactor.ts';
@@ -533,7 +533,7 @@ users:
       'ssh-keyscan -t ed25519 -p 22 <tunnelHost> | ssh-keygen -lf -',
     );
 
-    const locked = utils.generateKeyPairSync('ed25519', {
+    const locked = ssh2.utils.generateKeyPairSync('ed25519', {
       passphrase: 'p',
       cipher: 'aes256-ctr',
       rounds: 4,

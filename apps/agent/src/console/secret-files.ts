@@ -1,5 +1,5 @@
 import type { SecretFormat } from '@kodra-agent/schema';
-import { utils } from 'ssh2';
+import ssh2 from 'ssh2';
 import { parse } from 'yaml';
 
 /**
@@ -50,7 +50,8 @@ function sshKeyProblem(value: string): string | null {
     return 'that is not an SSH private key (upload the file without .pub)';
   }
   if (/ENCRYPTED/.test(value)) return 'that key has a passphrase; the agent cannot type one';
-  const parsed = utils.parseKey(value);
+  // ssh2 is CommonJS: Node sees only its default export, not `utils` by name.
+  const parsed = ssh2.utils.parseKey(value);
   if (parsed instanceof Error) {
     // ssh2's messages may quote the key, so only its passphrase case is passed on, in our words.
     return /passphrase/i.test(parsed.message)

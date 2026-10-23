@@ -1,4 +1,4 @@
-import { utils } from 'ssh2';
+import ssh2 from 'ssh2';
 import { describe, expect, it } from 'vitest';
 import { secretFileName, secretParts, secretShapeProblem, usesAwsExec } from './secret-files.ts';
 
@@ -61,12 +61,12 @@ describe('file secrets', () => {
   });
 
   it('takes an SSH private key without a passphrase only, and never quotes it', () => {
-    const plain = utils.generateKeyPairSync('ed25519');
+    const plain = ssh2.utils.generateKeyPairSync('ed25519');
     expect(secretShapeProblem('ssh-private-key', plain.private)).toBeNull();
     expect(secretShapeProblem('ssh-private-key', plain.public)).toBe(
       'that is not an SSH private key (upload the file without .pub)',
     );
-    const locked = utils.generateKeyPairSync('ed25519', {
+    const locked = ssh2.utils.generateKeyPairSync('ed25519', {
       passphrase: 'pass-c4n4ry',
       cipher: 'aes256-ctr',
       rounds: 4,
@@ -81,7 +81,7 @@ describe('file secrets', () => {
   });
 
   it("gives the redactor an SSH key's body lines, and finds EKS kubeconfigs", () => {
-    const key = utils.generateKeyPairSync('ed25519').private;
+    const key = ssh2.utils.generateKeyPairSync('ed25519').private;
     const parts = secretParts('ssh-private-key', key);
     expect(parts.length).toBeGreaterThan(0);
     expect(parts.every((p) => key.includes(p) && !p.startsWith('-----'))).toBe(true);
