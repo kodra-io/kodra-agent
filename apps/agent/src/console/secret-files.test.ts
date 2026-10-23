@@ -116,6 +116,8 @@ describe('file secrets', () => {
     expect(
       caCertificates(`${two}-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n`),
     ).toEqual({ problem: 'that file has a private key in it; upload certificates only' });
-    expect(caCertificates(two.repeat(200))).toEqual({ problem: 'that file is too big' });
+    expect(caCertificates(two + ' '.repeat(512 * 1024))).toEqual({
+      problem: 'that file is too big',
+    });
   });
 });
