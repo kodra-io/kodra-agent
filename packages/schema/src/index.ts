@@ -6,3 +6,4 @@ export * from './parse.ts';
 export * from './secret-ref.ts';
 export * from './policy.ts';
 export * from './freeze.ts';
+export * from './schedule.ts';

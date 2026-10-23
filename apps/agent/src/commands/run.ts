@@ -32,7 +32,8 @@ import { SettingsStore } from '../console/settings.ts';
 import { SessionRegistry, startConsoleServer, type ConsoleAccount } from '../console/server.ts';
 import { CONSOLE_TOKEN_ENV } from '../console/token.ts';
 import type { Context } from '../context.ts';
-import { fetchFiringAlerts } from '../monitoring/alerts.ts';
+import type { CheckRunner } from '../checks/runner.ts';
+import { alertSource, checkRunner, connectorDashboard } from '../checks/setup.ts';
 import { AlertMonitor, investigationPrompt } from '../monitoring/monitor.ts';
 import { describeConnectors, startRuntime, type Runtime } from '../runtime.ts';
 import { boltSlack, type SlackApi, type SlackConnection } from '../slack/api.ts';
@@ -128,6 +129,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   let conversations: SlackConversations | null = null;
   let timer: NodeJS.Timeout | undefined;
   let monitor: AlertMonitor | null = null;
+  let checks: CheckRunner | null = null;
   try {
     const slackInput = runtime.inputs.find((i) => i.component.id === 'slack');
     let channelId: string | null = null;
@@ -197,22 +199,13 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     });
 
     const prometheus = runtime.inputs.find((i) => i.component.id === 'prometheus');
-    if (prometheus) {
+    const fetchAlerts = alertSource(runtime, ctx);
+    if (prometheus && fetchAlerts) {
       const settings = prometheus.component.settings;
       const intervalMs = Number(settings['pollIntervalSeconds'] ?? 60) * 1000;
       monitor = new AlertMonitor({
         limits: runtime.config.spec.monitoring,
-        fetchAlerts: () =>
-          fetchFiringAlerts({
-            fetch: ctx.fetch,
-            timeoutMs: ctx.probeTimeoutMs,
-            alertmanagerUrl:
-              typeof settings['alertmanagerUrl'] === 'string'
-                ? settings['alertmanagerUrl']
-                : undefined,
-            prometheusUrl: typeof settings['url'] === 'string' ? settings['url'] : undefined,
-            token: prometheus.secrets['bearerToken'],
-          }),
+        fetchAlerts,
         investigate: async (alert) => {
           const deps = { ...runtime.deps(refuseAll), readOnly: true, actor: 'monitor' };
           // The alert's namespace picks the model before the first call (M13).
@@ -250,6 +243,16 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       void m.poll();
       timer = setInterval(() => void m.poll(), intervalMs);
     }
+
+    // Scheduled read-only checks (M27): a digest to the channel, also run from the console.
+    const dashboard = connectorDashboard(runtime);
+    checks = await checkRunner(runtime, ctx, {
+      dashboard,
+      post,
+      pendingApprovals: () => consoleApprovals.list().length,
+      ...(ctx.checksNow ? { now: ctx.checksNow } : {}),
+    });
+    if (checks.schedules.length > 0) checks.start();
 
     if (consoleOn) {
       const token = runtime.env[CONSOLE_TOKEN_ENV];
@@ -342,6 +345,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             }, 300);
           },
         },
+        { dashboard, checks },
       );
       consoleServer = await startConsoleServer({
         port: ctx.consolePort ?? runtime.config.spec.console.port,
@@ -367,7 +371,11 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       `Kodra AI Agent is running (${
         [slack ? 'Slack' : '', consoleServer ? 'the console' : ''].filter(Boolean).join(' and ') ||
         'no chat surface'
-      }${monitor ? ', monitoring alerts' : ''}${runtime.control.paused ? ', changes paused' : ''}).`,
+      }${monitor ? ', monitoring alerts' : ''}${
+        checks.schedules.length > 0
+          ? `, checks at ${checks.schedules.map((s) => `${s.at} ${s.timezone}`).join(' and ')}`
+          : ''
+      }${runtime.control.paused ? ', changes paused' : ''}).`,
     );
     // The agent's own metrics (M14), on their own port.
     if (runtime.config.spec.metrics.enabled) {
@@ -411,10 +419,12 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   } finally {
     ready = false;
     clearInterval(timer);
+    checks?.stop();
     await approvals?.cancelAll();
     consoleApprovals.cancelAll();
     await slack?.stop().catch(() => undefined);
     await monitor?.idle();
+    await checks?.idle();
     await conversations?.idle();
     consoleChat?.stopAll();
     await consoleChat?.idle();

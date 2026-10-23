@@ -182,6 +182,65 @@ test('console approvers need the console, and chat can be turned off', async ({ 
   ).toBeVisible();
 });
 
+test.describe('daily checks', () => {
+  test.use({ timezoneId: 'Asia/Amman' });
+
+  test('suggest weekdays at 09:00 in your time zone, say where the digest goes, and land in the YAML', async ({
+    page,
+  }) => {
+    await fillBasics(page);
+    await goToStep(page, /Review/);
+    await page.getByLabel('Approvers').fill('@omar');
+    const toggle = page.getByRole('switch', { name: 'Post a daily digest' });
+    await expect(toggle).not.toBeChecked();
+    await toggle.click();
+    await expect(page.getByRole('textbox', { name: 'Time', exact: true })).toHaveValue('09:00');
+    await expect(page.getByLabel('Time zone')).toHaveValue('Asia/Amman');
+    await expect(page.getByLabel('Monday to Friday')).toBeChecked();
+    // No Slack in this setup: the digest is on the console.
+    await expect(page.getByTestId('checks-where')).toHaveText(
+      "Slack is off, so the digest is shown on the console Overview and written to the agent's log.",
+    );
+    await page.getByRole('switch', { name: 'Turn on the web console' }).click();
+    await expect(page.getByTestId('checks-where')).toContainText('only written to the agent');
+    await page.getByRole('switch', { name: 'Turn on the web console' }).click();
+
+    await page.getByRole('textbox', { name: 'Time', exact: true }).fill('9am');
+    await expect(
+      page.getByTestId('problems').getByText('Use a 24-hour time like 09:00.'),
+    ).toBeVisible();
+    await page.getByRole('textbox', { name: 'Time', exact: true }).fill('07:45');
+    await page.getByLabel('Every day').check();
+    await expect(
+      page.getByText('Everything checks out. You can download your agent.'),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Next' }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page
+      .getByRole('button', { name: 'Download kodra-agent-payments-team-agent.zip' })
+      .click();
+    const zip = await JSZip.loadAsync(await readFile(await (await downloadPromise).path()));
+    const yaml = await zip
+      .file('kodra-agent-payments-team-agent/kodra-agent.yaml')
+      ?.async('string');
+    const result = parseAgentConfig(yaml ?? '');
+    expect(result.ok ? [] : result.issues).toEqual([]);
+    if (result.ok) {
+      expect(result.config.spec.checks.schedules).toEqual([
+        {
+          name: 'daily',
+          at: '07:45',
+          days: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+          timezone: 'Asia/Amman',
+        },
+      ]);
+    }
+    const readme = await zip.file('kodra-agent-payments-team-agent/README.md')?.async('string');
+    expect(readme).toContain('At 07:45 (Asia/Amman), every day');
+  });
+});
+
 test('coming-soon connectors are visible but cannot be enabled', async ({ page }) => {
   await fillBasics(page);
   const teams = connectorCard(page, 'teams');

@@ -3,6 +3,7 @@ import { checkDependencies } from './dependencies.ts';
 import { entriesSchema } from './entries.ts';
 import { modelPrice, type ConfigField, type Manifest, type ModelPrice } from './manifest.ts';
 import { isCalendarDate, isTimeZone, weeklyMinute } from './freeze.ts';
+import { minuteOfDay, SCHEDULE_DAYS, type ScheduleDay } from './schedule.ts';
 import { policyProblems, PROFILES, type Profile } from './policy.ts';
 import { secretRefSchema } from './secret-ref.ts';
 
@@ -280,6 +281,46 @@ const monitoringSchema = z
   .prefault({})
   .meta({ description: 'Limits for alert investigations.' });
 
+/** When the read-only checks run and post a digest (M27). */
+const checkScheduleSchema = z.strictObject({
+  name: z
+    .string()
+    .regex(
+      /^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/,
+      'must be lowercase letters, digits, and hyphens, at most 32 characters',
+    ),
+  at: z.string().refine((t) => minuteOfDay(t) !== null, 'must be a 24-hour time like 08:30'),
+  days: z
+    .array(z.enum(SCHEDULE_DAYS, { error: 'must be sun, mon, tue, wed, thu, fri, or sat' }))
+    .min(1)
+    .default([...SCHEDULE_DAYS]),
+  timezone: z.string().refine(isTimeZone, 'must be a time zone like Asia/Amman or UTC'),
+});
+
+const checksSchema = z
+  .strictObject({
+    schedules: z.array(checkScheduleSchema).max(10).default([]),
+    /** Post nothing when every check is clean. */
+    quietWhenClean: z.boolean().default(false),
+  })
+  .superRefine((c, ctx) => {
+    const names = c.schedules.map((s) => s.name);
+    names.forEach((name, i) => {
+      if (names.indexOf(name) !== i) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['schedules', i, 'name'],
+          message: `${name} is used twice`,
+        });
+      }
+    });
+  })
+  .prefault({})
+  .meta({
+    description:
+      'Scheduled read-only checks: a digest of what is broken, posted to Slack and the console.',
+  });
+
 /** Per-question limits on the agent loop: a guard on cost and runaway tool use. */
 const limitsSchema = z
   .strictObject({
@@ -513,6 +554,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         audit: auditSchema,
         telemetry: telemetrySchema,
         monitoring: monitoringSchema,
+        checks: checksSchema,
         limits: limitsSchema,
         console: consoleSchema,
         network: networkSchema,
@@ -629,6 +671,10 @@ export interface AgentConfig {
     tracing: { enabled: boolean; endpoint?: string | undefined };
     telemetry: { enabled: boolean };
     monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
+    checks: {
+      schedules: { name: string; at: string; days: ScheduleDay[]; timezone: string }[];
+      quietWhenClean: boolean;
+    };
     limits: {
       maxSteps: number;
       tokenBudget: number;

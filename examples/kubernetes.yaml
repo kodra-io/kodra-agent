@@ -53,3 +53,10 @@ spec:
     approvals:
       approvers: ['U0456EFGH', 'U0123ABCD']
       expiresAfterMinutes: 30
+  # A digest of the read-only checks in the Slack channel, weekday mornings (docs/checks.md).
+  checks:
+    schedules:
+      - name: morning
+        at: '08:30'
+        days: [mon, tue, wed, thu, fri]
+        timezone: Asia/Amman

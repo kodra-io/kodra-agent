@@ -72,7 +72,7 @@ export const fakeManifest: Manifest = defineManifest({
 
 /** Runs the fake server with Node's type stripping instead of a pinned binary. */
 export function fakeLauncher(
-  opts: { record?: string } = {},
+  opts: { record?: string; pods?: string } = {},
 ): (manifest: Manifest, runtime: McpStdioRuntime) => Launch {
   return () => ({
     command: process.execPath,
@@ -81,6 +81,7 @@ export function fakeLauncher(
       '--disable-warning=ExperimentalWarning',
       SERVER,
       ...(opts.record ? ['--record', opts.record] : []),
+      ...(opts.pods ? ['--pods', opts.pods] : []),
     ],
   });
 }

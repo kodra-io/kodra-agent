@@ -84,6 +84,49 @@ export function dockerSocketPath(draft: AgentDraft): string | null {
 /** `init` for EKS: also mounts ~/.aws read-only and passes AWS_PROFILE, for `aws eks get-token`. */
 const EKS_INIT_COMMAND = `docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/home/kodra -e AWS_PROFILE -v "$HOME/.kube:/home/kodra/.kube:ro" -v "$HOME/.aws:/home/kodra/.aws:ro" -v "$PWD:/work" -w /work ${AGENT_IMAGE}:${AGENT_VERSION} init --target kubernetes --namespace ${AGENT_NAMESPACE}`;
 
+/** Where the daily digest goes, given what is turned on. */
+export function digestDestination(draft: AgentDraft): 'slack' | 'console' | 'log' {
+  if (draft.connectors['slack']?.enabled === true) return 'slack';
+  return draft.console.enabled ? 'console' : 'log';
+}
+
+/** The README's daily checks section (M27): when they run, what they read, where they go. */
+function checksSection(draft: AgentDraft): string[] {
+  const days = draft.checks.days === 'weekdays' ? 'Monday to Friday' : 'every day';
+  const where = {
+    slack: 'It posts a digest to your Slack channel and shows it on the console Overview.',
+    console: 'Slack is off, so the digest is shown on the console Overview and written to the log.',
+    log: "Slack and the console are off, so the digest is only written to the agent's log.",
+  }[digestDestination(draft)];
+  const runNow =
+    draft.target === 'compose'
+      ? 'docker compose run --rm kodra-agent check'
+      : `kubectl --namespace ${AGENT_NAMESPACE} exec deploy/${agentName(draft)}-kodra-agent -- node /app/apps/agent/src/bin.ts check`;
+  return [
+    '### Daily checks',
+    '',
+    [
+      `At ${draft.checks.at.trim()} (${draft.checks.timezone.trim()}), ${days}, the agent checks what it can already see:`,
+      'failing pods, deployments short of replicas, warnings, failing pipelines and jobs, databases,',
+      'firing alerts, and its own audit log and budget.',
+      where,
+      'The digest says what is new, what is still broken, and what was fixed since the last run.',
+      'The checks only read: no approval, and no model.',
+    ].join(' '),
+    '',
+    draft.console.enabled
+      ? 'To run them now, use **Run now** on the console Overview, or print the digest here:'
+      : 'To print the digest now:',
+    '',
+    '```sh',
+    runNow,
+    '```',
+    '',
+    'Change the time under `spec.checks` in `kodra-agent.yaml`.',
+    '',
+  ];
+}
+
 export function quickstartCommands(draft: AgentDraft): string[] {
   const name = agentName(draft);
   if (draft.target === 'compose') {
@@ -467,8 +510,10 @@ function readme(draft: AgentDraft): string {
       '### Web console',
       '',
       [
-        'The console has an Overview of your systems and what needs attention, a Dashboard,',
-        'approvals, activity, and usage, and Settings for the model, connectors, and secrets.',
+        draft.checks.enabled
+          ? 'The console has an Overview of your systems, what needs attention, and the latest daily checks,'
+          : 'The console has an Overview of your systems and what needs attention,',
+        'a Dashboard, approvals, activity, and usage, and Settings for the model, connectors, and secrets.',
         draft.console.chat
           ? 'You can also chat with the agent there. Changes still need an approver.'
           : 'Chat is off.',
@@ -506,6 +551,7 @@ function readme(draft: AgentDraft): string {
       '',
     );
   }
+  if (draft.checks.enabled) lines.push(...checksSection(draft));
   lines.push('## What this agent can do', '');
   if (provider) {
     lines.push(`**Model: ${provider.displayName}**`, '');

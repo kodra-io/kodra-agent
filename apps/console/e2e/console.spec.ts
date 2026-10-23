@@ -129,6 +129,38 @@ test.describe('the operations center', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
   });
 
+  test('shows the daily checks: new, still broken, fixed; runs them now; asks about one', async ({
+    page,
+    api,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-10-19T09:00:00Z'));
+    await signIn(page);
+    const card = page.getByRole('region', { name: 'Daily checks' });
+    await expect(card).toContainText('Runs at 08:30 (UTC) on mon, tue, wed, thu, fri.');
+    await expect(card).toContainText('1 new, 1 still broken, 1 fixed');
+    await expect(card.getByRole('listitem').first()).toContainText(
+      'CriticalPod web-1 is CrashLoopBackOff (7 restarts) (dev)',
+    );
+    await expect(card).toContainText('since Oct 16, 2026');
+    await expect(card).toContainText(
+      'Not checked (connector off or nothing listed): jobs, alerts.',
+    );
+
+    await card
+      .getByRole('button', { name: 'Ask in chat about Pod web-1 is CrashLoopBackOff (7 restarts)' })
+      .click();
+    await expect(page.getByLabel('Message')).toHaveValue(
+      /^The daily checks found this in dev: Pod web-1 is CrashLoopBackOff/,
+    );
+    expect(api.some((line) => line.startsWith('BODY chat '))).toBe(false);
+
+    await page.getByRole('navigation').getByRole('link', { name: 'Overview' }).click();
+    await card.getByRole('button', { name: 'Run now' }).click();
+    await expect(card).toContainText('Everything checked is fine.');
+    await expect(card).toContainText('run by console.');
+    expect(api).toContain('POST checks/run');
+  });
+
   test('asks the agent for a full briefing in a new conversation', async ({ page, api }) => {
     await page.clock.setFixedTime(new Date('2026-10-19T19:00:00Z'));
     await signIn(page);

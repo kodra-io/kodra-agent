@@ -19,6 +19,7 @@ import { Icon } from './icons.tsx';
 import { useLoad } from './load.ts';
 import { useStatus } from './status.ts';
 import { Badge, Cell, Mono, Page, Table } from './ui.tsx';
+import { ChecksCard } from './checks.tsx';
 import { Welcome } from './welcome.tsx';
 
 /** Who is signed in: `console` (the shared token) or `console:<name>`. */
@@ -79,6 +80,8 @@ export function OverviewPage({ onSignedOut, me, go, chat }: PageProps) {
             go={go}
             chat={chat}
           />
+
+          <ChecksCard go={go} chat={chat} onSignedOut={onSignedOut} />
 
           <section
             aria-labelledby="state-title"

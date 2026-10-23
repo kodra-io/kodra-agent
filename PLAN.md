@@ -388,20 +388,29 @@ Done when:
 
 ---
 
-### Scheduled checks (moved from M15)
+### M27: Scheduled checks and the daily digest (moved from M15)
 
-- **`spec.checks`:** a schedule with a time zone, posting a digest to Slack and the console, with the audit chain head. Each check is read-only and is skipped when its connector is off:
-  - restart loops and pods that are not ready
-  - expiring certificates, read from cert-manager `Certificate` status and by checking the TLS of Ingress hosts, never by reading Secrets
-  - volumes filling up (kubelet volume metrics)
-  - deprecated API use (API server metrics, when they are scraped)
-  - rightsizing: seven days of usage compared with requests and limits
-  - failing pipelines on default branches
-  - open alerts
+See `docs/checks.md`.
 
-  The digest separates new items from ongoing ones and has a cost cap per run. It can stay quiet when everything is clean.
+- **`spec.checks`:** schedules (a local time, days, and a time zone) that post a digest to Slack and the console Overview, with the audit chain head. Every check is read-only, never calls the model, and is skipped when its connector is off.
+- **Built:** pods failing, pending, not ready, or restarting; deployments short of replicas; warning events; failing pipelines on default branches; failed Jenkins jobs; databases down or degraded; firing alerts; and the agent itself (audit chain, budget, unanswered approvals). They are rules over the Dashboard's read cards, so there is no new read path.
+- **The digest** separates new, ongoing, and fixed (state in `checks.json`), keeps a problem open when its check could not run, and can stay quiet when clean. The console has Run now and Ask in chat; `kodra-agent check` prints it, and `--post` posts it.
+
+Differences from the candidate:
+
+- No cost cap per run: the digest uses no model, so a run costs nothing.
+- Paused changes do not stop the checks: they only read, like chat.
 
 Done when each check has fixtures for both "found" and "clean", and a digest posts in the Slack test setup.
+
+### M27b: More checks
+
+- expiring certificates, read from cert-manager `Certificate` status and by checking the TLS of Ingress hosts, never by reading Secrets
+- volumes filling up (kubelet volume metrics)
+- deprecated API use (API server metrics, when they are scraped)
+- rightsizing: seven days of usage compared with requests and limits
+
+Done when each has fixtures for both "found" and "clean".
 
 ---
 
@@ -538,9 +547,10 @@ Update this table at the end of every milestone.
 | Publish the configurator at build.kodra.io/agent     | v0.3.0       | Not started |     |
 | M15 Value on day one (the demo)                      | After launch | Deferred    |     |
 | Design partners: five to ten, notes in docs/partners | After launch | Not started |     |
-| M26 Onboard a repo                                   | After launch | Done        |     |
+| M26 Onboard a repo                                   | After launch | Done        | #67 |
+| M27 Scheduled checks and the daily digest            | After launch | Done        |     |
 
-Candidates after launch, not scheduled: scheduled checks; M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
+Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 
 ---
 

@@ -58,6 +58,8 @@ export interface Context {
   gitRemote?: (provider: 'github' | 'gitlab', repo: string) => string;
   /** How long `ship` waits for the container to answer. */
   shipSmokeTimeoutMs?: number;
+  /** The clock the check schedules use (tests). */
+  checksNow?: () => Date;
   /** The agent's own container id (null on a host); detected when not set. */
   selfContainer?: string | null;
   /** The agent's access to its own ConfigMap, Secret, and Deployment (tests pass a fake). */

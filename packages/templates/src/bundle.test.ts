@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse, parseAllDocuments } from 'yaml';
-import { generateBundle, quickstartCommands } from './bundle.ts';
+import { digestDestination, generateBundle, quickstartCommands } from './bundle.ts';
 import { composeDraft, kubernetesDraft, withConnector } from './test-drafts.ts';
 
 const file = (bundle: ReturnType<typeof generateBundle>, path: string) =>
@@ -256,5 +256,51 @@ describe('approval rules in the README', () => {
       '- **Everything else**: needs one approval from U01, U02, U03; the person who asked cannot approve it;',
     );
     expect(readme).toContain('A change that spans two environments is refused');
+  });
+});
+
+describe('daily checks in the bundle', () => {
+  it('says when they run, where the digest goes, and how to run them now', () => {
+    const draft = composeDraft();
+    expect(file(generateBundle(draft), 'README.md')).not.toContain('### Daily checks');
+    draft.checks = { enabled: true, at: '08:30', days: 'weekdays', timezone: 'Asia/Amman' };
+    const readme = file(generateBundle(draft), 'README.md');
+    expect(readme).toContain('### Daily checks');
+    expect(readme).toContain('At 08:30 (Asia/Amman), Monday to Friday, the agent checks');
+    expect(readme).toContain(
+      'It posts a digest to your Slack channel and shows it on the console Overview.',
+    );
+    expect(readme).toContain('docker compose run --rm kodra-agent check');
+    expect(readme).toContain('the latest daily checks');
+    const yaml = parse(file(generateBundle(draft), 'kodra-agent.yaml')) as {
+      spec: { checks: unknown };
+    };
+    expect(yaml.spec.checks).toEqual({
+      schedules: [
+        {
+          name: 'daily',
+          at: '08:30',
+          days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+          timezone: 'Asia/Amman',
+        },
+      ],
+    });
+  });
+
+  it('runs them in the Deployment on Kubernetes', () => {
+    const draft = kubernetesDraft();
+    draft.checks = { enabled: true, at: '09:00', days: 'every-day', timezone: 'UTC' };
+    expect(file(generateBundle(draft), 'README.md')).toContain(
+      'exec deploy/platform-agent-kodra-agent -- node /app/apps/agent/src/bin.ts check',
+    );
+  });
+
+  it('knows where the digest goes without Slack or the console', () => {
+    const draft = composeDraft();
+    expect(digestDestination(draft)).toBe('slack');
+    delete draft.connectors['slack'];
+    expect(digestDestination(draft)).toBe('console');
+    draft.console.enabled = false;
+    expect(digestDestination(draft)).toBe('log');
   });
 });

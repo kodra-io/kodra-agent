@@ -213,3 +213,38 @@ describe('profiles and environments in the draft', () => {
     ]);
   });
 });
+
+describe('daily checks in the draft', () => {
+  it('writes one schedule when on, nothing when off, and the YAML passes the real schema', () => {
+    expect(configYaml(composeDraft())).not.toContain('checks:');
+    const draft = composeDraft();
+    draft.checks = { enabled: true, at: '08:30', days: 'weekdays', timezone: 'Asia/Amman' };
+    expect(validateDraft(draft)).toEqual([]);
+    // Quoted, so YAML 1.1 readers do not turn 08:30 into a number.
+    expect(configYaml(draft)).toContain('at: "08:30"');
+    const result = parseAgentConfig(configYaml(draft));
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(result.config.spec.checks.schedules).toEqual([
+      {
+        name: 'daily',
+        at: '08:30',
+        days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+        timezone: 'Asia/Amman',
+      },
+    ]);
+    draft.checks.days = 'every-day';
+    const daily = parseAgentConfig(configYaml(draft));
+    expect(daily.ok && daily.config.spec.checks.schedules[0]?.days).toHaveLength(7);
+  });
+
+  it('refuses a bad time or time zone, only while the checks are on', () => {
+    const draft = composeDraft();
+    draft.checks = { enabled: true, at: '9am', days: 'weekdays', timezone: 'Mars/Base' };
+    expect(codes(validateDraft(draft))).toEqual([
+      'checks.at:time-format',
+      'checks.timezone:timezone',
+    ]);
+    draft.checks.enabled = false;
+    expect(validateDraft(draft)).toEqual([]);
+  });
+});

@@ -3,6 +3,7 @@ import { SCHEMA_API_VERSION } from '@kodra-agent/schema';
 import pkg from '../package.json' with { type: 'json' };
 import { auditVerify } from './commands/audit.ts';
 import { chat } from './commands/chat.ts';
+import { check } from './commands/check.ts';
 import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
 import { run } from './commands/run.ts';
@@ -16,6 +17,7 @@ const COMMANDS = [
   ['init', 'Ask for the secrets your config needs, check them, and store them locally'],
   ['doctor', 'Check the config, secrets, connector access, and audit log'],
   ['run', 'Start the service: Slack, alert monitoring, and health checks'],
+  ['check', 'Run the read-only checks once and print the digest'],
   ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
   ['ship <repo|dir>', 'Add a Dockerfile, CI, and Helm chart, verify them, and open a PR'],
   ['onboard <repo|dir>', 'Report what a repo needs and its risks, then ship it with that report'],
@@ -43,8 +45,11 @@ export function helpText(): string {
     '  --non-interactive              Read values from the environment instead of asking',
     '  --dry-run                      Kubernetes: print the Secret manifest with placeholders',
     '',
-    'doctor and audit verify options:',
+    'doctor, check, and audit verify options:',
     '  --json                         Print the results as JSON',
+    '',
+    'check options:',
+    '  --post                         Post the digest to Slack and save it as the latest',
     '',
     'chat options:',
     '  --message <text>               Ask one question, print the answer, and exit',
@@ -58,6 +63,7 @@ const OPTIONS = {
   'non-interactive': { type: 'boolean' },
   'dry-run': { type: 'boolean' },
   json: { type: 'boolean' },
+  post: { type: 'boolean' },
   message: { type: 'string' },
   branch: { type: 'string' },
   'max-fixes': { type: 'string' },
@@ -113,6 +119,11 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
       return chat({ configPath: config, message: values.message }, ctx);
     case 'run':
       return run({ configPath: config }, ctx);
+    case 'check':
+      return check(
+        { configPath: config, post: values.post ?? false, json: values.json ?? false },
+        ctx,
+      );
     case 'audit':
       if (positionals[1] !== 'verify') {
         ctx.term.err('Usage: kodra-agent audit verify [--json]');
