@@ -19,6 +19,7 @@ Owner: Omar Al-Amad. Last updated 16 October 2026, at `a38c85d`.
 - **v0.3.5** (20 October 2026): an operations center on the console Overview: a greeting and posture, an attention queue, live systems, pipelines run today (passed, failed, running), and the databases you list in the Kubernetes connector (`namespace/name`), with pods ready and restarts.
 - **v0.3.6** (21 October 2026): the Databases connector: MariaDB, MySQL, and PostgreSQL wherever they run (standalone, a cloud database, or Kubernetes), directly or through an SSH tunnel with a pinned host key. Fixed health checks only, shown on the Dashboard and counted on Overview. The MCP SDK moves to 1.32.1 for new advisories.
 - **v0.3.7** (22 October 2026): the configurator lists databases (secrets named, never typed) and matches the product (console sign-in and pages, model suggestions); `init` checks each database on its own. The product is English only: Arabic and right-to-left support are removed.
+- **v0.3.8** (23 October 2026): `kodra-agent onboard` reads a new repo (dependencies, the settings it reads, committed credentials by location only, gaps, questions for the team), then ships it with the setting names in the chart and an `ONBOARDING.md` in the PR. Scheduled checks post a daily digest to Slack and the console Overview: what is new, still broken, and fixed, from read-only rules with no model; `kodra-agent check` prints it. `ip-address` moves to 10.7.4 for a new advisory.
 - **Next:** publish the configurator, test with our own setup, then design partners.
 - **Who it's for:** many kinds of organizations, from solo developers and startups to large and regulated companies. The same product serves all of them, configured through profiles (`starter`, `team`, `strict`) that set defaults and never limits. See SPEC section 5 and `docs/approvals.md`.
 
@@ -548,7 +549,7 @@ Update this table at the end of every milestone.
 | M15 Value on day one (the demo)                      | After launch | Deferred    |     |
 | Design partners: five to ten, notes in docs/partners | After launch | Not started |     |
 | M26 Onboard a repo                                   | After launch | Done        | #67 |
-| M27 Scheduled checks and the daily digest            | After launch | Done        |     |
+| M27 Scheduled checks and the daily digest            | After launch | Done        | #68 |
 
 Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 
