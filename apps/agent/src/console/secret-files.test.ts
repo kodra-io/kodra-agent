@@ -1,6 +1,13 @@
 import ssh2 from 'ssh2';
 import { describe, expect, it } from 'vitest';
-import { secretFileName, secretParts, secretShapeProblem, usesAwsExec } from './secret-files.ts';
+import { rootCertificates } from 'node:tls';
+import {
+  caCertificates,
+  secretFileName,
+  secretParts,
+  secretShapeProblem,
+  usesAwsExec,
+} from './secret-files.ts';
 
 const KUBECONFIG = `apiVersion: v1
 kind: Config
@@ -97,5 +104,20 @@ describe('file secrets', () => {
     expect(secretFileName('databases', 'orders-replica.tunnelKey')).toBe(
       'databases-orders-replica-tunnel-key',
     );
+  });
+
+  it('takes a PEM file of CA certificates only', () => {
+    const two = `${rootCertificates[0] ?? ''}\n${rootCertificates[1] ?? ''}\n`;
+    expect(caCertificates(two)).toEqual({ count: 2 });
+    expect(caCertificates('hello')).toEqual({ problem: 'that is not a PEM file of certificates' });
+    expect(
+      caCertificates('-----BEGIN CERTIFICATE-----\nMIInotreal\n-----END CERTIFICATE-----\n'),
+    ).toEqual({ problem: 'certificate 1 in that file could not be read' });
+    expect(
+      caCertificates(`${two}-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n`),
+    ).toEqual({ problem: 'that file has a private key in it; upload certificates only' });
+    expect(caCertificates(two + ' '.repeat(512 * 1024))).toEqual({
+      problem: 'that file is too big',
+    });
   });
 });

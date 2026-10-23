@@ -361,7 +361,7 @@ const fixtures: Record<string, unknown> = {
     ],
   },
   status: {
-    version: '0.3.8',
+    version: '0.3.9',
     model: 'anthropic/claude-sonnet-5-5',
     target: 'compose',
     startedAt: '2026-10-09T08:00:00.000Z',
@@ -568,6 +568,7 @@ function settingsView(
     },
     limits: { maxSteps: 12, tokenBudget: 200000, timeoutMinutes: 5 },
     console: { chat: true },
+    network: { caBundleFile: null, caWritable: true },
     lastChange: undoable
       ? { by: 'console:omar', at: '2026-10-09T09:10:00.000Z', detail: 'changed gitlab.access' }
       : null,
@@ -1061,6 +1062,16 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         undoable = false;
         restart();
         return route.fulfill({ json: { restarting: true } });
+      }
+      if (name === 'settings/ca-bundle') {
+        if (!String(body['pem']).includes('BEGIN CERTIFICATE')) {
+          return route.fulfill({
+            status: 400,
+            json: { error: 'that is not a PEM file of certificates' },
+          });
+        }
+        restart();
+        return route.fulfill({ json: { certificates: 1, restarting: true } });
       }
       if (name === 'settings/secret' && body['key'] === 'kubeconfig') {
         if (!String(body['value']).includes('current-context: dev')) {

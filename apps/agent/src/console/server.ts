@@ -25,6 +25,8 @@ const MAX_FAILED_SIGN_INS_PER_MINUTE = 10;
 export const ACTION_HEADER = 'x-kodra-console';
 // A kubeconfig with embedded certificates fits (secret-files.ts allows 48 KiB of it).
 const MAX_ACTION_BODY = 64 * 1024;
+/** Actions that take a file bigger than that: CA certificates (Amazon RDS's are 170 KB). */
+const MAX_UPLOAD_BODY: Record<string, number | undefined> = { 'settings/ca-bundle': 768 * 1024 };
 const MUST_CHANGE = 'change the admin password first';
 const HEARTBEAT_MS = 20_000;
 
@@ -374,10 +376,11 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
           json(res, 401, { error: 'sign in first' });
           return;
         }
-        const body = await readBody(req, MAX_ACTION_BODY);
+        const limit = MAX_UPLOAD_BODY[name] ?? MAX_ACTION_BODY;
+        const body = await readBody(req, limit);
         if (!body) {
           json(res, 400, {
-            error: `send a JSON object of at most ${String(MAX_ACTION_BODY / 1024)} KB`,
+            error: `send a JSON object of at most ${String(limit / 1024)} KB`,
           });
           return;
         }

@@ -22,8 +22,10 @@ spec:
   host and port.
 - On Kubernetes, the API server's address (`KUBERNETES_SERVICE_HOST`) always skips the proxy.
 - `caBundleFile` is a PEM file of extra CA certificates: a TLS-inspecting proxy's CA, or an
-  internal CA. On Docker Compose, put it in the bundle folder (for example `ca/ca.pem`, read
-  at `/etc/kodra-agent/ca/ca.pem`). On Kubernetes, set `caBundle.configMap` (or
+  internal CA, or Amazon RDS's. On Docker Compose, upload it in the console (Settings,
+  Network, Trusted certificates: saved as `ca/console-ca-bundle.pem` and pointed at, then the
+  agent restarts), or put it in the bundle folder yourself (for example `ca/ca.pem`, read at
+  `/etc/kodra-agent/ca/ca.pem`). On Kubernetes, set `caBundle.configMap` (or
   `caBundle.secret`) and `caBundle.key` in the chart's values: it is mounted at
   `/etc/kodra-agent-ca/<key>`, so point `caBundleFile` there.
 
@@ -62,7 +64,7 @@ have to reach their stand-ins through it.
 ## Private registries
 
 - **The agent image.** Docker Compose: set `KODRA_AGENT_IMAGE` in `.env` to your copy, like
-  `harbor.example.com/mirror/kodra-io/kodra-agent:0.3.8`. Helm: set `image.registry`, which
+  `harbor.example.com/mirror/kodra-io/kodra-agent:0.3.9`. Helm: set `image.registry`, which
   replaces the registry host (`harbor.example.com/mirror` gives
   `harbor.example.com/mirror/kodra-io/kodra-agent`).
 - **Base images in the ship flow.** Generated Dockerfiles and CI pull pinned base images.

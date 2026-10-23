@@ -43,7 +43,13 @@ import { probeIds, runProbe, type ProbeContext, type ProbeResult } from '../prob
 import type { Redactor } from '../redactor.ts';
 import { resolveAll } from '../secrets.ts';
 import type { ConfigBackend } from './config-backend.ts';
-import { secretFileName, secretParts, secretShapeProblem, usesAwsExec } from './secret-files.ts';
+import {
+  caCertificates,
+  secretFileName,
+  secretParts,
+  secretShapeProblem,
+  usesAwsExec,
+} from './secret-files.ts';
 
 /**
  * Settings from the console (M8c): an approver edits kodra-agent.yaml through a patch that
@@ -418,6 +424,8 @@ export interface SettingsView {
   policy: { approvers: string[]; expiresAfterMinutes: number; destructiveActions: string };
   limits: AgentConfig['spec']['limits'];
   console: { chat: boolean };
+  /** The extra CA certificates the agent trusts, and whether the console can change them. */
+  network: { caBundleFile: string | null; caWritable: boolean };
   connectors: ConnectorSettings[];
   lastChange: { by: string; at: string; detail: string } | null;
   undoable: boolean;
@@ -535,6 +543,10 @@ export class SettingsStore {
       },
       limits: config.spec.limits,
       console: { chat: config.spec.console.chat },
+      network: {
+        caBundleFile: config.spec.network.caBundleFile ?? null,
+        caWritable: editable && this.backend.filesWritable,
+      },
       connectors: allConnectors.map((m) => {
         const entry = config.spec.connectors[m.id];
         const comp = comps.get(m.id);
@@ -805,6 +817,47 @@ export class SettingsStore {
       detail: `replaced ${use.componentName} ${key} (${ref.startsWith('${env:') ? ref.slice(6, -1) : `file ${ref.slice(7, -1)}`})`,
     });
     return result;
+  }
+
+  /**
+   * Saves the extra CA certificates the agent trusts (an internal CA, Amazon RDS) and points
+   * spec.network.caBundleFile at them; null stops trusting them. Docker Compose only: on
+   * Kubernetes they come from the chart's caBundle. The caller restarts the agent, which
+   * applies them at startup.
+   */
+  async setCaBundle(
+    pem: string | null,
+    by: string,
+  ): Promise<{ ok: true; certificates: number } | { ok: false; message: string }> {
+    const text = await this.text();
+    if (!this.editable(this.parse(text)) || !this.backend.filesWritable) {
+      return { ok: false, message: 'trusted certificates cannot be changed here' };
+    }
+    const doc = parseDocument(text);
+    const at = ['spec', 'network', 'caBundleFile'];
+    let certificates = 0;
+    let detail: string;
+    if (pem === null) {
+      if (!doc.hasIn(at)) return { ok: false, message: 'no extra certificates are trusted' };
+      doc.deleteIn(at);
+      detail = 'stopped trusting the extra CA certificates';
+    } else {
+      const candidate = `${pem.replace(/\r\n/g, '\n').trim()}\n`;
+      const checked = caCertificates(candidate);
+      if ('problem' in checked) return { ok: false, message: checked.problem };
+      certificates = checked.count;
+      const path = await this.backend.writeCaFile(candidate);
+      doc.setIn(at, path);
+      detail = `trusts ${String(certificates)} CA certificates (file ${path})`;
+    }
+    const next = doc.toString();
+    const parsed = parseAgentConfig(next);
+    if (!parsed.ok) {
+      return { ok: false, message: parsed.issues.map((i) => formatIssue(i)).join('; ') };
+    }
+    if (next !== text) await this.backend.save(next, text);
+    await this.deps.audit.append({ event: 'settings', actor: by, detail });
+    return { ok: true, certificates };
   }
 
   /** The model provider's component, with the secrets the agent started with. */

@@ -16,7 +16,7 @@ const local = (day: number, hour: number, minute = 0) =>
   new Date(2026, 9, day, hour, minute).toISOString();
 
 const status: StatusView = {
-  version: '0.3.8',
+  version: '0.3.9',
   model: 'ollama/gemma4:e4b',
   target: 'compose',
   startedAt: '2026-10-19T06:00:00.000Z',

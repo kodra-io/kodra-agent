@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { rootCertificates } from 'node:tls';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import { main } from '../cli.ts';
@@ -472,6 +473,61 @@ describe('kodra-agent run', () => {
     expect(await running).toBe(75);
     expect(t.output()).toContain('Restarting to apply the new settings.');
     expect(await readFile(path, 'utf8')).toContain('monthlyBudgetUsd: 25');
+  });
+
+  it('trusts CA certificates uploaded in the console, larger than other actions take', async () => {
+    const OMAR = 'run-ca-omar-token-5e4f'; // gitleaks:allow
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model:
+          '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        approvers: ['U01OMAR', 'console:omar'],
+      }),
+      dir,
+    );
+    let port = 0;
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN_OMAR: OMAR },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      stopSignal: new AbortController().signal,
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+      onReady: (info) => {
+        port = info.consolePort ?? 0;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (port ? true : undefined));
+    const base = `http://127.0.0.1:${String(port)}`;
+    const cookie =
+      (
+        (
+          await fetch(`${base}/api/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token: OMAR }),
+          })
+        ).headers.get('set-cookie') ?? ''
+      ).split(';')[0] ?? '';
+    // Like Amazon RDS's global bundle: well over the 64 KB other actions take.
+    const pem = rootCertificates.slice(0, 80).join('\n');
+    expect(pem.length).toBeGreaterThan(100 * 1024);
+    const saved = await fetch(`${base}/api/settings/ca-bundle`, {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'x-kodra-console': '1' },
+      body: JSON.stringify({ pem }),
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ certificates: 80, restarting: true });
+    expect(await running).toBe(75);
+    expect(await readFile(path, 'utf8')).toContain('caBundleFile: ');
+    expect(await readFile(join(dir, 'ca', 'console-ca-bundle.pem'), 'utf8')).toContain(
+      'BEGIN CERTIFICATE',
+    );
   });
 
   it('on Kubernetes, saves settings to its own ConfigMap and restarts its Deployment', async () => {

@@ -271,6 +271,17 @@ export function consoleApi(
       restart();
       return { status: 200, body: { check: result, restarting: true } };
     };
+    // Trusting a CA lets it vouch for any host: approvers only, audited.
+    actions['settings/ca-bundle'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      const result = await store.setCaBundle(
+        body['remove'] === true ? null : str(body['pem']),
+        user.name,
+      );
+      if (!result.ok) return { status: 400, body: { error: result.message } };
+      restart();
+      return { status: 200, body: { certificates: result.certificates, restarting: true } };
+    };
     routes['settings/models'] = async ({ user }) =>
       user.canApprove
         ? store.modelOptions(await readAudit(auditPath))

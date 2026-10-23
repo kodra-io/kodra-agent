@@ -456,6 +456,8 @@ export interface SettingsView {
     monthlyBudgetUsd?: number;
   };
   console: { chat: boolean };
+  /** The extra CA certificates the agent trusts, and whether the console can change them. */
+  network: { caBundleFile: string | null; caWritable: boolean };
   connectors: ConnectorSettings[];
   lastChange: { by: string; at: string; detail: string } | null;
   undoable: boolean;

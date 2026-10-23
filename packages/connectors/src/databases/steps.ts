@@ -61,14 +61,15 @@ export const HOST_KEY_STEPS: SetupStep[] = [
 /** Amazon RDS signs with its own CA. */
 export const HOST_STEPS: SetupStep[] = [
   {
-    text: 'On Amazon RDS with Encryption set to verify, the agent needs Amazon’s CA. Save it in the bundle folder under ca/, then set network.caBundleFile to /etc/kodra-agent/ca/rds-global-bundle.pem in kodra-agent.yaml. Or set Encryption to require.',
+    text: 'On Amazon RDS with Encryption set to verify, the agent needs Amazon’s CA. Download it (or set Encryption to require):',
     run: {
       linux:
-        'mkdir -p ca && curl -fsSL -o ca/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem',
+        'curl -fsSL -o rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem',
       macos:
-        'mkdir -p ca && curl -fsSL -o ca/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem',
+        'curl -fsSL -o rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem',
       windows:
-        'New-Item -ItemType Directory -Force ca | Out-Null; Invoke-WebRequest -UseBasicParsing -OutFile ca\\rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem',
+        'Invoke-WebRequest -UseBasicParsing -OutFile rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem',
     },
   },
+  { text: 'Upload rds-global-bundle.pem in Settings, Network, Trusted certificates.' },
 ];

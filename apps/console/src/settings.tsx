@@ -28,11 +28,12 @@ import { SetupSteps } from './setup-steps.tsx';
 import { useStatus } from './status.ts';
 import { Badge, Mono } from './ui.tsx';
 
-type Tab = 'connectors' | 'policy' | 'limits' | 'console' | 'people';
+type Tab = 'connectors' | 'policy' | 'limits' | 'network' | 'console' | 'people';
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: 'connectors', label: 'settings.tab.connectors' },
   { id: 'policy', label: 'settings.tab.policy' },
   { id: 'limits', label: 'settings.tab.limits' },
+  { id: 'network', label: 'settings.tab.network' },
   { id: 'console', label: 'settings.tab.console' },
   { id: 'people', label: 'settings.tab.people' },
 ];
@@ -358,6 +359,13 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
               }}
               onSignedOut={onSignedOut}
               onSwitch={(action) => void restartThen(action)}
+            />
+          )}
+          {view && tab === 'network' && (
+            <NetworkEditor
+              view={view}
+              canEdit={canEdit}
+              onSaved={(action) => void restartThen(action)}
             />
           )}
           {tab === 'people' && me.canApprove && (
@@ -1394,6 +1402,126 @@ function SecretEditor({
         </form>
       )}
     </div>
+  );
+}
+
+/** Room for Amazon RDS's global bundle (about 170 KB); the agent checks again. */
+const MAX_CA_FILE = 512 * 1024;
+
+/** The extra CA certificates the agent trusts, like Amazon RDS's or an internal CA's. */
+function NetworkEditor({
+  view,
+  canEdit,
+  onSaved,
+}: {
+  view: SettingsView;
+  canEdit: boolean;
+  onSaved: (action: Promise<unknown>) => void;
+}) {
+  const { t } = useI18n();
+  const id = useId();
+  const [value, setValue] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const current = view.network.caBundleFile;
+  const writable = canEdit && view.network.caWritable;
+
+  const send = async (body: Record<string, unknown>) => {
+    setChecking(true);
+    setProblem(null);
+    try {
+      await post('settings/ca-bundle', body);
+      setValue('');
+      onSaved(Promise.resolve());
+    } catch (e) {
+      setProblem(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <Card title={t('settings.network.title')}>
+      <p className="text-sm text-ink-secondary">{t('settings.network.intro')}</p>
+      <p className="text-sm">
+        {current ? (
+          <>
+            {t('settings.network.current')} <Mono>{current}</Mono>
+          </>
+        ) : (
+          t('settings.network.none')
+        )}
+      </p>
+      {!view.network.caWritable && (
+        <p className="text-sm text-ink-secondary">
+          {t(view.target === 'kubernetes' ? 'settings.network.chart' : 'settings.network.readOnly')}
+        </p>
+      )}
+      {writable && (
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send({ pem: value });
+          }}
+        >
+          <label htmlFor={id} className="text-sm font-medium">
+            {t('settings.network.new')}
+          </label>
+          <textarea
+            id={id}
+            rows={6}
+            spellCheck={false}
+            autoComplete="off"
+            className={`${input} h-auto py-2 font-mono text-[12.5px]`}
+            placeholder="-----BEGIN CERTIFICATE-----"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+            }}
+          />
+          <label className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium">{t('settings.secret.upload')}</span>
+            <input
+              type="file"
+              accept=".pem,.crt,.cer"
+              className="text-sm"
+              onChange={(e) => {
+                const picked = e.target.files?.[0];
+                if (!picked) return;
+                if (picked.size > MAX_CA_FILE) {
+                  setProblem(t('settings.secret.tooBig'));
+                  return;
+                }
+                void picked.text().then(setValue);
+              }}
+            />
+          </label>
+          <p className="text-xs text-ink-secondary">{t('settings.network.hint')}</p>
+          {problem && (
+            <p role="alert" className="text-sm font-semibold text-bad-text">
+              {t('settings.secret.failed', { message: problem })}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" className={primary} disabled={checking || value.trim() === ''}>
+              {checking && <Icon name="spinner" size={16} className="animate-spin" />}
+              {t('settings.network.save')}
+            </button>
+            {current && (
+              <button
+                type="button"
+                className={secondary}
+                disabled={checking}
+                onClick={() => void send({ remove: true })}
+              >
+                {t('settings.network.remove')}
+              </button>
+            )}
+          </div>
+        </form>
+      )}
+    </Card>
   );
 }
 
