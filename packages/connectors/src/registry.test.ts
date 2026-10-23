@@ -229,6 +229,40 @@ describe('connector registry', () => {
   it('uses no em dashes in copy', () => {
     expect(JSON.stringify(all)).not.toContain('—');
   });
+
+  // M28: the console shows how to get every secret, so nobody edits files by hand.
+  it('says how to get every secret, with a command for each system wherever there is one', () => {
+    const missing: string[] = [];
+    for (const m of all.filter((x) => x.status === 'available')) {
+      for (const s of m.secrets) if (!s.steps?.length) missing.push(`${m.id}.${s.key}`);
+      for (const f of m.configFields) {
+        if (f.kind !== 'entries') continue;
+        for (const x of f.fields) {
+          if (x.kind === 'secret' && !x.steps?.length) missing.push(`${m.id}.${f.key}.${x.key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+    // File secrets are made with commands, and say which file to upload.
+    const files = all.flatMap((m) => [
+      ...m.secrets.filter((s) => s.format),
+      ...m.configFields.flatMap((f) =>
+        f.kind === 'entries' ? f.fields.filter((x) => x.kind === 'secret' && x.format) : [],
+      ),
+    ]);
+    expect(files.length).toBeGreaterThanOrEqual(2);
+    for (const f of files) {
+      const steps = 'steps' in f ? (f.steps ?? []) : [];
+      expect(steps.some((s) => s.run)).toBe(true);
+      expect(steps.at(-1)?.text).toMatch(/^Upload /);
+    }
+    // The bastion's fingerprint comes with the commands to read it.
+    const databases = getConnector('databases');
+    const entries = databases?.configFields.find((f) => f.kind === 'entries');
+    const hostKey =
+      entries?.kind === 'entries' ? entries.fields.find((x) => x.key === 'tunnelHostKey') : null;
+    expect(hostKey && 'steps' in hostKey ? hostKey.steps?.length : 0).toBeGreaterThan(0);
+  });
 });
 
 describe('model provider manifests match spec.model', () => {

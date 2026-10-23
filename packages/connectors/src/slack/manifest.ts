@@ -42,6 +42,15 @@ export default defineManifest({
         ],
       },
       probe: 'slack.auth-test',
+      steps: [
+        {
+          text: 'Create a Slack app From a manifest, and paste slack-app-manifest.yaml from the bundle folder. It turns on Socket Mode and sets the scopes.',
+          link: 'https://api.slack.com/apps?new_app=1',
+        },
+        {
+          text: 'Install the app to your workspace, then copy the Bot User OAuth Token (xoxb-) from OAuth & Permissions and paste it here. Invite the app to {{channel}}.',
+        },
+      ],
     },
     {
       key: 'appToken',
@@ -53,6 +62,12 @@ export default defineManifest({
         'In the same Slack app, open Basic Information > App-Level Tokens and create a token with the connections:write scope.',
       minimumScopes: { always: ['connections:write'] },
       probe: 'slack.open-socket-connection',
+      steps: [
+        {
+          text: 'In the same app, open Basic Information, then App-Level Tokens, and generate a token with the connections:write scope. Paste it (xapp-) here.',
+          link: 'https://api.slack.com/apps',
+        },
+      ],
     },
   ],
   tools: {},

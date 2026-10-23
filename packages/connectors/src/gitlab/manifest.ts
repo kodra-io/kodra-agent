@@ -92,6 +92,17 @@ export default defineManifest({
         'read-write-approved': ['api'],
       },
       probe: 'gitlab.read-projects',
+      steps: [
+        {
+          text: 'Open a new personal access token with read access filled in. A project or group access token on {{projects}} works too, and is narrower.',
+          link: '{{url}}/-/user_settings/personal_access_tokens?name=kodra-agent&description=Kodra+AI+Agent&scopes=read_api,read_repository',
+        },
+        {
+          text: 'For write access, use the api scope instead:',
+          link: '{{url}}/-/user_settings/personal_access_tokens?name=kodra-agent&description=Kodra+AI+Agent&scopes=api',
+        },
+        { text: 'Create the token, copy it, and paste it here. It is tested before it is saved.' },
+      ],
     },
   ],
   // Only these tools are exposed; the rest of what the server offers is hidden (server.ts).

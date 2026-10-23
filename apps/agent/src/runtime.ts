@@ -320,10 +320,14 @@ export function failureHint(
     config.spec.target === 'compose' &&
     input?.secrets['kubeconfig'] === undefined
   ) {
-    return 'On Docker Compose, Kubernetes needs a kubeconfig: copy it to secrets/kubeconfig in the bundle folder, then restart.';
+    return config.spec.console.enabled
+      ? 'On Docker Compose, Kubernetes needs a kubeconfig: upload it in the console under Settings, Connectors, Kubernetes, which shows how to make one.'
+      : 'On Docker Compose, Kubernetes needs a kubeconfig: copy it to secrets/kubeconfig in the bundle folder, then restart.';
   }
   if (failure.reason.startsWith('missing ')) {
-    return 'The agent runs without it. Run `kodra-agent init` to set it, then restart.';
+    return config.spec.console.enabled
+      ? 'The agent runs without it. Set it in the console under Settings, Connectors.'
+      : 'The agent runs without it. Run `kodra-agent init` to set it, then restart.';
   }
   // Only a source checkout fetches server binaries; the agent image has them preinstalled.
   if (!env['KODRA_MCP_DIR'] && /no .* server build|ENOENT/.test(failure.reason)) {

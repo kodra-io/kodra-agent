@@ -28,6 +28,15 @@ export default defineManifest({
         'In Grafana, open Administration > Users and access > Service accounts, add a service account with the Viewer role, and create a token for it.',
       minimumScopes: { 'read-only': ['Viewer role'] },
       probe: 'grafana.get-current-org',
+      steps: [
+        {
+          text: 'Add a service account with the Viewer role.',
+          link: '{{url}}/org/serviceaccounts/create',
+        },
+        {
+          text: 'On its page, choose Add service account token, copy the token, and paste it here.',
+        },
+      ],
     },
   ],
   // Every tool in the enabled categories (v2.0.0). --disable-write hides the write ones.

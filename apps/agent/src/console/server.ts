@@ -23,7 +23,8 @@ const SESSION_HOURS = 12;
 const MAX_FAILED_SIGN_INS_PER_MINUTE = 10;
 /** Actions must send this header: a plain cross-site form cannot, so it is a CSRF check too. */
 export const ACTION_HEADER = 'x-kodra-console';
-const MAX_ACTION_BODY = 16 * 1024;
+// A kubeconfig with embedded certificates fits (secret-files.ts allows 48 KiB of it).
+const MAX_ACTION_BODY = 64 * 1024;
 const MUST_CHANGE = 'change the admin password first';
 const HEARTBEAT_MS = 20_000;
 

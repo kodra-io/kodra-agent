@@ -199,12 +199,11 @@ test('shows why a connector is not available, and the tools it gives', async ({ 
   await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await page.getByRole('button', { name: 'Configure Kubernetes' }).click();
-  await expect(page.getByRole('note')).toContainText('missing Kubernetes kubeconfig');
-  await expect(page.getByRole('note')).toContainText('copy it to secrets/kubeconfig');
-  // A file secret is changed on the host, not here.
+  const why = page.getByRole('note').filter({ hasText: 'missing Kubernetes kubeconfig' });
+  await expect(why).toContainText('upload it in the console');
   await expect(
-    page.getByText('This one is a file. Put it at /secrets/kubeconfig on the host'),
-  ).toBeVisible();
+    page.getByRole('note').filter({ hasText: 'Still needed before this connector works' }),
+  ).toContainText('Kubernetes kubeconfig');
   await page.getByRole('button', { name: 'Connectors' }).click();
   await page.getByRole('button', { name: 'Configure GitLab' }).click();
   await page.getByText(/Tools the agent gets/).click();
@@ -317,6 +316,35 @@ test('adds a database, with a tunnel; its secrets are named for it, never typed 
         ),
     ),
   ).toBe(true);
+});
+
+test('shows how to make a kubeconfig on each system, then takes one pasted', async ({ page }) => {
+  // Whatever system runs the test, start from Linux; the choice is remembered per browser.
+  await page.addInitScript(() => {
+    localStorage.setItem('kodra-console-os', 'linux');
+  });
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Configure Kubernetes' }).click();
+  // Missing and needed, so its steps are open, with this agent's namespace filled in.
+  await expect(
+    page.getByText('Let it read in your namespaces (dev) and nowhere else.'),
+  ).toBeVisible();
+  await expect(page.locator('pre').first()).toContainText('for ns in dev; do');
+  await page.getByRole('tab', { name: 'Windows' }).click();
+  await expect(page.locator('pre').first()).toContainText("foreach ($ns in 'dev'.Split(' '))");
+  await expect(page.getByRole('tab', { name: 'Windows' })).toHaveAttribute('aria-selected', 'true');
+
+  await page.getByRole('button', { name: 'Add' }).click();
+  const field = page.getByLabel('New value for Kubernetes kubeconfig');
+  await field.fill('apiVersion: v1\nkind: Config\nclusters: []');
+  await page.getByRole('button', { name: 'Check and save' }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Not saved: the kubeconfig has no current-context; set one with kubectl config use-context',
+  );
+  await field.fill('apiVersion: v1\nkind: Config\ncurrent-context: dev');
+  await page.getByRole('button', { name: 'Check and save' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
 });
 
 test('replaces a token only after it passes the check', async ({ page }) => {

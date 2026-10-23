@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GLOBAL_PLACEHOLDERS, setupStepSchema, stepPlaceholders } from './steps.ts';
 
 /**
  * The contract every connector and model-provider manifest follows (SPEC section 6).
@@ -32,6 +33,16 @@ const PROBE = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/;
 /** User-facing copy, in plain English. */
 const copy = z.string().min(1);
 
+/** How to get the value, with commands per operating system (M28); see steps.ts. */
+const steps = z.array(setupStepSchema).min(1).optional();
+
+/**
+ * A secret that is a file, like a kubeconfig or an SSH private key: the console takes it
+ * pasted or uploaded, checks its shape, and saves it as a file the config refers to.
+ */
+export const SECRET_FORMATS = ['kubeconfig', 'ssh-private-key'] as const;
+export type SecretFormat = (typeof SECRET_FORMATS)[number];
+
 const regexSource = z.string().refine((source) => {
   try {
     new RegExp(source);
@@ -55,6 +66,7 @@ const entryField = z.discriminatedUnion('kind', [
     pattern: regexSource.optional(),
     patternHint: copy.optional(),
     example: z.string().optional(),
+    steps,
   }),
   z.strictObject({
     kind: z.literal('integer'),
@@ -90,6 +102,8 @@ const entryField = z.discriminatedUnion('kind', [
     howToCreate: copy,
     /** The variable's suffix, like PASSWORD. */
     envVar: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+    format: z.enum(SECRET_FORMATS).optional(),
+    steps,
   }),
 ]);
 
@@ -103,6 +117,7 @@ const configField = z.discriminatedUnion('kind', [
     patternHint: copy.optional(),
     default: z.string().optional(),
     example: z.string().optional(),
+    steps,
   }),
   z.strictObject({
     kind: z.literal('url'),
@@ -111,6 +126,7 @@ const configField = z.discriminatedUnion('kind', [
     description: copy,
     default: z.url().optional(),
     example: z.url().optional(),
+    steps,
   }),
   z.strictObject({
     kind: z.literal('string-list'),
@@ -121,6 +137,7 @@ const configField = z.discriminatedUnion('kind', [
     patternHint: copy.optional(),
     default: z.array(z.string()).optional(),
     example: z.array(z.string()).optional(),
+    steps,
   }),
   z.strictObject({
     kind: z.literal('integer'),
@@ -181,6 +198,8 @@ const secretSpec = z.strictObject({
   minimumScopes: scopesByAccess,
   /** Id of the cheap read call `init` and `doctor` use to validate the secret (built in M3). */
   probe: z.string().regex(PROBE),
+  format: z.enum(SECRET_FORMATS).optional(),
+  steps,
 });
 export type SecretSpec = z.infer<typeof secretSpec>;
 
@@ -622,6 +641,31 @@ export const manifestSchema = z
         path: ['changeSteps'],
         message: 'change previews read files, so they need defaultBranchLookup',
       });
+    }
+    // Steps may use the connector's settings (an entry's steps, the entry's fields) only.
+    const known = (keys: string[]) => new Set<string>([...keys, ...GLOBAL_PLACEHOLDERS]);
+    const top = known(m.configFields.map((f) => f.key));
+    const checkSteps = (
+      list: z.infer<typeof steps>,
+      allowed: ReadonlySet<string>,
+      path: (string | number)[],
+    ) => {
+      for (const step of list ?? []) {
+        for (const name of stepPlaceholders(step)) {
+          if (!allowed.has(name)) {
+            ctx.addIssue({ code: 'custom', path, message: `steps use {{${name}}}, not a setting` });
+          }
+        }
+      }
+    };
+    for (const [i, s] of m.secrets.entries()) checkSteps(s.steps, top, ['secrets', i, 'steps']);
+    for (const [i, f] of m.configFields.entries()) {
+      if (f.kind === 'entries') {
+        const own = known(['name', ...f.fields.map((x) => x.key)]);
+        for (const [j, x] of f.fields.entries()) {
+          if ('steps' in x) checkSteps(x.steps, own, ['configFields', i, 'fields', j, 'steps']);
+        }
+      } else if ('steps' in f) checkSteps(f.steps, top, ['configFields', i, 'steps']);
     }
     if (m.accessLevels.length === 0 && !m.permissionsSummary.always?.length) {
       ctx.addIssue({

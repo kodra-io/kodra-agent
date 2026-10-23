@@ -8,6 +8,7 @@ import {
   type CheckRow,
   type ConfigField,
   type EntryField,
+  type FilledStep,
   type ConnectorSettings,
   type ConnectorView,
   type SettingsPatch,
@@ -23,6 +24,7 @@ import { ConnectorTools, type PageProps } from './pages.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { PeoplePanel } from './people.tsx';
 import { ProviderSwitch } from './provider-switch.tsx';
+import { SetupSteps } from './setup-steps.tsx';
 import { useStatus } from './status.ts';
 import { Badge, Mono } from './ui.tsx';
 
@@ -720,6 +722,18 @@ function ConnectorEditor({
         </p>
       )}
 
+      {c.enabled && c.missing.length > 0 && (
+        <div role="note" className="rounded-xl bg-warn-tint p-3 text-sm text-warn-text">
+          <strong>{t('settings.connector.missing')}</strong>
+          <ul className="mt-1 list-disc ps-5">
+            {c.missing.map((m) => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+          <span className="text-ink-secondary">{t('settings.connector.missingHint')}</span>
+        </div>
+      )}
+
       <Card title={t('settings.connector.state')}>
         <Toggle
           label={t('settings.connector.enabled')}
@@ -772,15 +786,18 @@ function ConnectorEditor({
       {enabled && c.fields.length > 0 && (
         <Card title={t('settings.connector.where')}>
           {c.fields.map((f) => (
-            <FieldEditor
-              key={f.key}
-              field={f}
-              value={value(f.key)}
-              disabled={!canEdit}
-              onChange={(v) => {
-                onChange({ config: { [f.key]: v } });
-              }}
-            />
+            <div key={f.key} className="flex flex-col gap-2">
+              <FieldEditor
+                field={f}
+                value={value(f.key)}
+                entrySteps={c.entrySteps}
+                disabled={!canEdit}
+                onChange={(v) => {
+                  onChange({ config: { [f.key]: v } });
+                }}
+              />
+              <SetupSteps steps={c.steps[f.key] ?? []} />
+            </div>
           ))}
         </Card>
       )}
@@ -818,11 +835,13 @@ function ConnectorEditor({
 function FieldEditor({
   field: f,
   value,
+  entrySteps,
   disabled,
   onChange,
 }: {
   field: ConfigField;
   value: unknown;
+  entrySteps: ConnectorSettings['entrySteps'];
   disabled: boolean;
   onChange: (value: unknown) => void;
 }) {
@@ -839,6 +858,7 @@ function FieldEditor({
       <EntriesEditor
         field={f}
         entries={Array.isArray(value) ? (value as Record<string, unknown>[]) : []}
+        steps={entrySteps}
         disabled={disabled}
         onChange={onChange}
       />
@@ -902,11 +922,13 @@ function entryEnvVar(field: EntriesConfig, name: string, suffix: string): string
 function EntriesEditor({
   field,
   entries,
+  steps,
   disabled,
   onChange,
 }: {
   field: EntriesConfig;
   entries: Record<string, unknown>[];
+  steps: ConnectorSettings['entrySteps'];
   disabled: boolean;
   onChange: (value: unknown) => void;
 }) {
@@ -938,6 +960,7 @@ function EntriesEditor({
           key={i}
           field={field}
           entry={entry}
+          steps={steps}
           disabled={disabled}
           onSet={(key, v) => {
             set(i, key, v);
@@ -970,12 +993,14 @@ function EntriesEditor({
 function EntryCard({
   field,
   entry,
+  steps,
   disabled,
   onSet,
   onRemove,
 }: {
   field: EntriesConfig;
   entry: Record<string, unknown>;
+  steps: ConnectorSettings['entrySteps'];
   disabled: boolean;
   onSet: (key: string, value: unknown) => void;
   onRemove: () => void;
@@ -997,6 +1022,7 @@ function EntryCard({
       secretRef={
         f.kind === 'secret' && name ? `\${env:${entryEnvVar(field, name, f.envVar)}}` : null
       }
+      steps={(steps[name] ?? steps[''])?.[f.key] ?? []}
       disabled={disabled}
       onChange={(v) => {
         onSet(f.key, v);
@@ -1050,12 +1076,14 @@ function EntryInput({
   field: f,
   value,
   secretRef,
+  steps,
   disabled,
   onChange,
 }: {
   field: EntryField;
   value: unknown;
   secretRef: string | null;
+  steps: FilledStep[];
   disabled: boolean;
   onChange: (value: unknown) => void;
 }) {
@@ -1146,6 +1174,7 @@ function EntryInput({
       {f.kind === 'string' && f.patternHint && (
         <span className="text-xs text-ink-secondary">{f.patternHint}</span>
       )}
+      <SetupSteps steps={steps} />
     </div>
   );
 }
@@ -1234,6 +1263,7 @@ function SecretEditor({
   const [problem, setProblem] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
+  const file = s.format !== null;
   const save = async () => {
     setChecking(true);
     setProblem(null);
@@ -1275,10 +1305,9 @@ function SecretEditor({
           </button>
         )}
       </div>
-      {!s.writable && (
-        <p className="text-sm text-ink-secondary">{t('settings.secret.file', { path: s.ref })}</p>
-      )}
-      <p className="text-sm text-ink-secondary">{s.howToCreate}</p>
+      {!s.writable && <p className="text-sm text-ink-secondary">{t('settings.secret.readOnly')}</p>}
+      <p className="text-sm text-ink-secondary">{s.description}</p>
+      <SetupSteps steps={s.steps} open={!s.set && canEdit && s.writable} />
       {editing && (
         <form
           className="flex flex-col gap-2"
@@ -1290,17 +1319,52 @@ function SecretEditor({
           <label htmlFor={id} className="text-sm font-medium">
             {t('settings.secret.new', { label: s.label })}
           </label>
-          <input
-            id={id}
-            type="password"
-            autoComplete="off"
-            className={input}
-            value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
-            }}
-          />
-          <p className="text-xs text-ink-secondary">{t('settings.secret.hint')}</p>
+          {file ? (
+            <>
+              <textarea
+                id={id}
+                rows={8}
+                spellCheck={false}
+                autoComplete="off"
+                className={`${input} h-auto py-2 font-mono text-[12.5px]`}
+                placeholder={t(`settings.secret.paste.${s.format ?? 'kubeconfig'}` as MessageKey)}
+                value={value}
+                onChange={(e) => {
+                  setValue(e.target.value);
+                }}
+              />
+              <label className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">{t('settings.secret.upload')}</span>
+                <input
+                  type="file"
+                  className="text-sm"
+                  onChange={(e) => {
+                    const picked = e.target.files?.[0];
+                    if (!picked) return;
+                    if (picked.size > 48 * 1024) {
+                      setProblem(t('settings.secret.tooBig'));
+                      return;
+                    }
+                    void picked.text().then(setValue);
+                  }}
+                />
+              </label>
+            </>
+          ) : (
+            <input
+              id={id}
+              type="password"
+              autoComplete="off"
+              className={input}
+              value={value}
+              onChange={(e) => {
+                setValue(e.target.value);
+              }}
+            />
+          )}
+          <p className="text-xs text-ink-secondary">
+            {t(file ? 'settings.secret.fileHint' : 'settings.secret.hint')}
+          </p>
           {problem && (
             <p role="alert" className="text-sm font-semibold text-bad-text">
               {t('settings.secret.failed', { message: problem })}
@@ -1504,6 +1568,7 @@ function LimitsEditor({
                 <FieldEditor
                   field={field}
                   value={value}
+                  entrySteps={{}}
                   disabled={false}
                   onChange={(v) => {
                     onChange(typeof v === 'string' ? v : '');

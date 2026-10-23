@@ -104,6 +104,19 @@ export default defineManifest({
         ],
       },
       probe: 'github.read-repos',
+      steps: [
+        {
+          text: 'Open a new fine-grained token with the permissions filled in. Choose the owner of {{repos}} as Resource owner, then Only select repositories, and pick them. Add Actions: read for GitHub Actions.',
+          link: 'https://github.com/settings/personal-access-tokens/new?name=kodra-agent&description=Kodra+AI+Agent&expires_in=366&metadata=read&contents=read&issues=read&pull_requests=read',
+        },
+        {
+          text: 'For write access, use this one instead (Workflows: write too, if the agent should change workflow files):',
+          link: 'https://github.com/settings/personal-access-tokens/new?name=kodra-agent&description=Kodra+AI+Agent&expires_in=366&metadata=read&contents=write&issues=write&pull_requests=write',
+        },
+        {
+          text: 'Generate the token, copy it, and paste it here. It is tested before it is saved.',
+        },
+      ],
     },
   ],
   // Every tool in the repos, issues, and pull_requests toolsets (v1.13.0).

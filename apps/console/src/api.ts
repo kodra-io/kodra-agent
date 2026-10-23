@@ -396,6 +396,15 @@ export type EntryField =
       envVar: string;
     };
 
+export type OperatingSystem = 'linux' | 'macos' | 'windows';
+
+/** How to get a value: a sentence, maybe a link, maybe a command per system (M28). */
+export interface FilledStep {
+  text: string;
+  link?: string;
+  run?: Record<OperatingSystem, string>;
+}
+
 export interface SecretSetting {
   key: string;
   label: string;
@@ -406,6 +415,9 @@ export interface SecretSetting {
   ref: string;
   description: string;
   howToCreate: string;
+  /** A file (kubeconfig, SSH key), pasted or uploaded. */
+  format: 'kubeconfig' | 'ssh-private-key' | null;
+  steps: FilledStep[];
 }
 
 export interface ConnectorSettings {
@@ -421,6 +433,12 @@ export interface ConnectorSettings {
   config: Record<string, unknown>;
   fields: ConfigField[];
   secrets: SecretSetting[];
+  /** How to get a setting's value, by field key. */
+  steps: Record<string, FilledStep[]>;
+  /** The same for each entry's fields, by entry name ('' for a new entry). */
+  entrySteps: Record<string, Record<string, FilledStep[]>>;
+  /** Labels of the secrets still needed. */
+  missing: string[];
   tools: { read: number; write: number; destructive: number };
 }
 
@@ -639,6 +657,7 @@ export interface ProviderView {
     envVar: string;
     description: string;
     howToCreate: string;
+    steps: FilledStep[];
     set: boolean;
   }[];
   config: Record<string, string>;

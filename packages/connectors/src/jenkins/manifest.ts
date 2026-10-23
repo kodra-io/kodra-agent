@@ -92,6 +92,15 @@ export default defineManifest({
         'read-write-approved': ['Overall/Read', 'Job/Read and Job/Cancel on the listed jobs'],
       },
       probe: 'jenkins.who-am-i',
+      steps: [
+        {
+          text: 'Sign in to Jenkins as {{username}}, open its Security page, and choose Add new Token. On older Jenkins, the API token is under Configure.',
+          link: '{{url}}/user/{{username}}/security/',
+        },
+        {
+          text: 'Give {{username}} Overall/Read and Job/Read on {{jobs}} only (plus Job/Cancel for write access), then paste the token here.',
+        },
+      ],
     },
   ],
   // mcp-jenkins 3.5.0 (lanbaoshen/mcp-jenkins), listed from the real server. Hidden: running

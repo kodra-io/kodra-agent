@@ -1,5 +1,6 @@
 import { modelDestination, policyDiffers } from './policy-gate.ts';
 import { createHash } from 'node:crypto';
+import { access } from 'node:fs/promises';
 import {
   connectors as allConnectors,
   getConnector,
@@ -12,16 +13,21 @@ import {
   entryEnvVar,
   entrySecretWanted,
   type EntriesField,
+  fillSteps,
+  type FilledStep,
   formatIssue,
   isConsoleApprover,
+  isSecretRequired,
   type AccessLevel,
   type AgentConfig,
   type ConfigField,
+  type Manifest,
+  type SecretFormat,
 } from '@kodra-agent/schema';
 import { secretRefFor } from '@kodra-agent/templates';
-import { parseDocument } from 'yaml';
+import { isMap, isSeq, parseDocument } from 'yaml';
 import type { AuditLog, AuditRecord } from '../audit.ts';
-import { components, secretLabel } from '../config.ts';
+import { components, secretLabel, type Component, type SecretUse } from '../config.ts';
 import { createModel } from '../llm.ts';
 import { ollamaContext, type ContextWarning } from '../model-context.ts';
 import {
@@ -37,6 +43,7 @@ import { probeIds, runProbe, type ProbeContext, type ProbeResult } from '../prob
 import type { Redactor } from '../redactor.ts';
 import { resolveAll } from '../secrets.ts';
 import type { ConfigBackend } from './config-backend.ts';
+import { secretFileName, secretParts, secretShapeProblem, usesAwsExec } from './secret-files.ts';
 
 /**
  * Settings from the console (M8c): an approver edits kodra-agent.yaml through a patch that
@@ -185,6 +192,98 @@ export function entriesWithRefs(
   });
 }
 
+/**
+ * Points a connector's secret at where the console saved it (M28): `key` is the manifest's
+ * secret, or `<entry>.<field>` for an entry's. The reference is the agent's choice, never the
+ * console's. Returns the text unchanged when it already points there.
+ */
+export function setSecretRef(text: string, manifest: Manifest, key: string, ref: string): string {
+  const doc = parseDocument(text);
+  const base = ['spec', 'connectors', manifest.id];
+  const dot = key.indexOf('.');
+  if (dot === -1) {
+    if (doc.getIn([...base, 'secrets', key]) === ref) return text;
+    doc.setIn([...base, 'secrets', key], ref);
+    return doc.toString();
+  }
+  const [name, field] = [key.slice(0, dot), key.slice(dot + 1)];
+  for (const f of manifest.configFields) {
+    if (f.kind !== 'entries') continue;
+    const list = doc.getIn([...base, 'config', f.key]);
+    if (!isSeq(list)) continue;
+    const i = list.items.findIndex((item) => isMap(item) && item.get('name') === name);
+    if (i === -1) continue;
+    if (doc.getIn([...base, 'config', f.key, i, field]) === ref) return text;
+    doc.setIn([...base, 'config', f.key, i, field], ref);
+    return doc.toString();
+  }
+  return text;
+}
+
+/** Default values of fields, so steps show a port of 22 before anyone sets one. */
+function defaults(fields: readonly object[]): Record<string, unknown> {
+  return Object.fromEntries(
+    fields.flatMap((f) => {
+      const { key, default: value } = f as { key: string; default?: unknown };
+      return value === undefined ? [] : [[key, value]];
+    }),
+  );
+}
+
+/** An entry's values for its steps: its fields over their defaults. */
+function entryValues(
+  manifest: Manifest,
+  settings: Record<string, unknown>,
+  name: string,
+): Record<string, unknown> {
+  for (const f of manifest.configFields) {
+    if (f.kind !== 'entries') continue;
+    const entry = entriesOf(settings[f.key]).find((e) => e['name'] === name);
+    if (entry) return { ...defaults(f.fields), ...entry };
+  }
+  return {};
+}
+
+/** Each entry's field steps, filled with its values ('' for one not saved yet). */
+function entrySteps(
+  manifest: Manifest,
+  settings: Record<string, unknown>,
+  agentName: string,
+): Record<string, Record<string, FilledStep[]>> {
+  const out: Record<string, Record<string, FilledStep[]>> = {};
+  for (const f of manifest.configFields) {
+    if (f.kind !== 'entries') continue;
+    const fill = (values: Record<string, unknown>) =>
+      Object.fromEntries(
+        f.fields.flatMap((x) =>
+          x.kind === 'string' && x.steps
+            ? [[x.key, fillSteps(x.steps, { ...values, agentName })]]
+            : [],
+        ),
+      );
+    out[''] = fill(defaults(f.fields));
+    for (const entry of entriesOf(settings[f.key])) {
+      out[String(entry['name'])] = fill({ ...defaults(f.fields), ...entry });
+    }
+  }
+  return out;
+}
+
+/** A secret the config does not refer to yet, where it would go by default. */
+function unreferenced(comp: Component, key: string): SecretUse | undefined {
+  const spec = comp.manifest.secrets.find((s) => s.key === key);
+  if (!spec) return undefined;
+  return {
+    component: comp.id,
+    componentName: comp.displayName,
+    spec,
+    ref:
+      spec.defaultRef === 'file' && spec.defaultFilePath
+        ? { scheme: 'file', path: spec.defaultFilePath }
+        : { scheme: 'env', name: spec.envVar },
+  };
+}
+
 /** A whole spec.model for a provider switch: settings as given, secrets as references. */
 function modelNode(model: NonNullable<SettingsPatch['model']>): Record<string, unknown> {
   const manifest = getModelProvider(model.provider ?? '');
@@ -277,11 +376,15 @@ export interface SecretView {
   envVar: string;
   required: boolean;
   set: boolean;
-  /** An ${env:...} secret the console can replace; file secrets live on a read-only mount. */
+  /** Whether the console can save it (file secrets too, M28). */
   writable: boolean;
   ref: string;
   description: string;
   howToCreate: string;
+  /** A file (kubeconfig, SSH key): pasted or uploaded, then saved as a file. */
+  format: SecretFormat | null;
+  /** How to get it, with this connector's settings filled in. */
+  steps: FilledStep[];
 }
 
 export interface ConnectorSettings {
@@ -297,6 +400,12 @@ export interface ConnectorSettings {
   config: Record<string, unknown>;
   fields: ConfigField[];
   secrets: SecretView[];
+  /** How to get a setting's value, by field key. */
+  steps: Record<string, FilledStep[]>;
+  /** The same for each entry's fields, by entry name ('' for an entry not saved yet). */
+  entrySteps: Record<string, Record<string, FilledStep[]>>;
+  /** Labels of the secrets this connector still needs. */
+  missing: string[];
   tools: { read: number; write: number; destructive: number };
 }
 
@@ -327,6 +436,7 @@ export interface ProviderView {
     envVar: string;
     description: string;
     howToCreate: string;
+    steps: FilledStep[];
     /** Already in .env (switching back needs no new key). */
     set: boolean;
   }[];
@@ -397,6 +507,21 @@ export class SettingsStore {
     const comps = new Map(components(config).map((c) => [c.id, c]));
     const env = this.deps.env;
     const undoable = editable && (await this.backend.readPrevious()) !== null;
+    // A file reference counts as set only when the file is there.
+    const present = new Set<string>();
+    for (const c of comps.values()) {
+      for (const { ref } of c.secrets) {
+        if (ref.scheme !== 'file') continue;
+        const found = await access(ref.path).then(
+          () => true,
+          () => false,
+        );
+        if (found) present.add(ref.path);
+      }
+    }
+    const isSet = (ref: SecretUse['ref'] | undefined) =>
+      ref?.scheme === 'env' ? Boolean(env[ref.name]) : ref !== undefined && present.has(ref.path);
+    const agentName = config.metadata.name;
     return {
       target: config.spec.target,
       editable,
@@ -414,6 +539,50 @@ export class SettingsStore {
         const entry = config.spec.connectors[m.id];
         const comp = comps.get(m.id);
         const risks = Object.values(m.tools);
+        const settings = {
+          ...defaults(m.configFields),
+          ...(comp?.settings ?? entry?.config ?? {}),
+          agentName,
+        };
+        const secrets: SecretView[] = [
+          ...m.secrets.map((s) => {
+            const use = comp?.secrets.find((u) => u.spec.key === s.key);
+            const ref = use?.ref;
+            const envName = ref?.scheme === 'env' ? ref.name : s.envVar;
+            return {
+              key: s.key,
+              label: use ? secretLabel(use) : s.key,
+              envVar: envName,
+              required: isSecretRequired(s, config.spec.target),
+              set: isSet(ref),
+              writable: envWritable,
+              ref: ref?.scheme === 'file' ? ref.path : `\${env:${envName}}`,
+              description: s.description,
+              howToCreate: s.howToCreate,
+              format: s.format ?? null,
+              steps: fillSteps(s.steps ?? [], settings),
+            };
+          }),
+          // Each database's own secrets (an entry's password), named for it.
+          ...(comp?.secrets ?? [])
+            .filter((use) => !m.secrets.some((s) => s.key === use.spec.key))
+            .map((use) => ({
+              key: use.spec.key,
+              label: secretLabel(use),
+              envVar: use.ref.scheme === 'env' ? use.ref.name : use.spec.envVar,
+              required: true,
+              set: isSet(use.ref),
+              writable: envWritable,
+              ref: use.ref.scheme === 'file' ? use.ref.path : `\${env:${use.ref.name}}`,
+              description: use.spec.description,
+              howToCreate: use.spec.howToCreate,
+              format: use.spec.format ?? null,
+              steps: fillSteps(use.spec.steps ?? [], {
+                ...entryValues(m, comp?.settings ?? {}, use.spec.key.split('.')[0] ?? ''),
+                agentName,
+              }),
+            })),
+        ];
         return {
           id: m.id,
           name: m.displayName,
@@ -426,40 +595,16 @@ export class SettingsStore {
           access: entry?.access ?? null,
           config: { ...(entry?.config ?? {}) },
           fields: m.configFields,
-          secrets: [
-            ...m.secrets.map((s) => {
-              const use = comp?.secrets.find((u) => u.spec.key === s.key);
-              const ref = use?.ref;
-              const envName = ref?.scheme === 'env' ? ref.name : s.envVar;
-              return {
-                key: s.key,
-                label: use ? secretLabel(use) : s.key,
-                envVar: envName,
-                required: s.required,
-                set: ref?.scheme === 'env' ? Boolean(env[ref.name]) : ref !== undefined,
-                writable:
-                  envWritable &&
-                  (ref === undefined ? s.defaultRef === 'env' : ref.scheme === 'env'),
-                ref: ref?.scheme === 'file' ? ref.path : `\${env:${envName}}`,
-                description: s.description,
-                howToCreate: s.howToCreate,
-              };
-            }),
-            // Each database's own secrets (an entry's password), named for it.
-            ...(comp?.secrets ?? [])
-              .filter((use) => !m.secrets.some((s) => s.key === use.spec.key))
-              .map((use) => ({
-                key: use.spec.key,
-                label: secretLabel(use),
-                envVar: use.ref.scheme === 'env' ? use.ref.name : use.spec.envVar,
-                required: false,
-                set: use.ref.scheme === 'env' ? Boolean(env[use.ref.name]) : true,
-                writable: envWritable && use.ref.scheme === 'env',
-                ref: use.ref.scheme === 'file' ? use.ref.path : `\${env:${use.ref.name}}`,
-                description: use.spec.description,
-                howToCreate: use.spec.howToCreate,
-              })),
-          ],
+          secrets,
+          steps: Object.fromEntries(
+            m.configFields.flatMap((f) =>
+              'steps' in f && f.steps ? [[f.key, fillSteps(f.steps, settings)]] : [],
+            ),
+          ),
+          entrySteps: entrySteps(m, comp?.settings ?? {}, agentName),
+          missing: entry?.enabled
+            ? secrets.filter((s) => s.required && !s.set).map((s) => s.label)
+            : [],
           tools: {
             read: risks.filter((r) => r === 'read').length,
             write: risks.filter((r) => r === 'write').length,
@@ -589,43 +734,75 @@ export class SettingsStore {
   }
 
   /**
-   * Checks a new secret value with the connector's probe, then writes it to .env. The value is
-   * registered with the redactor first and never returned. The caller restarts the agent.
+   * Checks a new secret value with the connector's probe, then saves it: a file secret (a
+   * kubeconfig, an SSH key) as an owner-only file in the bundle's secrets folder on Docker
+   * Compose, anything else in .env (or the agent's Secret). The config is pointed at where it
+   * went, if it pointed elsewhere or nowhere. The value is registered with the redactor first
+   * and never returned. The caller restarts the agent.
    */
   async setSecret(connector: string, key: string, value: string, by: string): Promise<ProbeResult> {
-    const trimmed = value.trim();
-    if (trimmed.length < 4) return { status: 'fail', message: 'that value is too short' };
-    this.deps.redactor.add(trimmed);
     const config = this.parse(await this.text());
     if (!this.editable(config) || !this.backend.envWritable) {
       return { status: 'fail', message: 'secrets cannot be changed here' };
     }
     const comp = components(config).find((c) => c.id === connector);
-    const use = comp?.secrets.find((s) => s.spec.key === key);
-    if (!comp || !use) return { status: 'fail', message: 'this connector has no such secret' };
-    if (use.ref.scheme !== 'env') {
-      return { status: 'fail', message: `put the file at ${use.ref.path} on the host instead` };
+    if (!comp) return { status: 'fail', message: 'turn this connector on first' };
+    const use = comp.secrets.find((s) => s.spec.key === key) ?? unreferenced(comp, key);
+    if (!use) return { status: 'fail', message: 'this connector has no such secret' };
+    const format = use.spec.format;
+    const candidate = format ? `${value.replace(/\r\n/g, '\n').trim()}\n` : value.trim();
+    if (candidate.trim().length < 4) return { status: 'fail', message: 'that value is too short' };
+    this.deps.redactor.add(candidate);
+    if (format) for (const part of secretParts(format, candidate)) this.deps.redactor.add(part);
+    if (!format && candidate.includes('\n')) {
+      return { status: 'fail', message: 'that value has more than one line' };
     }
+    const problem = format ? secretShapeProblem(format, candidate) : null;
+    if (problem) return { status: 'fail', message: problem };
     const { values } = await resolveAll(comp.secrets, {
       env: this.deps.env,
       redactor: this.deps.redactor,
     });
     const result = await runProbe(use.spec.probe, {
       component: comp,
-      secrets: { ...values, [key]: trimmed },
+      secrets: { ...values, [key]: candidate },
       fetch: this.deps.fetch,
       kubernetes: this.deps.kubernetes,
       timeoutMs: this.deps.probeTimeoutMs,
       only: key,
       ...(this.deps.databases ? { databases: this.deps.databases } : {}),
     });
-    if (result.status === 'fail') return result;
-    await this.backend.writeEnv(new Map([[use.ref.name, trimmed]]), []);
+    if (result.status === 'fail') {
+      return format === 'kubeconfig' && usesAwsExec(candidate)
+        ? {
+            ...result,
+            hint: 'This kubeconfig signs in with aws eks get-token: save the AWS keys below first, or make a kubeconfig for a service account with the steps above.',
+          }
+        : result;
+    }
+    let ref: string;
+    if (format && this.backend.filesWritable) {
+      const path = await this.backend.writeSecretFile(secretFileName(connector, key), candidate);
+      ref = `\${file:${path}}`;
+    } else {
+      const name = use.ref.scheme === 'env' ? use.ref.name : use.spec.envVar;
+      await this.backend.writeEnv(new Map([[name, candidate]]), []);
+      ref = `\${env:${name}}`;
+    }
+    const text = await this.text();
+    const next = setSecretRef(text, comp.manifest, key, ref);
+    if (next !== text) {
+      const parsed = parseAgentConfig(next);
+      if (!parsed.ok) {
+        return { status: 'fail', message: parsed.issues.map((i) => formatIssue(i)).join('; ') };
+      }
+      await this.backend.save(next, text);
+    }
     await this.deps.audit.append({
       event: 'settings',
       actor: by,
       connector,
-      detail: `replaced ${secretLabel(use)}`,
+      detail: `replaced ${use.componentName} ${key} (${ref.startsWith('${env:') ? ref.slice(6, -1) : `file ${ref.slice(7, -1)}`})`,
     });
     return result;
   }
@@ -728,6 +905,7 @@ export class SettingsStore {
         envVar: s.envVar,
         description: s.description,
         howToCreate: s.howToCreate,
+        steps: fillSteps(s.steps ?? [], {}),
         set: Boolean(this.deps.env[s.envVar]),
       })),
       // The current settings, so switching back starts from them.

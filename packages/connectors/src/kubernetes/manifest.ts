@@ -1,5 +1,6 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
 import { PATTERNS } from '../shared.ts';
+import { EKS_KEY_STEPS, KUBECONFIG_STEPS } from './steps.ts';
 
 const readSummary =
   'Reads pods, logs, events, deployments, and services in the listed namespaces only. Never reads Secrets.';
@@ -111,6 +112,36 @@ export default defineManifest({
         ],
       },
       probe: 'kubernetes.list-pods',
+      format: 'kubeconfig',
+      steps: KUBECONFIG_STEPS,
+    },
+    // For EKS kubeconfigs that run `aws eks get-token` (the image has its own `aws` for that).
+    // Their own variables (the AWS connector has AWS_*); the server gets them as AWS_*, over
+    // any AWS_* it inherits from the agent's environment.
+    {
+      key: 'awsAccessKeyId',
+      envVar: 'KODRA_K8S_AWS_ACCESS_KEY_ID',
+      defaultRef: 'env',
+      required: false,
+      description:
+        'AWS access key id, only for an EKS kubeconfig that signs in with aws eks get-token.',
+      howToCreate:
+        'Create an IAM user for the agent and map it to a view-only access policy in the cluster.',
+      minimumScopes: { always: ['an EKS access entry with AmazonEKSViewPolicy on the namespaces'] },
+      probe: 'kubernetes.list-pods',
+      steps: EKS_KEY_STEPS,
+    },
+    {
+      key: 'awsSecretAccessKey',
+      envVar: 'KODRA_K8S_AWS_SECRET_ACCESS_KEY',
+      defaultRef: 'env',
+      required: false,
+      description:
+        'AWS secret access key, only for an EKS kubeconfig that signs in with aws eks get-token.',
+      howToCreate: 'The secret key of the same IAM user.',
+      minimumScopes: { always: ['an EKS access entry with AmazonEKSViewPolicy on the namespaces'] },
+      probe: 'kubernetes.list-pods',
+      steps: EKS_KEY_STEPS,
     },
   ],
   healthProbe: 'kubernetes.list-pods',
@@ -228,7 +259,10 @@ export default defineManifest({
         args: ['--kubeconfig', { secretFile: 'kubeconfig' }, '--cluster-provider', 'kubeconfig'],
       },
     ],
-    env: {},
+    env: {
+      AWS_ACCESS_KEY_ID: { secret: 'awsAccessKeyId' },
+      AWS_SECRET_ACCESS_KEY: { secret: 'awsSecretAccessKey' },
+    },
     inheritEnv: [
       'KUBERNETES_SERVICE_HOST',
       'KUBERNETES_SERVICE_PORT',

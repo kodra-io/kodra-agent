@@ -306,9 +306,26 @@ export const probes: Record<string, Probe> = {
   'kubernetes.list-pods': async (ctx) => {
     const namespaces = list(ctx.component.settings['namespaces']);
     if (namespaces.length === 0) return skip('no namespaces configured');
+    // The EKS keys are tested with the kubeconfig that uses them, once both keys are there.
+    if (
+      (ctx.only === 'awsAccessKeyId' || ctx.only === 'awsSecretAccessKey') &&
+      !(
+        ctx.secrets['kubeconfig'] &&
+        ctx.secrets['awsAccessKeyId'] &&
+        ctx.secrets['awsSecretAccessKey']
+      )
+    ) {
+      return skip('tested once the kubeconfig and both AWS keys are saved');
+    }
     let client;
     try {
-      client = ctx.kubernetes(ctx.secrets['kubeconfig']);
+      // An EKS kubeconfig's `aws eks get-token` gets the connector's AWS keys, when set.
+      const id = ctx.secrets['awsAccessKeyId'];
+      const key = ctx.secrets['awsSecretAccessKey'];
+      client = ctx.kubernetes(
+        ctx.secrets['kubeconfig'],
+        id && key ? { AWS_ACCESS_KEY_ID: id, AWS_SECRET_ACCESS_KEY: key } : undefined,
+      );
     } catch {
       return fail(
         'no usable kubeconfig',

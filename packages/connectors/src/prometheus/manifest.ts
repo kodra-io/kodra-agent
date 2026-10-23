@@ -44,6 +44,11 @@ export default defineManifest({
         'Use a token from whatever protects your Prometheus, such as a proxy. It only needs read access.',
       minimumScopes: { 'read-only': ['read access to the query and alerts APIs'] },
       probe: 'prometheus.query-up',
+      steps: [
+        {
+          text: 'Only if something in front of Prometheus asks for a token, such as a proxy: create one there that can read the query and alerts APIs, and paste it here. Leave it empty otherwise.',
+        },
+      ],
     },
   ],
   healthProbe: 'prometheus.query-up',

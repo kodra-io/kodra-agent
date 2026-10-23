@@ -26,6 +26,7 @@ const fixtures: Record<string, unknown> = {
           envVar: 'ANTHROPIC_API_KEY',
           description: 'Anthropic API key.',
           howToCreate: 'Create a key in the Claude Console.',
+          steps: [],
           set: true,
         },
       ],
@@ -51,6 +52,12 @@ const fixtures: Record<string, unknown> = {
           envVar: 'OPENAI_API_KEY',
           description: 'OpenAI API key.',
           howToCreate: 'Create an API key in the OpenAI dashboard.',
+          steps: [
+            {
+              text: 'Create a key in the OpenAI platform, copy it, and paste it here.',
+              link: 'https://platform.openai.com/api-keys',
+            },
+          ],
           set: false,
         },
       ],
@@ -402,7 +409,7 @@ const fixtures: Record<string, unknown> = {
       available: false,
       reason:
         'missing Kubernetes kubeconfig (file /secrets/kubeconfig): cannot read /secrets/kubeconfig',
-      hint: 'On Docker Compose, Kubernetes needs a kubeconfig: copy it to secrets/kubeconfig in the bundle folder, then restart.',
+      hint: 'On Docker Compose, Kubernetes needs a kubeconfig: upload it in the console under Settings, Connectors, Kubernetes, which shows how to make one.',
       tools: [],
     },
   ],
@@ -605,8 +612,13 @@ function settingsView(
             ref: '${env:GITLAB_TOKEN}',
             description: loc('A GitLab token.'),
             howToCreate: loc('Create a personal access token with the api scope.'),
+            format: null,
+            steps: [],
           },
         ],
+        steps: {},
+        entrySteps: {},
+        missing: [],
         tools: { read: 18, write: 6, destructive: 2 },
       },
       {
@@ -631,16 +643,32 @@ function settingsView(
         secrets: [
           {
             key: 'kubeconfig',
-            label: 'Kubernetes kubeconfig (file /secrets/kubeconfig)',
-            envVar: 'KUBECONFIG',
-            required: false,
-            set: true,
-            writable: false,
-            ref: '/secrets/kubeconfig',
+            label: 'Kubernetes kubeconfig',
+            envVar: 'KODRA_KUBECONFIG',
+            required: true,
+            set: false,
+            writable: true,
+            ref: '${env:KODRA_KUBECONFIG}',
             description: loc('A kubeconfig.'),
             howToCreate: loc('Use a service account.'),
+            format: 'kubeconfig',
+            steps: [
+              {
+                text: loc('Let it read in your namespaces (dev) and nowhere else.'),
+                run: {
+                  linux: 'for ns in dev; do\n  kubectl create role kodra-agent-read -n "$ns"\ndone',
+                  macos: 'for ns in dev; do\n  kubectl create role kodra-agent-read -n "$ns"\ndone',
+                  windows:
+                    "foreach ($ns in 'dev'.Split(' ')) {\n  kubectl create role kodra-agent-read -n $ns\n}",
+                },
+              },
+              { text: loc('Upload kodra-kubeconfig here.') },
+            ],
           },
         ],
+        steps: {},
+        entrySteps: {},
+        missing: ['Kubernetes kubeconfig'],
         tools: { read: 8, write: 1, destructive: 5 },
       },
       {
@@ -717,8 +745,13 @@ function settingsView(
             ref: '${env:KODRA_DB_ORDERS_PASSWORD}',
             description: loc('The database user password.'),
             howToCreate: loc('Use a user that can only read server status.'),
+            format: null,
+            steps: [],
           },
         ],
+        steps: {},
+        entrySteps: {},
+        missing: [],
         tools: { read: 2, write: 0, destructive: 0 },
       },
       {
@@ -734,6 +767,9 @@ function settingsView(
         config: {},
         fields: [],
         secrets: [],
+        steps: {},
+        entrySteps: {},
+        missing: [],
         tools: { read: 20, write: 5, destructive: 4 },
       },
     ],
@@ -1025,6 +1061,19 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         undoable = false;
         restart();
         return route.fulfill({ json: { restarting: true } });
+      }
+      if (name === 'settings/secret' && body['key'] === 'kubeconfig') {
+        if (!String(body['value']).includes('current-context: dev')) {
+          return route.fulfill({
+            status: 400,
+            json: {
+              error:
+                'the kubeconfig has no current-context; set one with kubectl config use-context',
+            },
+          });
+        }
+        restart();
+        return route.fulfill({ json: { check: { status: 'pass' }, restarting: true } });
       }
       if (name === 'settings/secret') {
         if (body['value'] !== 'glpat-a-good-new-token') {

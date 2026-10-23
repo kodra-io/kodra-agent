@@ -265,7 +265,8 @@ export function consoleApi(
         user.name,
       );
       if (result.status === 'fail') {
-        return { status: 400, body: { error: result.message, check: result } };
+        const error = result.hint ? `${result.message}. ${result.hint}` : result.message;
+        return { status: 400, body: { error, check: result } };
       }
       restart();
       return { status: 200, body: { check: result, restarting: true } };

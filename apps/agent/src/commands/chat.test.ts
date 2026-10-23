@@ -48,7 +48,7 @@ describe('kodra-agent chat', () => {
     const out = t.output();
     expect(out).toContain('Kubernetes is not available: missing Kubernetes kubeconfig');
     expect(out).toContain(
-      'On Docker Compose, Kubernetes needs a kubeconfig: copy it to secrets/kubeconfig in the bundle folder, then restart.',
+      'On Docker Compose, Kubernetes needs a kubeconfig: upload it in the console under Settings, Connectors, Kubernetes, which shows how to make one.',
     );
     expect(out).toContain('Kubernetes: not available (missing Kubernetes kubeconfig');
     expect(out).toContain('I can use no connectors right now.');

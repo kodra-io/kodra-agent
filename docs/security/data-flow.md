@@ -14,6 +14,11 @@ setting) and its entry here was not reviewed and updated in the same change.
   file with owner-only permissions, never on a command line. They never reach the model,
   Slack, the console, logs, metrics, traces, or the audit log: the redactor masks them, and
   `src/canary.test.ts` and `src/canary-model.test.ts` fail if one gets through.
+- **Secrets entered in the console** (a token, or a kubeconfig or SSH key pasted or uploaded)
+  go from your browser to the agent only. The agent tests them, then saves them in `.env`, in
+  the bundle folder's `secrets/` as owner-only files (Docker Compose), or in its own Secret
+  (Kubernetes). They are never shown again. The setup steps the console shows next to each one
+  are commands for you to run; nothing runs them for you.
 - **MCP servers** run as child processes inside the agent container, each in an empty private
   folder, with a minimal environment plus only its own connector's secrets. Their binaries and
   packages are pinned by version and SHA-256 and preinstalled in the image.
@@ -36,7 +41,7 @@ definitions, and tool output, all redacted and masked. With `spec.models` and
 - **Secrets:** `apiKey` (`ANTHROPIC_API_KEY`), sent as the `x-api-key` header.
 - **Data:** the model input above. Anthropic's data retention terms for your account apply.
 
-Reviewed manifest: `anthropic@add210b7712c`
+Reviewed manifest: `anthropic@9008c5e6a9af`
 
 ### OpenAI
 
@@ -44,7 +49,7 @@ Reviewed manifest: `anthropic@add210b7712c`
 - **Secrets:** `apiKey`, sent as a bearer token.
 - **Data:** the model input above. OpenAI's data retention terms for your account apply.
 
-Reviewed manifest: `openai@76108a00e998`
+Reviewed manifest: `openai@cbc77e01200b`
 
 ### Azure OpenAI
 
@@ -52,7 +57,7 @@ Reviewed manifest: `openai@76108a00e998`
 - **Secrets:** `apiKey`, sent as the `api-key` header.
 - **Data:** the model input above, processed in your Azure tenant and region.
 
-Reviewed manifest: `azure-openai@9d093d77be60`
+Reviewed manifest: `azure-openai@c4bfe7cdd7c5`
 
 ### Amazon Bedrock
 
@@ -84,7 +89,7 @@ Reviewed manifest: `ollama@85a89abebe6d`
 - **Writes, after approval:** branches, files, and pull requests in those repos, never on the
   default branch.
 
-Reviewed manifest: `github@53262b64299a`
+Reviewed manifest: `github@66bd29d566f3`
 
 ### GitHub Actions
 
@@ -107,7 +112,7 @@ Reviewed manifest: `github-actions@98ad5a079546`
 - **Writes, after approval:** branches, files, and merge requests in those projects, never on
   the default branch.
 
-Reviewed manifest: `gitlab@faea4a86ca05`
+Reviewed manifest: `gitlab@fb866f116c55`
 
 ### GitLab CI
 
@@ -135,7 +140,7 @@ Reviewed manifest: `gitlab-ci@8d810c0836c0`
 - **Console dashboard:** the listed jobs and their last result, read with the same read tool
   and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `jenkins@5dc940545a4a`
+Reviewed manifest: `jenkins@9d1eb40f4075`
 
 ### Docker
 
@@ -154,7 +159,9 @@ Reviewed manifest: `docker@41c1c3542fc5`
 - **Sends to:** your cluster's API server, from the kubeconfig (or the in-cluster service
   account).
 - **Secrets:** `kubeconfig` (a file). EKS kubeconfigs get their token from the image's
-  `aws eks get-token`, signed locally.
+  `aws eks get-token`, signed locally, with the AWS keys in the agent's environment or the
+  optional `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_K8S_AWS_*`), which the server
+  gets as `AWS_*`. They only sign that token: no AWS API is called.
 - **Reads:** pods, logs, events, deployments, and other resources in the configured
   `namespaces`. The server's config refuses Secrets, ServiceAccounts, and RBAC objects.
 - **Writes, after approval:** scaling deployments in those namespaces, never the agent's own
@@ -163,7 +170,7 @@ Reviewed manifest: `docker@41c1c3542fc5`
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@dc6b585b4403`
+Reviewed manifest: `kubernetes@5504fecdb16d`
 
 ### Prometheus
 
@@ -173,7 +180,7 @@ Reviewed manifest: `kubernetes@dc6b585b4403`
 - **Secrets:** `bearerToken`, optional.
 - **Reads only:** queries, targets, and alerts.
 
-Reviewed manifest: `prometheus@2795d0671e50`
+Reviewed manifest: `prometheus@622328c0bab1`
 
 ### Grafana
 
@@ -183,7 +190,7 @@ Reviewed manifest: `prometheus@2795d0671e50`
 - **Reads only:** dashboards, data source queries, and alert rules. The server runs with
   `--disable-write` and `--usage-stats=disabled`.
 
-Reviewed manifest: `grafana@7f75e39a5623`
+Reviewed manifest: `grafana@c52161cc90f7`
 
 ### AWS
 
@@ -195,7 +202,7 @@ Reviewed manifest: `grafana@7f75e39a5623`
 - **Reads only:** EKS clusters and resources, CloudWatch metrics, logs, and alarms. Sensitive
   data access and writes are turned off in the servers.
 
-Reviewed manifest: `aws@8af663b4aaeb`
+Reviewed manifest: `aws@dde614ac59ad`
 
 ### Databases
 
@@ -213,7 +220,7 @@ Reviewed manifest: `aws@8af663b4aaeb`
 - **Console dashboard:** each database's state, version, connections, and lag, from the same
   read tool, shown only in the console and on Overview. Not audited (nothing changes).
 
-Reviewed manifest: `databases@9a6c9822fadc`
+Reviewed manifest: `databases@4a55c3f90c5f`
 
 ### Slack
 
@@ -224,4 +231,4 @@ Reviewed manifest: `databases@9a6c9822fadc`
   arguments, and reason, redacted and masked). Anyone in the channel can read them, and your
   Slack workspace's retention settings apply.
 
-Reviewed manifest: `slack@f166c79a8cf2`
+Reviewed manifest: `slack@060f3a1a396d`
