@@ -1,5 +1,6 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { rootCertificates } from 'node:tls';
 import { getConnector, parseAgentConfig } from '@kodra-agent/connectors';
 import ssh2 from 'ssh2';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -563,5 +564,51 @@ spec:
     );
     // An entry that is not there changes nothing.
     expect(setSecretRef(text, manifest, 'zzz.tunnelKey', '${file:/x}')).toBe(text);
+  });
+});
+
+describe('trusted certificates from the console', () => {
+  it('saves a CA file in the bundle, points the network at it, and can stop trusting it', async () => {
+    const files = await setup();
+    const pem = `${rootCertificates[0] ?? ''}\r\n${rootCertificates[1] ?? ''}`;
+    expect((await files.store.view(null)).network).toEqual({
+      caBundleFile: null,
+      caWritable: true,
+    });
+    expect(await files.store.setCaBundle('not a certificate', 'console:omar')).toEqual({
+      ok: false,
+      message: 'that is not a PEM file of certificates',
+    });
+    expect(await files.store.setCaBundle(pem, 'console:omar')).toEqual({
+      ok: true,
+      certificates: 2,
+    });
+    const saved = join(files.dir, 'ca', 'console-ca-bundle.pem');
+    expect(await readFile(saved, 'utf8')).not.toContain('\r');
+    const path = posixPath(saved).replace(/^[A-Za-z]:/, '');
+    expect(await readFile(files.configPath, 'utf8')).toContain(`caBundleFile: ${path}`);
+    expect((await files.store.view(null)).network.caBundleFile).toBe(path);
+    expect(await files.store.setCaBundle(null, 'console:omar')).toEqual({
+      ok: true,
+      certificates: 0,
+    });
+    expect(await readFile(files.configPath, 'utf8')).not.toContain('caBundleFile');
+    expect((await files.audit()).map((r) => r['detail'])).toEqual([
+      `trusts 2 CA certificates (file ${path})`,
+      'stopped trusting the extra CA certificates',
+    ]);
+  });
+
+  it('leaves Kubernetes to the chart', async () => {
+    const files = await setup();
+    await writeFile(
+      files.configPath,
+      (await readFile(files.configPath, 'utf8')).replace('target: compose', 'target: kubernetes'),
+    );
+    expect((await files.store.view(null)).network.caWritable).toBe(false);
+    expect(await files.store.setCaBundle(rootCertificates[0] ?? '', 'console:omar')).toEqual({
+      ok: false,
+      message: 'trusted certificates cannot be changed here',
+    });
   });
 });

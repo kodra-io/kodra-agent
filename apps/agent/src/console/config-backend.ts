@@ -38,6 +38,11 @@ export interface ConfigBackend {
   readonly filesWritable: boolean;
   /** Saves a file secret, owner-only, and returns the absolute path to refer to it by. */
   writeSecretFile(name: string, content: string): Promise<string>;
+  /**
+   * Saves the extra CA certificates the agent trusts, in the bundle folder's ca/ (Docker
+   * Compose only, like file secrets), and returns the absolute path to refer to it by.
+   */
+  writeCaFile(content: string): Promise<string>;
 }
 
 /** A path as a ${file:...} reference writes it: Windows paths lose their drive (M28). */
@@ -70,6 +75,11 @@ export function fileBackend(configPath: string): ConfigBackend {
     async writeSecretFile(name, content) {
       if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error('bad secret file name');
       const path = join(dirname(configPath), 'secrets', name);
+      await writePrivateFile(path, content);
+      return refPath(path);
+    },
+    async writeCaFile(content) {
+      const path = join(dirname(configPath), 'ca', 'console-ca-bundle.pem');
       await writePrivateFile(path, content);
       return refPath(path);
     },
@@ -212,6 +222,11 @@ export function kubernetesBackend(
     filesWritable: false,
     writeSecretFile() {
       return Promise.reject(new Error("file secrets go in the agent's Secret on Kubernetes"));
+    },
+    writeCaFile() {
+      return Promise.reject(
+        new Error("on Kubernetes, CA certificates come from the chart's caBundle"),
+      );
     },
     async writeEnv(set, remove) {
       if (!secret) throw new Error('the agent has no Secret to write to (existingSecret)');

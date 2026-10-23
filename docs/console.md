@@ -203,6 +203,12 @@ Everything a connector needs can be set here, without editing files on the host:
   included, without cloud keys. An EKS kubeconfig that runs `aws eks get-token` works too:
   set the Kubernetes connector's two optional AWS keys (tested once the kubeconfig and both
   keys are there), or keep `AWS_*` in the agent's environment as before.
+- Settings, Network, Trusted certificates takes a PEM file of extra CA certificates (an
+  internal CA, a TLS-inspecting proxy, or Amazon RDS's `global-bundle.pem` for a database with
+  Encryption set to verify). Certificates only: a file with a private key is refused. On
+  Docker Compose it is saved as `ca/console-ca-bundle.pem`, `spec.network.caBundleFile`
+  points at it (audited, kept for Undo), and the agent restarts. On Kubernetes it comes from
+  the chart's `caBundle` values instead.
 
 ### On Kubernetes
 

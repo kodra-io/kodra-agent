@@ -1,6 +1,8 @@
+import { X509Certificate } from 'node:crypto';
 import type { SecretFormat } from '@kodra-agent/schema';
 import ssh2 from 'ssh2';
 import { parse } from 'yaml';
+import { pemCertificates } from '../network.ts';
 
 /**
  * File secrets the console takes pasted or uploaded (M28): a kubeconfig or an SSH private key.
@@ -85,4 +87,28 @@ export function secretFileName(connector: string, key: string): string {
     .replaceAll('.', '-')
     .toLowerCase();
   return `${connector}-${kebab}`;
+}
+
+/** Room for Amazon RDS's global bundle (about 170 KB) and more. */
+export const MAX_CA_FILE = 512 * 1024;
+
+/**
+ * The certificates in a PEM file of CA certificates, or why it cannot be used. Only
+ * certificates are taken: a file with a private key in it is refused.
+ */
+export function caCertificates(value: string): { count: number } | { problem: string } {
+  if (value.length > MAX_CA_FILE) return { problem: 'that file is too big' };
+  if (/PRIVATE KEY-----/.test(value)) {
+    return { problem: 'that file has a private key in it; upload certificates only' };
+  }
+  const blocks = pemCertificates(value);
+  if (blocks.length === 0) return { problem: 'that is not a PEM file of certificates' };
+  for (const [i, block] of blocks.entries()) {
+    try {
+      new X509Certificate(block);
+    } catch {
+      return { problem: `certificate ${String(i + 1)} in that file could not be read` };
+    }
+  }
+  return { count: blocks.length };
 }

@@ -347,6 +347,22 @@ test('shows how to make a kubeconfig on each system, then takes one pasted', asy
   await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
 });
 
+test('trusts CA certificates pasted in Network', async ({ page }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Network' }).click();
+  await expect(page.getByText('No extra certificates are trusted.')).toBeVisible();
+  const field = page.getByLabel('Certificates (PEM)');
+  await field.fill('not a certificate');
+  await page.getByRole('button', { name: 'Check and trust' }).click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Not saved: that is not a PEM file of certificates',
+  );
+  await field.fill('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----');
+  await page.getByRole('button', { name: 'Check and trust' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
+});
+
 test('replaces a token only after it passes the check', async ({ page }) => {
   await signIn(page, APPROVER_TOKEN);
   await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();

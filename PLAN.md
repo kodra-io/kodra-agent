@@ -20,6 +20,7 @@ Owner: Omar Al-Amad. Last updated 16 October 2026, at `a38c85d`.
 - **v0.3.6** (21 October 2026): the Databases connector: MariaDB, MySQL, and PostgreSQL wherever they run (standalone, a cloud database, or Kubernetes), directly or through an SSH tunnel with a pinned host key. Fixed health checks only, shown on the Dashboard and counted on Overview. The MCP SDK moves to 1.32.1 for new advisories.
 - **v0.3.7** (22 October 2026): the configurator lists databases (secrets named, never typed) and matches the product (console sign-in and pages, model suggestions); `init` checks each database on its own. The product is English only: Arabic and right-to-left support are removed.
 - **v0.3.8** (23 October 2026): `kodra-agent onboard` reads a new repo (dependencies, the settings it reads, committed credentials by location only, gaps, questions for the team), then ships it with the setting names in the chart and an `ONBOARDING.md` in the PR. Scheduled checks post a daily digest to Slack and the console Overview: what is new, still broken, and fixed, from read-only rules with no model; `kodra-agent check` prints it. `ip-address` moves to 10.7.4 for a new advisory.
+- **v0.3.9** (23 October 2026): every connector can be set up from the console: steps under each secret and setting with ready commands for Linux, macOS, and Windows, filled with your settings; kubeconfigs and SSH keys pasted or uploaded, checked, and saved as files; optional AWS keys for EKS kubeconfigs; and trusted CA certificates (like Amazon RDS's) uploaded in Settings, Network.
 - **Next:** publish the configurator, test with our own setup, then design partners.
 - **Who it's for:** many kinds of organizations, from solo developers and startups to large and regulated companies. The same product serves all of them, configured through profiles (`starter`, `team`, `strict`) that set defaults and never limits. See SPEC section 5 and `docs/approvals.md`.
 
@@ -560,7 +561,7 @@ Update this table at the end of every milestone.
 | Design partners: five to ten, notes in docs/partners | After launch | Not started |     |
 | M26 Onboard a repo                                   | After launch | Done        | #67 |
 | M27 Scheduled checks and the daily digest            | After launch | Done        | #68 |
-| M28 Set up every connector from the console          | After launch | In review   |     |
+| M28 Set up every connector from the console          | After launch | Done        | #71 |
 
 Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 

@@ -220,7 +220,7 @@ Reviewed manifest: `aws@dde614ac59ad`
 - **Console dashboard:** each database's state, version, connections, and lag, from the same
   read tool, shown only in the console and on Overview. Not audited (nothing changes).
 
-Reviewed manifest: `databases@4a55c3f90c5f`
+Reviewed manifest: `databases@41bdf113f15c`
 
 ### Slack
 
