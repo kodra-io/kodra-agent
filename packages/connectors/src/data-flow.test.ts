@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { isUsable } from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
 import { connectors, modelProviders } from './index.ts';
 
@@ -29,9 +30,9 @@ const page = readFileSync(
 describe('docs/security/data-flow.md', () => {
   // A manifest change (a new tool, server version, secret, or setting) changes what data goes
   // where: the page must be reviewed and its fingerprint updated in the same change.
-  it('covers every available connector and model provider at its current manifest', () => {
+  it('covers every available and preview connector and model provider at its current manifest', () => {
     const stale = [...connectors, ...modelProviders]
-      .filter((m) => m.status === 'available')
+      .filter(isUsable)
       .map((m) => `${m.id}@${fingerprint(m)}`)
       .filter((tag) => !page.includes(`\`${tag}\``));
     expect(

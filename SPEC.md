@@ -155,7 +155,7 @@ Rules:
 Each connector is a typed, validated manifest at `packages/connectors/<id>/manifest.ts` with:
 
 - `id`, `displayName`, `category`: `model | source | build | deploy | cicd | monitoring | cloud | chat`
-- `status`: `available | coming-soon`
+- `status`: `available | preview | coming-soon`. `preview` works but is less tested and may change: it is off by default and listed under "More connectors" in the configurator and the console (launch plan L1).
 - `requires`: dependencies on other connectors or categories (for example, `cicd` requires a `source` connector)
 - `configFields`: non-secret settings with validation (URLs, namespaces, repos)
 - `secrets`: for each one: env var name, description, how to create it, minimum scopes, and a validation probe (a cheap read call used by `init` and `doctor`)

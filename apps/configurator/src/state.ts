@@ -1,5 +1,5 @@
 import { getConnector } from '@kodra-agent/connectors';
-import type { AccessLevel, ModelProvider, Profile } from '@kodra-agent/schema';
+import { isUsable, type AccessLevel, type ModelProvider, type Profile } from '@kodra-agent/schema';
 import {
   connectorDefaults,
   decodeDraft,
@@ -108,7 +108,7 @@ export function reducer(draft: AgentDraft, action: Action): AgentDraft {
       };
     case 'toggle': {
       const manifest = getConnector(action.id);
-      if (!manifest || manifest.status !== 'available') return draft;
+      if (!manifest || !isUsable(manifest)) return draft;
       const existing = draft.connectors[action.id];
       const entry = existing
         ? { ...existing, enabled: action.enabled }

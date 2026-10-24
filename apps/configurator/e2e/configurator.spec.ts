@@ -2,7 +2,15 @@ import { AxeBuilder } from '@axe-core/playwright';
 import { parseAgentConfig } from '@kodra-agent/connectors';
 import JSZip from 'jszip';
 import { readFile } from 'node:fs/promises';
-import { connectorCard, enableConnector, expect, fillBasics, goToStep, test } from './fixtures.ts';
+import {
+  connectorCard,
+  enableConnector,
+  expect,
+  fillBasics,
+  goToStep,
+  openMoreConnectors,
+  test,
+} from './fixtures.ts';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('./');
@@ -71,6 +79,7 @@ test('adds databases, one through a tunnel, and the bundle names their secrets',
   page,
 }) => {
   await fillBasics(page);
+  await openMoreConnectors(page);
   await enableConnector(page, 'databases', 'Databases');
   const card = connectorCard(page, 'databases');
   await expect(card.getByText('None yet. Add them here, or later in the console.')).toBeVisible();
@@ -246,6 +255,35 @@ test('coming-soon connectors are visible but cannot be enabled', async ({ page }
   const teams = connectorCard(page, 'teams');
   await expect(teams.getByText('Coming soon')).toBeVisible();
   await expect(teams.getByRole('switch')).toBeDisabled();
+});
+
+test('a starter profile shows preview connectors only under More connectors, all off', async ({
+  page,
+}) => {
+  // fillBasics keeps the default profile, starter.
+  await fillBasics(page);
+  await expect(connectorCard(page, 'kubernetes')).toBeVisible();
+  for (const id of ['jenkins', 'databases', 'docker']) {
+    await expect(connectorCard(page, id)).toHaveCount(0);
+  }
+
+  await openMoreConnectors(page);
+  for (const [id, name] of [
+    ['jenkins', 'Jenkins'],
+    ['databases', 'Databases'],
+    ['docker', 'Docker'],
+  ] as const) {
+    const card = connectorCard(page, id);
+    await expect(card.getByRole('heading', { name: `${name} Preview` })).toBeVisible();
+    await expect(card.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
+  }
+  await enableConnector(page, 'docker', 'Docker');
+  await expect(connectorCard(page, 'docker').getByRole('switch')).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  // Stable connectors carry no badge.
+  await expect(connectorCard(page, 'kubernetes').getByText('Preview')).toHaveCount(0);
 });
 
 test('a shared link restores the same setup', async ({ page, context }) => {

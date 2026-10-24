@@ -140,7 +140,7 @@ Reviewed manifest: `gitlab-ci@8d810c0836c0`
 - **Console dashboard:** the listed jobs and their last result, read with the same read tool
   and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `jenkins@9d1eb40f4075`
+Reviewed manifest: `jenkins@02f38d4402ca` (preview)
 
 ### Docker
 
@@ -151,7 +151,7 @@ Reviewed manifest: `jenkins@9d1eb40f4075`
 - **Writes, after approval:** builds and runs the image `ship` creates, then removes it. With
   Compose, only the one-shot `kodra-builder` service mounts the socket.
 
-Reviewed manifest: `docker@41c1c3542fc5`
+Reviewed manifest: `docker@3b37b8682456` (preview)
 
 ### Kubernetes
 
@@ -220,7 +220,7 @@ Reviewed manifest: `aws@dde614ac59ad`
 - **Console dashboard:** each database's state, version, connections, and lag, from the same
   read tool, shown only in the console and on Overview. Not audited (nothing changes).
 
-Reviewed manifest: `databases@41bdf113f15c`
+Reviewed manifest: `databases@3d4cc9059824` (preview)
 
 ### Slack
 

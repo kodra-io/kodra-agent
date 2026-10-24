@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { checkDependencies } from './dependencies.ts';
 import { entriesSchema } from './entries.ts';
-import { modelPrice, type ConfigField, type Manifest, type ModelPrice } from './manifest.ts';
+import {
+  isUsable,
+  modelPrice,
+  type ConfigField,
+  type Manifest,
+  type ModelPrice,
+} from './manifest.ts';
 import { isCalendarDate, isTimeZone, weeklyMinute } from './freeze.ts';
 import { minuteOfDay, SCHEDULE_DAYS, type ScheduleDay } from './schedule.ts';
 import { policyProblems, PROFILES, type Profile } from './policy.ts';
@@ -538,7 +544,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
   for (const manifest of connectors) {
     connectorShape[manifest.id] = connectorEntrySchema(manifest).optional();
   }
-  const known = connectors.filter((c) => c.status === 'available').map((c) => c.id);
+  const known = connectors.filter(isUsable).map((c) => c.id);
 
   const connectorsSchema = z.strictObject(connectorShape, {
     error: (issue) =>

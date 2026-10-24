@@ -531,7 +531,7 @@ export interface ConnectorSettings {
   id: string;
   name: string;
   category: string;
-  status: 'available' | 'coming-soon';
+  status: 'available' | 'preview' | 'coming-soon';
   description: string;
   accessLevels: AccessLevel[];
   summaries: Partial<Record<'always' | AccessLevel, string[] | undefined>>;
