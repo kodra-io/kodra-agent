@@ -318,7 +318,8 @@ describe('agent loop', () => {
       'break-glass during always: Checkout is down.',
     );
     expect(records.find((r) => r['event'] === 'override')).toMatchObject({ actor: 'U02' });
-    expect(announced).toEqual([
+    // The rollout watch may also announce (M29b); only the freeze override counts here.
+    expect(announced.filter((a) => a.startsWith('Freeze override'))).toEqual([
       'Freeze override in production: U02 approved "fakek8s/resources_scale" during always (until Sat 23:59 UTC). Reason: Checkout is down.',
     ]);
   });
