@@ -22,7 +22,7 @@ import {
   type EntryDraft,
   type StepId,
 } from '@kodra-agent/templates';
-import type { Dispatch } from 'react';
+import { useState, type Dispatch } from 'react';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { ApprovalRulesSummary } from './policy-steps.tsx';
 import type { Action } from './state.ts';
@@ -258,8 +258,8 @@ function ConnectorCard({
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h4 id={headingId} className="font-bold">
-            {manifest.displayName}
-            {comingSoon ? <Badge>{t('connectors.comingSoon')}</Badge> : null}
+            {manifest.displayName} {comingSoon ? <Badge>{t('connectors.comingSoon')}</Badge> : null}
+            {manifest.status === 'preview' ? <Badge>{t('connectors.preview')}</Badge> : null}
           </h4>
           <p className="text-sm text-ink-secondary">{manifest.description}</p>
         </div>
@@ -591,13 +591,20 @@ function EntryCard(props: {
   );
 }
 
+const stable = connectors.filter((c) => c.status !== 'preview');
+const preview = connectors.filter((c) => c.status === 'preview');
+
 export function ConnectorsStep(props: StepProps) {
   const { t } = useI18n();
+  // Preview connectors stay folded away unless the draft (a shared link) already uses one.
+  const [moreOpen, setMoreOpen] = useState(() =>
+    preview.some((c) => props.draft.connectors[c.id]?.enabled === true),
+  );
   return (
     <div className="flex flex-col gap-8">
       <p className="text-ink-secondary">{t('connectors.intro')}</p>
       {CATEGORY_ORDER.map((category) => {
-        const items = connectors.filter((c) => c.category === category);
+        const items = stable.filter((c) => c.category === category);
         if (items.length === 0) return null;
         return (
           <section key={category} className="flex flex-col gap-3">
@@ -610,6 +617,26 @@ export function ConnectorsStep(props: StepProps) {
           </section>
         );
       })}
+      {preview.length > 0 ? (
+        <details
+          data-testid="more-connectors"
+          className="rounded-lg border border-line bg-white p-4"
+          open={moreOpen}
+          onToggle={(e) => {
+            setMoreOpen(e.currentTarget.open);
+          }}
+        >
+          <summary className="cursor-pointer text-lg font-bold">{t('connectors.more')}</summary>
+          <p className="mt-2 text-sm text-ink-secondary">{t('connectors.moreIntro')}</p>
+          {moreOpen ? (
+            <div className="mt-4 flex flex-col gap-3">
+              {preview.map((manifest) => (
+                <ConnectorCard key={manifest.id} manifest={manifest} {...props} />
+              ))}
+            </div>
+          ) : null}
+        </details>
+      ) : null}
     </div>
   );
 }

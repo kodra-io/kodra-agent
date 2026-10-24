@@ -19,6 +19,13 @@ export const CATEGORIES = [
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
+/**
+ * `available` is stable. `preview` works but is less tested and may change: it is off by
+ * default and shown under "More connectors". `coming-soon` cannot be enabled.
+ */
+export const CONNECTOR_STATUSES = ['available', 'preview', 'coming-soon'] as const;
+export type ConnectorStatus = (typeof CONNECTOR_STATUSES)[number];
+
 export const ACCESS_LEVELS = ['read-only', 'read-write-approved'] as const;
 export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
@@ -509,7 +516,7 @@ export const manifestSchema = z
     id: z.string().regex(ID),
     displayName: z.string().min(1),
     category: z.enum(CATEGORIES),
-    status: z.enum(['available', 'coming-soon']),
+    status: z.enum(CONNECTOR_STATUSES),
     description: copy,
     /** Empty for connectors where access does not apply (model providers, chat). */
     accessLevels: z.array(z.enum(ACCESS_LEVELS)),
@@ -750,6 +757,11 @@ export const manifestSchema = z
   });
 
 export type Manifest = z.infer<typeof manifestSchema>;
+
+/** Whether a connector can be enabled: stable or preview. */
+export function isUsable(manifest: Pick<Manifest, 'status'>): boolean {
+  return manifest.status !== 'coming-soon';
+}
 
 /** Identity helper that type-checks a manifest literal. */
 export function defineManifest(manifest: Manifest): Manifest {

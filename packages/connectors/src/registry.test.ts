@@ -1,4 +1,5 @@
 import {
+  isUsable,
   manifestSchema,
   modelSchema,
   PLATFORMS,
@@ -12,24 +13,23 @@ const all: readonly Manifest[] = [...connectors, ...modelProviders];
 
 describe('connector registry', () => {
   it('lists the MVP catalog from SPEC section 6', () => {
-    const available = connectors.filter((c) => c.status === 'available').map((c) => c.id);
-    const comingSoon = connectors.filter((c) => c.status === 'coming-soon').map((c) => c.id);
-    expect(available.sort()).toEqual(
+    const ids = (status: string) => connectors.filter((c) => c.status === status).map((c) => c.id);
+    // Launch plan L1: what we stand behind, and what works but is less tested.
+    expect(ids('available').sort()).toEqual(
       [
         'aws',
-        'databases',
-        'docker',
         'github',
         'github-actions',
         'gitlab',
         'gitlab-ci',
         'grafana',
-        'jenkins',
         'kubernetes',
         'prometheus',
         'slack',
       ].sort(),
     );
+    expect(ids('preview').sort()).toEqual(['databases', 'docker', 'jenkins']);
+    const comingSoon = ids('coming-soon');
     expect(comingSoon.sort()).toEqual(
       ['azure', 'azure-devops', 'bitbucket', 'gcp', 'teams'].sort(),
     );
@@ -40,6 +40,7 @@ describe('connector registry', () => {
       'bedrock',
       'ollama',
     ]);
+    expect(modelProviders.every((p) => p.status === 'available')).toBe(true);
   });
 
   it.each(all.map((m) => [m.id, m] as const))('%s is a valid manifest', (_id, manifest) => {
@@ -233,7 +234,7 @@ describe('connector registry', () => {
   // M28: the console shows how to get every secret, so nobody edits files by hand.
   it('says how to get every secret, with a command for each system wherever there is one', () => {
     const missing: string[] = [];
-    for (const m of all.filter((x) => x.status === 'available')) {
+    for (const m of all.filter(isUsable)) {
       for (const s of m.secrets) if (!s.steps?.length) missing.push(`${m.id}.${s.key}`);
       for (const f of m.configFields) {
         if (f.kind !== 'entries') continue;

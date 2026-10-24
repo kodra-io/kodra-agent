@@ -7,7 +7,7 @@ export default defineManifest({
   id: 'docker',
   displayName: 'Docker',
   category: 'build',
-  status: 'available',
+  status: 'preview',
   description: 'Inspect images and containers. With write access, build images for the ship flow.',
   accessLevels: ['read-only', 'read-write-approved'],
   requires: [],
