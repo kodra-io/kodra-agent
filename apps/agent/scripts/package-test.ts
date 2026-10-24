@@ -766,6 +766,9 @@ async function openshiftUser(): Promise<void> {
     `${dir}:/etc/kodra-agent:ro`,
     '-e',
     'KODRA_CONSOLE_TOKEN=openshift-test-token',
+    // No default console password (L2): without a hash, run refuses to start.
+    '-e',
+    `KODRA_CONSOLE_ADMIN_HASH=${await adminPasswordHash(ADMIN_PASSWORD)}`,
   ];
   const doctor = spawnSync('docker', ['run', '--rm', ...base, IMAGE, 'doctor', '--json'], {
     encoding: 'utf8',
