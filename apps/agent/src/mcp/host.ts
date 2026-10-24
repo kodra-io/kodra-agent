@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import type { ScaleLimit } from '../scale-limit.ts';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,6 +48,8 @@ export interface HostedTool {
   changeStep?: ChangeStep;
   /** Reads files from the connector's forge, for diffs and the check before each write. */
   readFile?: FileReader;
+  /** For the connector's scaling tool: when a cut counts as destructive (M29). */
+  scaleLimit?: ScaleLimit;
   /** Index into the host's running servers. */
   server: number;
 }
@@ -419,6 +422,7 @@ export class ConnectorHost {
           ? { changeStep: manifest.changeSteps[tool.name] }
           : {}),
         ...(input.readFile ? { readFile: input.readFile } : {}),
+        ...(manifest.scaleLimit?.tool === tool.name ? { scaleLimit: manifest.scaleLimit } : {}),
         server: serverIndex,
       });
     }

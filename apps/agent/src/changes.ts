@@ -288,175 +288,182 @@ export function proposeChangeTool(
         repos: touched.flatMap((t) => t.repos),
       });
       if (misplaced) return refuse(misplaced);
-
-      let preview: Preview;
+      // One change at a time per environment, and so many writes an hour (M29).
+      const slot = deps.writes?.begin(rules.rules.environment) ?? null;
+      if (slot && 'refused' in slot) return refuse(slot.refused);
       try {
-        preview = await buildPreview(steps);
-      } catch (error) {
-        return refuse(r(error instanceof Error ? error.message : String(error)));
-      }
-
-      const risk = steps
-        .map((s) => s.tool.risk)
-        .reduce<Risk>((a, b) => ((RISK_ORDER[b] ?? 0) > (RISK_ORDER[a] ?? 0) ? b : a), 'read');
-      const connectors = [...new Set(steps.map((s) => s.tool.connector))].join(', ');
-      const names = steps.map((s) => `${s.tool.connector}/${s.tool.tool}`).join(', ');
-      const req = newApprovalRequest(
-        {
-          connector: connectors,
-          tool: PROPOSE_CHANGE,
-          risk,
-          args: clip(r(names), 2_000),
-          reason,
-          requestedBy: actor,
-          title,
-          preview: r(preview.text),
-        },
-        rules.rules,
-      );
-      await deps.audit.append({
-        actor,
-        task,
-        event: 'approval.request',
-        connector: connectors,
-        tool: PROPOSE_CHANGE,
-        risk: risk === 'unclassified' ? 'unclassified' : risk,
-        detail: clip(`${req.id}; change: ${title}; steps: ${names}`, MAX_DETAIL),
-      });
-      deps.events?.({
-        type: 'approval',
-        call,
-        id: req.id,
-        connector: req.connector,
-        tool: req.tool,
-        risk: req.risk,
-        args: req.args,
-        reason: req.reason,
-        expiresAt: req.expiresAt.toISOString(),
-        environment: req.environment,
-        needed: req.ballot.rules.minApprovers,
-        needs: req.ballot.needs,
-        changeRefPattern: req.ballot.rules.changeRefPattern,
-        freeze: req.ballot.rules.freeze,
-        title,
-        ...(req.preview ? { preview: req.preview } : {}),
-      });
-      const outcome = await deps.approvals.request(req);
-      const note =
-        outcome.decision === 'denied' && outcome.note ? clip(r(outcome.note), 500) : undefined;
-      await deps.audit.append({
-        task,
-        event: 'approval.decision',
-        connector: connectors,
-        tool: PROPOSE_CHANGE,
-        ...decisionAudit(req, outcome, actor, note),
-      });
-      await recordOverride(deps, req, outcome, {
-        actor,
-        task,
-        connector: connectors,
-        tool: PROPOSE_CHANGE,
-      });
-      deps.events?.({
-        type: 'decision',
-        call,
-        id: req.id,
-        decision: outcome.decision,
-        ...(outcome.decision === 'expired' ? {} : { by: outcome.by }),
-      });
-      if (outcome.decision !== 'approved') {
-        deps.term.out(`  [${outcome.decision}] change: ${title}`);
-        return reply(
-          outcome.decision === 'expired'
-            ? 'The approver did not answer in time. Nothing was run.'
-            : `The approver denied this change${note ? `, saying: ${note}` : ''}. Nothing was run.`,
-        );
-      }
-
-      // Run exactly the approved steps, in order. Stop at the first problem.
-      const results: string[] = [];
-      for (const [index, { tool, args }] of steps.entries()) {
-        const n = `${String(index + 1)}/${String(steps.length)}`;
-        const stepCall = `${call}#${String(index + 1)}`;
-        const argText = r(JSON.stringify(args));
-        const event = (state: 'running' | 'ok' | 'error', detail?: string) => {
-          deps.events?.({
-            type: 'tool',
-            call: stepCall,
-            connector: tool.connector,
-            tool: tool.tool,
-            risk: tool.risk,
-            args: clip(argText, 2_000),
-            state,
-            ...(detail === undefined ? {} : { detail: r(detail) }),
-          });
-        };
-        const stop = async (why: string) => {
-          event('error', why);
-          await deps.audit.append({
-            actor,
-            task,
-            event: 'error',
-            connector: tool.connector,
-            tool: tool.tool,
-            detail: clip(r(`change ${req.id} step ${n}: ${why}`), MAX_DETAIL),
-          });
-          results.push(`Step ${n} ${tool.connector}/${tool.tool}: STOPPED: ${why}`);
-          return reply(
-            `Change "${title}" stopped at step ${n}. Steps after it did not run.\n${results.join('\n')}`,
-          );
-        };
-
-        const pausedNow = deps.paused?.() ?? null;
-        if (pausedNow) return await stop(pausedNow);
-        for (const snap of preview.snapshots.filter((s) => s.step === index)) {
-          let now: string | null;
-          try {
-            now = await snap.read(snap.repo, snap.path, snap.ref);
-          } catch (error) {
-            return await stop(
-              `could not read ${snap.path} again: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-          if (hash(now) !== snap.hash) {
-            return await stop(
-              `${snap.path} changed on ${snap.ref} after the preview, so it was not written`,
-            );
-          }
-        }
-
-        event('running');
-        deps.term.out(`  [${tool.risk}] ${tool.connector}/${tool.tool} (change ${n})`);
-        let ok: boolean;
-        let text: string;
+        let preview: Preview;
         try {
-          const result = await deps.host.call(tool.name, args, options.abortSignal);
-          ok = !result.isError;
-          text = result.text;
+          preview = await buildPreview(steps);
         } catch (error) {
-          ok = false;
-          text = error instanceof Error ? error.message : String(error);
+          return refuse(r(error instanceof Error ? error.message : String(error)));
         }
+
+        const risk = steps
+          .map((s) => s.tool.risk)
+          .reduce<Risk>((a, b) => ((RISK_ORDER[b] ?? 0) > (RISK_ORDER[a] ?? 0) ? b : a), 'read');
+        const connectors = [...new Set(steps.map((s) => s.tool.connector))].join(', ');
+        const names = steps.map((s) => `${s.tool.connector}/${s.tool.tool}`).join(', ');
+        const req = newApprovalRequest(
+          {
+            connector: connectors,
+            tool: PROPOSE_CHANGE,
+            risk,
+            args: clip(r(names), 2_000),
+            reason,
+            requestedBy: actor,
+            title,
+            preview: r(preview.text),
+          },
+          rules.rules,
+        );
         await deps.audit.append({
           actor,
           task,
-          event: 'tool.call',
-          connector: tool.connector,
-          tool: tool.tool,
-          risk: tool.risk,
-          decision: 'approved',
-          detail: clip(
-            `change ${req.id} step ${n}; ${ok ? 'ok' : 'error'}; args ${argText}`,
-            MAX_DETAIL,
-          ),
+          event: 'approval.request',
+          connector: connectors,
+          tool: PROPOSE_CHANGE,
+          risk: risk === 'unclassified' ? 'unclassified' : risk,
+          detail: clip(`${req.id}; change: ${title}; steps: ${names}`, MAX_DETAIL),
         });
-        if (!ok) return await stop(`the tool failed: ${clip(r(text), MAX_RESULT)}`);
-        event('ok');
-        results.push(`Step ${n} ${tool.connector}/${tool.tool}: ${clip(r(text), MAX_RESULT)}`);
+        deps.events?.({
+          type: 'approval',
+          call,
+          id: req.id,
+          connector: req.connector,
+          tool: req.tool,
+          risk: req.risk,
+          args: req.args,
+          reason: req.reason,
+          expiresAt: req.expiresAt.toISOString(),
+          environment: req.environment,
+          needed: req.ballot.rules.minApprovers,
+          needs: req.ballot.needs,
+          changeRefPattern: req.ballot.rules.changeRefPattern,
+          freeze: req.ballot.rules.freeze,
+          title,
+          ...(req.preview ? { preview: req.preview } : {}),
+        });
+        const outcome = await deps.approvals.request(req);
+        const note =
+          outcome.decision === 'denied' && outcome.note ? clip(r(outcome.note), 500) : undefined;
+        await deps.audit.append({
+          task,
+          event: 'approval.decision',
+          connector: connectors,
+          tool: PROPOSE_CHANGE,
+          ...decisionAudit(req, outcome, actor, note),
+        });
+        await recordOverride(deps, req, outcome, {
+          actor,
+          task,
+          connector: connectors,
+          tool: PROPOSE_CHANGE,
+        });
+        deps.events?.({
+          type: 'decision',
+          call,
+          id: req.id,
+          decision: outcome.decision,
+          ...(outcome.decision === 'expired' ? {} : { by: outcome.by }),
+        });
+        if (outcome.decision !== 'approved') {
+          deps.term.out(`  [${outcome.decision}] change: ${title}`);
+          return reply(
+            outcome.decision === 'expired'
+              ? 'The approver did not answer in time. Nothing was run.'
+              : `The approver denied this change${note ? `, saying: ${note}` : ''}. Nothing was run.`,
+          );
+        }
+
+        // Run exactly the approved steps, in order. Stop at the first problem.
+        const results: string[] = [];
+        for (const [index, { tool, args }] of steps.entries()) {
+          const n = `${String(index + 1)}/${String(steps.length)}`;
+          const stepCall = `${call}#${String(index + 1)}`;
+          const argText = r(JSON.stringify(args));
+          const event = (state: 'running' | 'ok' | 'error', detail?: string) => {
+            deps.events?.({
+              type: 'tool',
+              call: stepCall,
+              connector: tool.connector,
+              tool: tool.tool,
+              risk: tool.risk,
+              args: clip(argText, 2_000),
+              state,
+              ...(detail === undefined ? {} : { detail: r(detail) }),
+            });
+          };
+          const stop = async (why: string) => {
+            event('error', why);
+            await deps.audit.append({
+              actor,
+              task,
+              event: 'error',
+              connector: tool.connector,
+              tool: tool.tool,
+              detail: clip(r(`change ${req.id} step ${n}: ${why}`), MAX_DETAIL),
+            });
+            results.push(`Step ${n} ${tool.connector}/${tool.tool}: STOPPED: ${why}`);
+            return reply(
+              `Change "${title}" stopped at step ${n}. Steps after it did not run.\n${results.join('\n')}`,
+            );
+          };
+
+          const pausedNow = deps.paused?.() ?? null;
+          if (pausedNow) return await stop(pausedNow);
+          for (const snap of preview.snapshots.filter((s) => s.step === index)) {
+            let now: string | null;
+            try {
+              now = await snap.read(snap.repo, snap.path, snap.ref);
+            } catch (error) {
+              return await stop(
+                `could not read ${snap.path} again: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            if (hash(now) !== snap.hash) {
+              return await stop(
+                `${snap.path} changed on ${snap.ref} after the preview, so it was not written`,
+              );
+            }
+          }
+
+          event('running');
+          deps.term.out(`  [${tool.risk}] ${tool.connector}/${tool.tool} (change ${n})`);
+          let ok: boolean;
+          let text: string;
+          try {
+            slot?.done();
+            const result = await deps.host.call(tool.name, args, options.abortSignal);
+            ok = !result.isError;
+            text = result.text;
+          } catch (error) {
+            ok = false;
+            text = error instanceof Error ? error.message : String(error);
+          }
+          await deps.audit.append({
+            actor,
+            task,
+            event: 'tool.call',
+            connector: tool.connector,
+            tool: tool.tool,
+            risk: tool.risk,
+            decision: 'approved',
+            detail: clip(
+              `change ${req.id} step ${n}; ${ok ? 'ok' : 'error'}; args ${argText}`,
+              MAX_DETAIL,
+            ),
+          });
+          if (!ok) return await stop(`the tool failed: ${clip(r(text), MAX_RESULT)}`);
+          event('ok');
+          results.push(`Step ${n} ${tool.connector}/${tool.tool}: ${clip(r(text), MAX_RESULT)}`);
+        }
+        return reply(
+          `Change "${title}" ran, all ${String(steps.length)} steps.\n${results.join('\n')}`,
+        );
+      } finally {
+        slot?.release();
       }
-      return reply(
-        `Change "${title}" ran, all ${String(steps.length)} steps.\n${results.join('\n')}`,
-      );
     },
   });
 }

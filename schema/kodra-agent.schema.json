@@ -407,6 +407,10 @@
                     }
                   },
                   "additionalProperties": false
+                },
+                "allowBroadCredentials": {
+                  "description": "Keep a credential that has more access than the agent needs (like cluster-admin). Refused by default.",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1308,6 +1312,12 @@
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 1000000
+            },
+            "maxWritesPerHour": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
             }
           },
           "additionalProperties": false

@@ -1,4 +1,4 @@
-import { CoreV1Api, KubeConfig } from '@kubernetes/client-node';
+import { AuthorizationV1Api, CoreV1Api, KubeConfig } from '@kubernetes/client-node';
 
 /** The few Kubernetes calls M3 needs, behind an interface so tests need no cluster. */
 export interface KubernetesClient {
@@ -9,6 +9,18 @@ export interface KubernetesClient {
     name: string,
     stringData: Record<string, string>,
   ): Promise<'created' | 'updated'>;
+  /**
+   * Whether the credential may do each thing (SelfSubjectAccessReview, M29). No namespace
+   * means in every namespace.
+   */
+  canI(checks: readonly AccessCheck[]): Promise<boolean[]>;
+}
+
+export interface AccessCheck {
+  verb: string;
+  resource: string;
+  group?: string;
+  namespace?: string;
 }
 
 /**
@@ -38,7 +50,27 @@ export const realKubernetes: KubernetesFactory = (kubeconfig, execEnv) => {
     });
   }
   const api = kc.makeApiClient(CoreV1Api);
+  const auth = kc.makeApiClient(AuthorizationV1Api);
   return {
+    async canI(checks) {
+      const answers: boolean[] = [];
+      for (const c of checks) {
+        const review = await auth.createSelfSubjectAccessReview({
+          body: {
+            spec: {
+              resourceAttributes: {
+                verb: c.verb,
+                resource: c.resource,
+                group: c.group ?? '',
+                ...(c.namespace === undefined ? {} : { namespace: c.namespace }),
+              },
+            },
+          },
+        });
+        answers.push(review.status?.allowed === true);
+      }
+      return answers;
+    },
     async listPods(namespace, timeoutMs) {
       const list = await api.listNamespacedPod({
         namespace,

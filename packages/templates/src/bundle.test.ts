@@ -76,6 +76,12 @@ describe('compose bundle', () => {
     expect(service['user']).toBe('${KODRA_AGENT_USER:-10001:10001}');
     expect(service['volumes']).toContain('./secrets:/secrets:ro');
     expect(JSON.stringify(service['volumes'])).not.toContain('docker.sock');
+    // Limits and rotated logs (M29).
+    expect(service).toMatchObject({ mem_limit: '2g', cpus: 2, pids_limit: 512 });
+    expect(service['logging']).toEqual({
+      driver: 'json-file',
+      options: { 'max-size': '10m', 'max-file': '5' },
+    });
   });
 
   it('mounts the Docker socket only on the one-shot builder, only for build access', () => {

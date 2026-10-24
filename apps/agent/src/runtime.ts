@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { WriteGate } from './write-gate.ts';
 import { dirname, join } from 'node:path';
 import {
   defaultDetectors,
@@ -8,7 +9,7 @@ import {
 } from '@kodra-agent/schema';
 import type { LanguageModel } from 'ai';
 import { AGENT_VERSION } from '@kodra-agent/templates';
-import { costOf, priceFor } from './console/data.ts';
+import { costOf, priceFor, readAudit } from './console/data.ts';
 import { startTracer, type AgentTracer } from './tracing.ts';
 import { AgentMetrics } from './metrics.ts';
 import { DataMasker } from './data-protection.ts';
@@ -19,6 +20,7 @@ import type { ApprovalChannel } from './approvals.ts';
 import { AuditLog } from './audit.ts';
 import { budgetState, type BudgetState } from './budget.ts';
 import { components, loadConfig, secretLabel } from './config.ts';
+import { BROAD_HINT, BROAD_REASON, startupScopeProblem } from './credential-scope.ts';
 import { AgentControl } from './control.ts';
 import { CONSOLE_TOKEN_ENV } from './console/token.ts';
 import type { Context } from './context.ts';
@@ -134,6 +136,27 @@ export async function startRuntime(
         reason: `missing ${gaps.join('; ')}`,
       });
       continue;
+    }
+    // A credential that reaches further than the agent needs is refused (M29).
+    const scope = await startupScopeProblem(
+      comp,
+      resolved.values,
+      ctx.kubernetes,
+      ctx.probeTimeoutMs,
+    );
+    if (scope && 'refused' in scope) {
+      skipped.push({
+        connector: comp.id,
+        displayName: comp.displayName,
+        server: undefined,
+        reason: scope.refused,
+      });
+      continue;
+    }
+    if (scope) {
+      ctx.term.err(
+        `${comp.displayName}: kept with more access than it needs (allowBroadCredentials): ${scope.kept.join('; ')}`,
+      );
     }
     const entry = config.spec.connectors[comp.id];
     const access = comp.manifest.accessLevels.length > 0 ? entry?.access : undefined;
@@ -257,6 +280,15 @@ export async function startRuntime(
         return loaded;
       }
     : null;
+  // Shared by every turn, Slack, the console, and alerts; a restart keeps the hour (M29).
+  const writes = new WriteGate(config.spec.limits.maxWritesPerHour);
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  writes.seed(
+    (await readAudit(config.spec.audit.path).catch(() => []))
+      .filter((r) => r.event === 'tool.call' && r.decision === 'approved')
+      .map((r) => Date.parse(r.ts))
+      .filter((t) => t > hourAgo),
+  );
   return {
     config,
     inputs,
@@ -281,6 +313,7 @@ export async function startRuntime(
       modelLabel,
       models,
       paused: control.reason,
+      writes,
       host,
       approvals,
       audit,
@@ -315,6 +348,7 @@ export function failureHint(
   env: Readonly<Record<string, string | undefined>>,
 ): string {
   const input = inputs.find((i) => i.component.id === failure.connector);
+  if (failure.reason.startsWith(BROAD_REASON)) return BROAD_HINT;
   if (
     failure.connector === 'kubernetes' &&
     config.spec.target === 'compose' &&

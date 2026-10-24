@@ -91,3 +91,22 @@ and this MCP server use it.
 
 GKE's `gke-gcloud-auth-plugin` and other login helpers are not in the image; use
 `init --dry-run` for those clusters.
+
+## Credential reach (M29)
+
+The agent reads workloads in its namespaces and, with write access, scales them. When the
+kubeconfig is tested (doctor, init, the console) and at every start, the agent asks the
+cluster what the credential may do (`SelfSubjectAccessReview`) and refuses one that:
+
+- is cluster-admin (`*` on `*`);
+- can read Secrets, in its namespaces or everywhere (`resources_get` could hand them to the
+  model);
+- can change deployments in every namespace.
+
+A refused connector is left out at startup and the rest of the agent runs. Make a kubeconfig
+with the steps under the kubeconfig in the console (a read-only service account), or keep
+the broad one with `allowBroadCredentials: true` on the connector; the agent then warns at
+every start. A cluster that cannot answer the review is not a reason to refuse.
+
+Scaling to zero or by more than half counts as destructive (`scaleLimit` in the manifest);
+see `docs/approvals.md`.

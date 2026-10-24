@@ -157,3 +157,20 @@ and any write to those objects, or to pods named after them, is blocked even wit
 A missing namespace counts as the agent's own, and a manifest that cannot be read is
 blocked. `src/self-protection.test.ts` fails if a new write-capable tool is added without
 the guard or a reason it cannot reach the agent.
+
+## Blast-radius limits (M29)
+
+Approval says a change may run. These limits keep a run of approved changes small, whoever
+approves them:
+
+- **Writes per hour.** At most `spec.limits.maxWritesPerHour` approved writes in any hour
+  (default 10), across Slack, the console, alerts, and every conversation. Each step of a
+  proposed change counts. Past it, writes are refused with the time the hour has room again.
+  The count is read back from the audit log at startup, so a restart does not reset it.
+- **One change at a time per environment.** A change holds its environment from the
+  approval request until it has run, or was denied or expired. A second change to the same
+  environment is refused until then, so two changes to production never wait or run at once.
+- **Big cuts are destructive.** Scaling to zero, or to less than half of the replicas the
+  object runs now, is treated as a destructive action: blocked under `destructiveActions:
+deny`, and asked as destructive under `require-approval`. The current count comes from a
+  read the policy checks like any other; when it cannot be read, only a cut to zero is caught.

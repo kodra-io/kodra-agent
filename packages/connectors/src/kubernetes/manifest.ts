@@ -185,6 +185,19 @@ export default defineManifest({
       { kind: 'not-self', namespaceArg: 'namespace', resourceArg: 'resource' },
     ],
   },
+  // A kubeconfig that is cluster-admin, reads Secrets, or changes deployments everywhere is
+  // refused (M29): resources_get could hand Secrets to the model.
+  credentialScope: 'kubernetes-rbac',
+  // Scaling to zero or by more than half is destructive (M29).
+  scaleLimit: {
+    tool: 'resources_scale',
+    replicasArg: 'scale',
+    current: {
+      tool: 'resources_get',
+      copyArgs: ['apiVersion', 'kind', 'namespace', 'name'],
+      path: ['spec', 'replicas'],
+    },
+  },
   // The console dashboard: read-only, per listed namespace (docs/console.md).
   dashboard: [
     {

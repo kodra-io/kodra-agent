@@ -337,6 +337,11 @@ const limitsSchema = z
      * is used up, new questions are refused; alert investigations keep running. Off when unset.
      */
     monthlyBudgetUsd: z.number().positive().max(1_000_000).optional(),
+    /**
+     * Approved writes per hour, across every connector and conversation (M29). Past it, writes
+     * are refused until the hour has room again, so a loop cannot change things on repeat.
+     */
+    maxWritesPerHour: z.int().min(1).max(1000).default(10),
   })
   .prefault({})
   .meta({ description: 'Limits for each question the agent answers, and a monthly budget.' });
@@ -499,6 +504,12 @@ function connectorEntrySchema(manifest: Manifest) {
   }
   if (manifest.secrets.length > 0) {
     shape['secrets'] = optionalUnless(unknownKeys(secretsShape, 'secret'), anySecretRequired);
+  }
+  if (manifest.credentialScope) {
+    shape['allowBroadCredentials'] = z.boolean().optional().meta({
+      description:
+        'Keep a credential that has more access than the agent needs (like cluster-admin). Refused by default.',
+    });
   }
   return unknownKeys(shape, 'key').meta({
     title: manifest.displayName,
@@ -680,6 +691,7 @@ export interface AgentConfig {
       tokenBudget: number;
       timeoutMinutes: number;
       monthlyBudgetUsd?: number | undefined;
+      maxWritesPerHour: number;
     };
     dataProtection: {
       redact?: Detector[] | undefined;
@@ -707,4 +719,6 @@ export interface ConnectorEntry {
   access?: 'read-only' | 'read-write-approved';
   config?: Record<string, unknown>;
   secrets?: Record<string, string>;
+  /** Keeps a credential broader than the agent needs (M29); only with `credentialScope`. */
+  allowBroadCredentials?: boolean;
 }
