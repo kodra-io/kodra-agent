@@ -550,7 +550,10 @@ DevOps practice for an agent that can change things: least privilege, small blas
 - **Blast radius.** `spec.limits.maxWritesPerHour` (default 10), one change at a time per environment, and scaling to zero or by more than half counts as destructive.
 - **Host limits.** The Compose bundle caps memory, CPU, and processes, and rotates logs.
 
-Next (M29b): watch each change's rollout and offer the rollback; secret age and expiry in the daily digest.
+### M29b: After a change, and secret hygiene
+
+- **Watch each change.** An approved Kubernetes scale is followed until its pods are ready (up to five minutes, in the background). If it does not settle, approvers are told in Slack with the change that puts it back, which needs approval again.
+- **Secrets in the digest.** Expired (critical), expiring within 14 days, or set more than 90 days ago, from the secret itself (kubeconfig tokens and certificates, JWTs), the console's audit records, and file times.
 
 ---
 
@@ -572,7 +575,8 @@ Update this table at the end of every milestone.
 | M26 Onboard a repo                                   | After launch | Done        | #67 |
 | M27 Scheduled checks and the daily digest            | After launch | Done        | #68 |
 | M28 Set up every connector from the console          | After launch | Done        | #71 |
-| M29 Guardrails                                       | After launch | In review   |     |
+| M29 Guardrails                                       | After launch | In review   | #76 |
+| M29b After a change, and secret hygiene              | After launch | In review   |     |
 
 Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 

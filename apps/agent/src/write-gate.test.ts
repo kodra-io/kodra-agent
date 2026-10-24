@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bigCut, currentReplicas } from './scale-limit.ts';
+import { bigCut, numberAt } from './scale-limit.ts';
 import { WriteGate } from './write-gate.ts';
 
 describe('WriteGate (M29)', () => {
@@ -72,8 +72,8 @@ describe('scale limits (M29)', () => {
       return Promise.resolve(null);
     });
     expect(seen).toEqual([{ namespace: 'api', name: 'web' }]);
-    expect(currentReplicas(object(3), ['spec', 'replicas'])).toBe(3);
-    expect(currentReplicas('not: [yaml', ['spec', 'replicas'])).toBeNull();
-    expect(currentReplicas('spec: {}', ['spec', 'replicas'])).toBeNull();
+    expect(numberAt(object(3), ['spec', 'replicas'])).toBe(3);
+    expect(numberAt('not: [yaml', ['spec', 'replicas'])).toBeNull();
+    expect(numberAt('spec: {}', ['spec', 'replicas'])).toBeNull();
   });
 });

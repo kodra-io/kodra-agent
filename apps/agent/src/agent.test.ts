@@ -102,6 +102,7 @@ async function setup(opts: {
       effective: opts.policy ?? testPolicy(),
     },
     limits: { maxSteps: 6, timeoutMs: 30_000, tokenBudget: opts.tokenBudget ?? 100_000 },
+    rolloutTiming: { intervalMs: 1, timeoutMs: 5 },
   };
   const audit = async () =>
     (await readFile(auditPath, 'utf8'))
@@ -114,6 +115,16 @@ async function setup(opts: {
 /** What the model was sent on its N-th call, as text. */
 const promptOf = (model: MockLanguageModelV4, n: number) =>
   JSON.stringify(model.doGenerateCalls[n]?.prompt);
+
+async function until<T>(check: () => T | undefined, ms = 5_000): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = check();
+    if (value !== undefined) return value;
+    if (Date.now() > deadline) throw new Error('timed out waiting');
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
 
 describe('agent loop', () => {
   it('runs a read tool and hands the output to the model as untrusted, escaped data', async () => {
@@ -188,6 +199,39 @@ describe('agent loop', () => {
     });
     await runTurn(asked.deps, [], 'scale web to 0', 't-zero2');
     expect(asked.channel.requests[0]?.risk).toBe('destructive');
+  });
+
+  it('watches an approved change and tells approvers when it does not settle (M29b)', async () => {
+    const { deps, audit } = await setup({
+      access: 'read-write-approved',
+      responses: [
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', scale: 3 }),
+        answer('Scaled.'),
+      ],
+    });
+    const announced: string[] = [];
+    await runTurn(
+      {
+        ...deps,
+        announce: (text) => {
+          announced.push(text);
+          return Promise.resolve();
+        },
+      },
+      [],
+      'scale web to 3',
+      't-rollout',
+    );
+    // The fake's read is no Deployment: its state cannot be read, and there is no rollback.
+    await until(() => announced[0]);
+    expect(announced[0]).toContain(
+      'The approved change fakek8s/resources_scale {"namespace":"api","name":"web","scale":3} did not settle: its state could not be read.',
+    );
+    expect(
+      (await audit()).some(
+        (r) => r['event'] === 'error' && String(r['detail']).includes('did not settle'),
+      ),
+    ).toBe(true);
   });
 
   it('stops writes past maxWritesPerHour (M29)', async () => {
