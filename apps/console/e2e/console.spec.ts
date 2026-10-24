@@ -364,6 +364,38 @@ test('onboards a repo from the console: the report, then the pull request', asyn
   );
 });
 
+test('adds a freeze to an environment from the console, with a preview', async ({ page }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Environments' }).click();
+  await page.getByRole('button', { name: 'Add a freeze' }).click();
+  await page.getByLabel('Name', { exact: true }).nth(1).fill('weekend');
+  await expect(page.getByText('+        - name: weekend')).toBeVisible();
+  await page.getByRole('button', { name: 'Save and restart' }).click();
+  await page.getByRole('button', { name: 'Yes, save and restart' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
+});
+
+test('warns when data the model saw masked would reach it unmasked', async ({ page }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Data protection' }).click();
+  await page.getByRole('switch', { name: "Use the profile's choice" }).click();
+  await page.getByRole('checkbox', { name: 'Card numbers' }).uncheck();
+  await expect(page.getByRole('note')).toContainText('The model sees these unmasked: cards.');
+});
+
+test('runs every check and verifies the audit log from Health', async ({ page }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('tab', { name: 'Health' }).click();
+  await page.getByRole('button', { name: 'Run the checks' }).click();
+  await expect(page.getByText('Kubernetes / kubernetes.list-pods')).toBeVisible();
+  await expect(page.getByText('Make a kubeconfig for a read-only service account.')).toBeVisible();
+  await page.getByRole('button', { name: 'Verify the audit log' }).click();
+  await expect(page.getByText('Intact: 42 records, none changed.')).toBeVisible();
+});
+
 test('trusts CA certificates pasted in Network', async ({ page }) => {
   await signIn(page, APPROVER_TOKEN);
   await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();

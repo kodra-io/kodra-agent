@@ -24,28 +24,53 @@ import { ConnectorTools, type PageProps } from './pages.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { PeoplePanel } from './people.tsx';
 import { ProviderSwitch } from './provider-switch.tsx';
+import {
+  ChecksEditor,
+  EnvironmentsEditor,
+  HealthPanel,
+  NamedModelsEditor,
+  ObservabilityEditor,
+  PrivacyEditor,
+  ProfileRules,
+  ProxyEditor,
+  WritesCard,
+} from './settings-more.tsx';
 import { SetupSteps } from './setup-steps.tsx';
 import { useStatus } from './status.ts';
 import { Badge, Mono } from './ui.tsx';
 
-type Tab = 'connectors' | 'policy' | 'limits' | 'network' | 'console' | 'people';
+type Tab =
+  | 'connectors'
+  | 'policy'
+  | 'environments'
+  | 'checks'
+  | 'limits'
+  | 'network'
+  | 'privacy'
+  | 'console'
+  | 'health'
+  | 'people';
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: 'connectors', label: 'settings.tab.connectors' },
   { id: 'policy', label: 'settings.tab.policy' },
+  { id: 'environments', label: 'settings.tab.environments' },
+  { id: 'checks', label: 'settings.tab.checks' },
   { id: 'limits', label: 'settings.tab.limits' },
   { id: 'network', label: 'settings.tab.network' },
+  { id: 'privacy', label: 'settings.tab.privacy' },
   { id: 'console', label: 'settings.tab.console' },
+  { id: 'health', label: 'settings.tab.health' },
   { id: 'people', label: 'settings.tab.people' },
 ];
 
 const PREVIEW_DELAY_MS = 400;
 const RESTART_TIMEOUT_MS = 90_000;
 
-const input =
+export const input =
   'h-10 w-full rounded-lg border border-line-strong bg-surface px-3 disabled:opacity-60';
-const primary =
+export const primary =
   'inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 font-semibold text-white shadow-md hover:bg-primary-deep disabled:opacity-50';
-const secondary =
+export const secondary =
   'inline-flex h-10 items-center gap-2 rounded-lg border border-line-strong bg-raised px-4 font-medium hover:bg-muted disabled:opacity-50';
 
 function isEmpty(patch: SettingsPatch): boolean {
@@ -146,7 +171,12 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
 
   const setConnector = (
     id: string,
-    change: { enabled?: boolean; access?: string; config?: Record<string, unknown> },
+    change: {
+      enabled?: boolean;
+      access?: string;
+      config?: Record<string, unknown>;
+      allowBroadCredentials?: boolean | null;
+    },
   ) => {
     setPatch((p) => {
       const current = p.connectors?.[id] ?? {};
@@ -162,6 +192,10 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
         },
       };
     });
+  };
+  // The other sections (M30b): each editor passes its section already merged.
+  const merge = (change: SettingsPatch) => {
+    setPatch((p) => ({ ...p, ...change }));
   };
   const setSection = <K extends 'policy' | 'model' | 'limits' | 'console'>(
     section: K,
@@ -337,15 +371,28 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
             />
           )}
           {view && tab === 'policy' && (
-            <PolicyEditor
-              view={view}
-              patch={patch}
-              canEdit={canEdit}
-              onChange={(c) => {
-                setSection('policy', c);
-              }}
-            />
+            <>
+              <PolicyEditor
+                view={view}
+                patch={patch}
+                canEdit={canEdit}
+                onChange={(c) => {
+                  setSection('policy', c);
+                }}
+              />
+              <ProfileRules view={view} patch={patch} canEdit={canEdit} onChange={merge} />
+            </>
           )}
+          {view && tab === 'environments' && (
+            <EnvironmentsEditor view={view} patch={patch} canEdit={canEdit} onChange={merge} />
+          )}
+          {view && tab === 'checks' && (
+            <ChecksEditor view={view} patch={patch} canEdit={canEdit} onChange={merge} />
+          )}
+          {view && tab === 'privacy' && (
+            <PrivacyEditor view={view} patch={patch} canEdit={canEdit} onChange={merge} />
+          )}
+          {tab === 'health' && <HealthPanel canApprove={me.canApprove} onSignedOut={onSignedOut} />}
           {view && tab === 'limits' && (
             <LimitsEditor
               view={view}
@@ -361,12 +408,33 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
               onSwitch={(action) => void restartThen(action)}
             />
           )}
+          {view && tab === 'limits' && (
+            <>
+              <WritesCard view={view} patch={patch} canEdit={canEdit} onChange={merge} />
+              <NamedModelsEditor
+                view={view}
+                patch={patch}
+                canEdit={canEdit}
+                onChange={merge}
+                onKeySaved={(action) => void restartThen(action)}
+              />
+            </>
+          )}
           {view && tab === 'network' && (
-            <NetworkEditor
-              view={view}
-              canEdit={canEdit}
-              onSaved={(action) => void restartThen(action)}
-            />
+            <>
+              <NetworkEditor
+                view={view}
+                canEdit={canEdit}
+                onSaved={(action) => void restartThen(action)}
+              />
+              <ProxyEditor
+                view={view}
+                patch={patch}
+                canEdit={canEdit}
+                onChange={merge}
+                onSaved={(action) => void restartThen(action)}
+              />
+            </>
           )}
           {tab === 'people' && me.canApprove && (
             <PeoplePanel
@@ -392,6 +460,9 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
               />
               <p className="text-sm text-ink-secondary">{t('settings.console.offHint')}</p>
             </Card>
+          )}
+          {view && tab === 'console' && (
+            <ObservabilityEditor view={view} patch={patch} canEdit={canEdit} onChange={merge} />
           )}
         </div>
 
@@ -492,7 +563,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
   );
 }
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+export function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
     <fieldset className="flex flex-col gap-4 rounded-xl border border-line bg-raised p-5">
       <legend className="px-1.5 text-base font-semibold">{title}</legend>
@@ -501,7 +572,7 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Toggle({
+export function Toggle({
   label,
   hint,
   checked,
@@ -648,12 +719,18 @@ function ConnectorEditor({
 }: {
   connector: ConnectorSettings;
   live: ConnectorView | undefined;
-  patch: { enabled?: boolean; access?: string; config?: Record<string, unknown> };
+  patch: {
+    enabled?: boolean;
+    access?: string;
+    config?: Record<string, unknown>;
+    allowBroadCredentials?: boolean | null;
+  };
   canEdit: boolean;
   onChange: (change: {
     enabled?: boolean;
     access?: string;
     config?: Record<string, unknown>;
+    allowBroadCredentials?: boolean | null;
   }) => void;
   onBack: () => void;
   onSecretSaved: (action: Promise<unknown>) => void;
@@ -821,6 +898,21 @@ function ConnectorEditor({
               onSaved={onSecretSaved}
             />
           ))}
+          {c.broadCredentials !== null && (
+            <Toggle
+              label={t('more.broad.label')}
+              hint={t('more.broad.hint')}
+              checked={
+                patch.allowBroadCredentials === undefined
+                  ? c.broadCredentials
+                  : patch.allowBroadCredentials === true
+              }
+              disabled={!canEdit}
+              onChange={(v) => {
+                onChange({ allowBroadCredentials: v ? true : null });
+              }}
+            />
+          )}
         </Card>
       )}
 
@@ -1187,7 +1279,7 @@ function EntryInput({
   );
 }
 
-function TagInput({
+export function TagInput({
   id,
   values,
   placeholder,
@@ -1610,7 +1702,7 @@ function PolicyEditor({
   );
 }
 
-function NumberField({
+export function NumberField({
   label,
   hint,
   value,
@@ -1801,6 +1893,14 @@ function MoreAccess({ changes, view }: { changes: AccessChange[]; view: Settings
             return t('settings.more.chat');
           case 'model':
             return t('settings.more.model', { from: c.from, to: c.to });
+          case 'broad':
+            return t('settings.more.broad', { connector: name(c.connector) });
+          case 'unmasked':
+            return t('settings.more.unmasked', { detectors: c.detectors.join(', ') });
+          case 'named-model':
+            return t('settings.more.namedModel', { name: c.name });
+          case 'tracing':
+            return t('settings.more.tracing', { endpoint: c.endpoint });
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

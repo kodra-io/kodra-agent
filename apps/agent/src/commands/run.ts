@@ -1,4 +1,5 @@
 import { proxyOptions } from '../network.ts';
+import { doctorRows } from './doctor.ts';
 import { OnboardJobs } from '../console/onboard.ts';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -342,6 +343,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           store: settings,
           people,
           gate: policyGate,
+          doctor: () => doctorRows(opts.configPath, ctx, 'console'),
           // After the response is sent, so the page hears that the save worked.
           restart: () => {
             setTimeout(() => {

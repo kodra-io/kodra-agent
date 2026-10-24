@@ -29,6 +29,16 @@ export interface DoctorRow {
 }
 
 export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number> {
+  return finish(await doctorRows(opts.configPath, ctx, 'cli'), opts, ctx);
+}
+
+/** Every doctor check, as rows (the CLI prints them; the console shows them, M30b). */
+export async function doctorRows(
+  configPath: string,
+  ctx: Context,
+  actor: string,
+): Promise<DoctorRow[]> {
+  const opts = { configPath };
   const rows: DoctorRow[] = [];
   const add = (row: DoctorRow) => rows.push(row);
 
@@ -41,7 +51,7 @@ export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number>
       message: 'invalid',
       hint: loaded.errors.join('\n'),
     });
-    return finish(rows, opts, ctx);
+    return rows;
   }
   const { config, dir } = loaded;
   add({
@@ -175,19 +185,18 @@ export async function doctor(opts: DoctorOptions, ctx: Context): Promise<number>
     }
   }
 
-  const code = finish(rows, opts, ctx);
   if (auditOk) {
     const count = (status: ProbeStatus) => String(rows.filter((r) => r.status === status).length);
     await audit
       .append({
         event: 'result',
-        actor: 'cli',
+        actor,
         task: 'doctor',
         detail: `${count('pass')} passed, ${count('fail')} failed, ${count('skip')} skipped`,
       })
       .catch(() => undefined);
   }
-  return code;
+  return rows;
 }
 
 async function readOptional(path: string): Promise<string | null> {

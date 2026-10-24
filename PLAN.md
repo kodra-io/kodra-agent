@@ -551,6 +551,10 @@ DevOps practice for an agent that can change things: least privilege, small blas
 - **Blast radius.** `spec.limits.maxWritesPerHour` (default 10), one change at a time per environment, and scaling to zero or by more than half counts as destructive.
 - **Host limits.** The Compose bundle caps memory, CPU, and processes, and rotates logs.
 
+### M30b: Everything in the console
+
+Every setting in kodra-agent.yaml is in Settings: profile and approval rules, environments and freezes, checks and alert limits, writes per hour, named models and their keys, the proxy and image mirrors, data protection, observability, and keeping a broad credential. Slack `@name` approvers are looked up in the console. Health runs every doctor check and verifies the audit chain. See `docs/console.md`. Only the builder's Docker socket stays in docker-compose.yml, on purpose.
+
 ### M30a: Onboard from the console
 
 The Repos page: pick a configured repo, Analyze (the report, posted to Slack), then Open pull request after one approval. It runs in the running agent with its approvals and Slack, without Docker: the pull request's CI builds the image. See `docs/onboard.md`.
@@ -582,7 +586,8 @@ Update this table at the end of every milestone.
 | M28 Set up every connector from the console          | After launch | Done        | #71 |
 | M29 Guardrails                                       | After launch | Done        | #76 |
 | M29b After a change, and secret hygiene              | After launch | Done        | #78 |
-| M30a Onboard from the console                        | After launch | In review   |     |
+| M30a Onboard from the console                        | After launch | Done        | #80 |
+| M30b Everything in the console                       | After launch | In review   |     |
 
 Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 

@@ -1,4 +1,5 @@
 import { modelDestination, policyDiffers } from './policy-gate.ts';
+import { approverNames, listSlackUsers, matchNames } from '../slack/names.ts';
 import { createHash } from 'node:crypto';
 import { access } from 'node:fs/promises';
 import {
@@ -9,6 +10,8 @@ import {
   parseAgentConfig,
 } from '@kodra-agent/connectors';
 import {
+  parseSecretRef,
+  defaultDetectors,
   entriesOf,
   entryEnvVar,
   entrySecretWanted,
@@ -65,6 +68,16 @@ export interface ConnectorPatch {
   access?: AccessLevel;
   /** Setting values by key; null removes a setting. */
   config?: Record<string, unknown>;
+  /** Keep a credential broader than the agent needs (M29); null removes it. */
+  allowBroadCredentials?: boolean | null;
+}
+
+/** Approval rules the profile decides unless set; null removes one (M30b). */
+export interface RulesPatch {
+  minApprovers?: number | null;
+  allowSelfApproval?: boolean | null;
+  requireChangeRef?: boolean | null;
+  changeRefPattern?: string | null;
 }
 
 export interface SettingsPatch {
@@ -73,7 +86,29 @@ export interface SettingsPatch {
     approvers?: string[];
     expiresAfterMinutes?: number;
     destructiveActions?: 'deny' | 'require-approval';
+  } & RulesPatch;
+  /** starter, team, or strict (M10). */
+  profile?: string;
+  /** Every environment, replacing the list (M30b). */
+  environments?: Record<string, unknown>[];
+  checks?: {
+    schedules?: { name: string; at: string; days?: string[]; timezone: string }[];
+    quietWhenClean?: boolean;
   };
+  monitoring?: { maxConcurrent?: number; maxPerHour?: number; cooldownMinutes?: number };
+  /** Hosts that skip the proxy; the proxy URLs themselves are secrets (settings/proxy). */
+  network?: { noProxy?: string | null };
+  /** null for the profile's detectors. */
+  dataProtection?: { redact?: string[] | null; patterns?: { name: string; regex: string }[] };
+  /** Named models (M13), each like the model; null removes one. */
+  models?: Record<
+    string,
+    { provider: string; name: string; config?: Record<string, string> } | null
+  >;
+  ship?: { baseImageMirrors?: Record<string, string> };
+  metrics?: { enabled?: boolean; port?: number };
+  tracing?: { enabled?: boolean; endpoint?: string | null };
+  audit?: { stdout?: boolean };
   /**
    * The model's name; with `provider`, the whole model is replaced: that provider, its
    * settings from `config`, and references to its secrets (the values go to .env).
@@ -85,6 +120,7 @@ export interface SettingsPatch {
     timeoutMinutes?: number;
     /** null removes the budget. */
     monthlyBudgetUsd?: number | null;
+    maxWritesPerHour?: number;
   };
   console?: { chat?: boolean };
 }
@@ -98,7 +134,15 @@ export type AccessChange =
   | { code: 'destructive' }
   | { code: 'chat' }
   /** Questions, logs, and tool output now go to another model provider or endpoint. */
-  | { code: 'model'; from: string; to: string };
+  | { code: 'model'; from: string; to: string }
+  /** A credential broader than the agent needs is kept (M29). */
+  | { code: 'broad'; connector: string }
+  /** Kinds of customer data the model now sees unmasked (M13). */
+  | { code: 'unmasked'; detectors: string[] }
+  /** Another model provider some environment's data can go to (M13). */
+  | { code: 'named-model'; name: string }
+  /** Traces (names and durations) now go to this endpoint. */
+  | { code: 'tracing'; endpoint: string };
 
 export interface Preview {
   ok: boolean;
@@ -112,6 +156,13 @@ export interface Preview {
 }
 
 const hash = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
+
+const RULE_KEYS = [
+  'minApprovers',
+  'allowSelfApproval',
+  'requireChangeRef',
+  'changeRefPattern',
+] as const;
 
 /** Applies a patch to the YAML text, keeping its comments and layout. */
 export function patchConfigText(text: string, patch: SettingsPatch): string {
@@ -138,6 +189,9 @@ export function patchConfigText(text: string, patch: SettingsPatch): string {
       set([...base, 'enabled'], c.enabled);
       set([...base, 'access'], c.access);
     }
+    if (c.allowBroadCredentials !== undefined) {
+      set([...base, 'allowBroadCredentials'], c.allowBroadCredentials === true ? true : null);
+    }
     for (const [key, value] of Object.entries(c.config ?? {})) {
       const field = manifest.configFields.find((f) => f.key === key);
       set(
@@ -151,10 +205,60 @@ export function patchConfigText(text: string, patch: SettingsPatch): string {
   set(['spec', 'policy', 'approvals', 'approvers'], patch.policy?.approvers);
   set(['spec', 'policy', 'approvals', 'expiresAfterMinutes'], patch.policy?.expiresAfterMinutes);
   set(['spec', 'policy', 'destructiveActions'], patch.policy?.destructiveActions);
+  for (const key of RULE_KEYS) {
+    if (patch.policy && key in patch.policy) {
+      const value = patch.policy[key];
+      set(['spec', 'policy', 'approvals', key], value === '' ? null : value);
+    }
+  }
+  set(['spec', 'profile'], patch.profile);
+  if (patch.environments !== undefined) {
+    doc.setIn(['spec', 'environments'], doc.createNode(patch.environments));
+  }
+  if (patch.checks?.schedules !== undefined) {
+    doc.setIn(['spec', 'checks', 'schedules'], doc.createNode(patch.checks.schedules));
+  }
+  set(['spec', 'checks', 'quietWhenClean'], patch.checks?.quietWhenClean);
+  for (const key of ['maxConcurrent', 'maxPerHour', 'cooldownMinutes'] as const) {
+    set(['spec', 'monitoring', key], patch.monitoring?.[key]);
+  }
+  if (patch.network && 'noProxy' in patch.network) {
+    set(['spec', 'network', 'proxy', 'noProxy'], patch.network.noProxy || null);
+  }
+  if (patch.dataProtection && 'redact' in patch.dataProtection) {
+    const redact = patch.dataProtection.redact;
+    set(['spec', 'dataProtection', 'redact'], redact === null ? null : doc.createNode(redact));
+  }
+  if (patch.dataProtection?.patterns !== undefined) {
+    doc.setIn(
+      ['spec', 'dataProtection', 'patterns'],
+      doc.createNode(patch.dataProtection.patterns),
+    );
+  }
+  for (const [name, model] of Object.entries(patch.models ?? {})) {
+    if (model === null) doc.deleteIn(['spec', 'models', name]);
+    else doc.setIn(['spec', 'models', name], doc.createNode(modelNode(model)));
+  }
+  if (patch.ship?.baseImageMirrors !== undefined) {
+    doc.setIn(['spec', 'ship', 'baseImageMirrors'], doc.createNode(patch.ship.baseImageMirrors));
+  }
+  set(['spec', 'metrics', 'enabled'], patch.metrics?.enabled);
+  set(['spec', 'metrics', 'port'], patch.metrics?.port);
+  set(['spec', 'tracing', 'enabled'], patch.tracing?.enabled);
+  if (patch.tracing && 'endpoint' in patch.tracing) {
+    set(['spec', 'tracing', 'endpoint'], patch.tracing.endpoint || null);
+  }
+  set(['spec', 'audit', 'stdout'], patch.audit?.stdout);
   if (patch.model?.provider !== undefined) {
     doc.setIn(['spec', 'model'], doc.createNode(modelNode(patch.model)));
   } else set(['spec', 'model', 'name'], patch.model?.name);
-  for (const key of ['maxSteps', 'tokenBudget', 'timeoutMinutes', 'monthlyBudgetUsd'] as const) {
+  for (const key of [
+    'maxSteps',
+    'tokenBudget',
+    'timeoutMinutes',
+    'monthlyBudgetUsd',
+    'maxWritesPerHour',
+  ] as const) {
     set(['spec', 'limits', key], patch.limits?.[key]);
   }
   set(['spec', 'console', 'chat'], patch.console?.chat);
@@ -310,12 +414,24 @@ export function changedPaths(patch: SettingsPatch): string[] {
     for (const key of ['enabled', 'access'] as const)
       if (c[key] !== undefined) out.push(`${id}.${key}`);
     for (const key of Object.keys(c.config ?? {})) out.push(`${id}.${key}`);
+    if (c.allowBroadCredentials !== undefined) out.push(`${id}.allowBroadCredentials`);
   }
+  if (patch.profile !== undefined) out.push('profile');
+  if (patch.environments !== undefined) out.push('environments');
   for (const [section, values] of Object.entries({
     policy: patch.policy,
     model: patch.model,
     limits: patch.limits,
     console: patch.console,
+    checks: patch.checks,
+    monitoring: patch.monitoring,
+    network: patch.network,
+    dataProtection: patch.dataProtection,
+    models: patch.models,
+    ship: patch.ship,
+    metrics: patch.metrics,
+    tracing: patch.tracing,
+    audit: patch.audit,
   })) {
     for (const key of Object.keys(values ?? {})) out.push(`${section}.${key}`);
   }
@@ -370,6 +486,24 @@ export function moreAccess(before: AgentConfig, after: AgentConfig): AccessChang
     out.push({ code: 'destructive' });
   }
   if (after.spec.console.chat && !before.spec.console.chat) out.push({ code: 'chat' });
+  for (const [id, entry] of Object.entries(after.spec.connectors)) {
+    if (entry?.allowBroadCredentials && !before.spec.connectors[id]?.allowBroadCredentials) {
+      out.push({ code: 'broad', connector: id });
+    }
+  }
+  // Less masking: data the model saw masked before now reaches it as is.
+  const masked = (c: AgentConfig) =>
+    new Set(c.spec.dataProtection.redact ?? defaultDetectors(c.spec.profile));
+  const was = masked(before);
+  const now = masked(after);
+  const dropped = [...was].filter((d) => !now.has(d));
+  if (dropped.length > 0) out.push({ code: 'unmasked', detectors: dropped });
+  for (const name of Object.keys(after.spec.models)) {
+    if (!(name in before.spec.models)) out.push({ code: 'named-model', name });
+  }
+  if (after.spec.tracing.enabled && after.spec.tracing.endpoint !== before.spec.tracing.endpoint) {
+    out.push({ code: 'tracing', endpoint: after.spec.tracing.endpoint ?? '' });
+  }
   if (modelDestination(after) !== modelDestination(before)) {
     out.push({ code: 'model', from: modelDestination(before), to: modelDestination(after) });
   }
@@ -412,6 +546,8 @@ export interface ConnectorSettings {
   entrySteps: Record<string, Record<string, FilledStep[]>>;
   /** Labels of the secrets this connector still needs. */
   missing: string[];
+  /** For a connector whose credential's reach is checked (M29): whether a broad one is kept. */
+  broadCredentials: boolean | null;
   tools: { read: number; write: number; destructive: number };
 }
 
@@ -425,7 +561,42 @@ export interface SettingsView {
   limits: AgentConfig['spec']['limits'];
   console: { chat: boolean };
   /** The extra CA certificates the agent trusts, and whether the console can change them. */
-  network: { caBundleFile: string | null; caWritable: boolean };
+  network: {
+    caBundleFile: string | null;
+    caWritable: boolean;
+    noProxy: string | null;
+    /** Whether each proxy URL is set (the URLs are secrets, never shown). */
+    proxy: { https: boolean; http: boolean };
+    proxyWritable: boolean;
+  };
+  /** Everything else the config holds, for the console to change (M30b). */
+  profile: string;
+  rules: {
+    minApprovers?: number | undefined;
+    allowSelfApproval?: boolean | undefined;
+    requireChangeRef?: boolean | undefined;
+    changeRefPattern?: string | undefined;
+  };
+  environments: AgentConfig['spec']['environments'];
+  checks: AgentConfig['spec']['checks'];
+  monitoring: AgentConfig['spec']['monitoring'];
+  dataProtection: {
+    redact: string[] | null;
+    /** What the profile masks when redact is unset. */
+    defaults: string[];
+    patterns: { name: string; regex: string }[];
+  };
+  models: {
+    name: string;
+    provider: string;
+    model: string;
+    config: Record<string, string>;
+    secrets: { key: string; label: string; set: boolean }[];
+  }[];
+  ship: { baseImageMirrors: Record<string, string> };
+  metrics: AgentConfig['spec']['metrics'];
+  tracing: AgentConfig['spec']['tracing'];
+  audit: { stdout: boolean };
   connectors: ConnectorSettings[];
   lastChange: { by: string; at: string; detail: string } | null;
   undoable: boolean;
@@ -470,6 +641,15 @@ export interface SettingsDeps {
   promptSize?: () => number;
   /** Tests swap how databases are reached (a password is tested before it is saved). */
   databases?: ProbeContext['databases'];
+  /** Tests point Slack's users.list at a fake (M30b). */
+  slackBase?: string;
+}
+
+/** Whether a proxy URL reference has a value. */
+function proxySet(ref: string | undefined, env: Readonly<Record<string, string | undefined>>) {
+  if (!ref) return false;
+  const parsed = parseSecretRef(ref);
+  return parsed.ok && parsed.ref.scheme === 'env' ? Boolean(env[parsed.ref.name]) : parsed.ok;
 }
 
 /** A model name as providers write them: letters, digits, and . _ - : / @. */
@@ -546,7 +726,52 @@ export class SettingsStore {
       network: {
         caBundleFile: config.spec.network.caBundleFile ?? null,
         caWritable: editable && this.backend.filesWritable,
+        noProxy: config.spec.network.proxy?.noProxy ?? null,
+        proxy: {
+          https: proxySet(config.spec.network.proxy?.https, env),
+          http: proxySet(config.spec.network.proxy?.http, env),
+        },
+        proxyWritable: envWritable,
       },
+      profile: config.spec.profile,
+      rules: {
+        minApprovers: config.spec.policy.approvals.minApprovers,
+        allowSelfApproval: config.spec.policy.approvals.allowSelfApproval,
+        requireChangeRef: config.spec.policy.approvals.requireChangeRef,
+        changeRefPattern: config.spec.policy.approvals.changeRefPattern,
+      },
+      environments: config.spec.environments,
+      checks: config.spec.checks,
+      monitoring: config.spec.monitoring,
+      dataProtection: {
+        redact: config.spec.dataProtection.redact ?? null,
+        defaults: defaultDetectors(config.spec.profile),
+        patterns: config.spec.dataProtection.patterns,
+      },
+      models: Object.entries(config.spec.models).map(([name, m]) => {
+        const named = m as Record<string, unknown> & { provider: string; name: string };
+        const manifest = getModelProvider(named.provider);
+        const comp = comps.get(`model:${name}`);
+        return {
+          name,
+          provider: named.provider,
+          model: named.name,
+          config: Object.fromEntries(
+            (manifest?.configFields ?? []).flatMap((f) =>
+              typeof named[f.key] === 'string' ? [[f.key, String(named[f.key])]] : [],
+            ),
+          ),
+          secrets: (comp?.secrets ?? []).map((use) => ({
+            key: use.spec.key,
+            label: secretLabel(use),
+            set: isSet(use.ref),
+          })),
+        };
+      }),
+      ship: { baseImageMirrors: config.spec.ship.baseImageMirrors },
+      metrics: config.spec.metrics,
+      tracing: config.spec.tracing,
+      audit: { stdout: config.spec.audit.stdout },
       connectors: allConnectors.map((m) => {
         const entry = config.spec.connectors[m.id];
         const comp = comps.get(m.id);
@@ -617,6 +842,7 @@ export class SettingsStore {
           missing: entry?.enabled
             ? secrets.filter((s) => s.required && !s.set).map((s) => s.label)
             : [],
+          broadCredentials: m.credentialScope ? entry?.allowBroadCredentials === true : null,
           tools: {
             read: risks.filter((r) => r === 'read').length,
             write: risks.filter((r) => r === 'write').length,
@@ -629,10 +855,22 @@ export class SettingsStore {
     };
   }
 
-  async preview(patch: SettingsPatch): Promise<Preview> {
+  async preview(input: SettingsPatch): Promise<Preview> {
     const text = await this.text();
     const before = this.parse(text);
     const base = hash(text);
+    const { patch, problems } = await this.withSlackIds(input, before);
+    if (problems.length > 0) {
+      return {
+        ok: false,
+        errors: problems,
+        diff: '',
+        base,
+        moreAccess: [],
+        changed: [],
+        policy: false,
+      };
+    }
     let next: string;
     try {
       next = patchConfigText(text, patch);
@@ -671,10 +909,11 @@ export class SettingsStore {
   }
 
   /** Saves the patched file if nothing changed since the preview. The caller restarts the agent. */
-  async apply(patch: SettingsPatch, base: string, by: string): Promise<Preview | 'stale'> {
+  async apply(input: SettingsPatch, base: string, by: string): Promise<Preview | 'stale'> {
     const text = await this.text();
     if (hash(text) !== base) return 'stale';
     if (!this.editable(this.parse(text))) return this.refused(text);
+    const { patch } = await this.withSlackIds(input, this.parse(text));
     const preview = await this.preview(patch);
     if (!preview.ok || preview.diff === '') return preview;
     await this.backend.save(patchConfigText(text, patch), text);
@@ -702,6 +941,136 @@ export class SettingsStore {
 
   async audit(by: string, detail: string): Promise<void> {
     await this.deps.audit.append({ event: 'settings', actor: by, detail });
+  }
+
+  /**
+   * Slack approvers typed as @name, turned into user ids with the Slack connector's bot token
+   * (users:read), as `init` does (M30b). Names that match nobody, or several people, are
+   * problems for the preview.
+   */
+  private async withSlackIds(
+    patch: SettingsPatch,
+    config: AgentConfig,
+  ): Promise<{ patch: SettingsPatch; problems: string[] }> {
+    const lists = [
+      patch.policy?.approvers ?? [],
+      ...(patch.environments ?? []).map((e) =>
+        Array.isArray(e['approvers']) ? e['approvers'].map(String) : [],
+      ),
+    ];
+    // Names already in the config are left as they are (doctor flags them); only new ones.
+    const known = new Set([
+      ...config.spec.policy.approvals.approvers,
+      ...config.spec.environments.flatMap((e) => e.approvers ?? []),
+    ]);
+    const names = approverNames(lists.flat()).filter((n) => !known.has(n));
+    if (names.length === 0) return { patch, problems: [] };
+    const slack = components(config).find((c) => c.id === 'slack');
+    const { values } = slack
+      ? await resolveAll(slack.secrets, { env: this.deps.env, redactor: this.deps.redactor })
+      : { values: {} as Record<string, string> };
+    const token = values['botToken'];
+    if (!token) {
+      return {
+        patch,
+        problems: [
+          `${names.join(', ')}: Slack names need the Slack connector with its bot token, to look them up. Use console:<name> or a Slack user id (U…) instead.`,
+        ],
+      };
+    }
+    let users;
+    try {
+      users = await listSlackUsers(this.deps.fetch, token, this.deps.slackBase);
+    } catch (error) {
+      return {
+        patch,
+        problems: [
+          `Cannot look up Slack names: ${this.deps.redactor.redact(error instanceof Error ? error.message : String(error))}. The bot token needs the users:read scope.`,
+        ],
+      };
+    }
+    const { found, problems } = matchNames(names, users);
+    const swap = (list: string[]) => list.map((a) => found.get(a)?.id ?? a);
+    return {
+      patch: {
+        ...patch,
+        ...(patch.policy?.approvers
+          ? { policy: { ...patch.policy, approvers: swap(patch.policy.approvers) } }
+          : {}),
+        ...(patch.environments
+          ? {
+              environments: patch.environments.map((e) =>
+                Array.isArray(e['approvers'])
+                  ? { ...e, approvers: swap(e['approvers'].map(String)) }
+                  : e,
+              ),
+            }
+          : {}),
+      },
+      problems,
+    };
+  }
+
+  /**
+   * Sets or removes the proxy URLs (M30b). They are secrets (a URL can hold a password), so
+   * they go to .env or the agent's Secret, the config refers to them, and only their host is
+   * audited. The caller restarts the agent, which applies them at startup.
+   */
+  async setProxy(
+    urls: { https?: string | null; http?: string | null },
+    by: string,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const text = await this.text();
+    const config = this.parse(text);
+    if (!this.editable(config) || !this.backend.envWritable) {
+      return { ok: false, message: 'the proxy cannot be changed here' };
+    }
+    const doc = parseDocument(text);
+    const set = new Map<string, string>();
+    const remove: string[] = [];
+    const notes: string[] = [];
+    for (const kind of ['https', 'http'] as const) {
+      const value = urls[kind];
+      if (value === undefined) continue;
+      const path = ['spec', 'network', 'proxy', kind];
+      const current = config.spec.network.proxy?.[kind];
+      const parsed = current ? parseSecretRef(current) : null;
+      const envName =
+        parsed?.ok && parsed.ref.scheme === 'env'
+          ? parsed.ref.name
+          : kind === 'https'
+            ? 'KODRA_HTTPS_PROXY'
+            : 'KODRA_HTTP_PROXY';
+      if (value === null || value.trim() === '') {
+        doc.deleteIn(path);
+        remove.push(envName);
+        notes.push(`removed the ${kind.toUpperCase()} proxy`);
+        continue;
+      }
+      let url: URL;
+      try {
+        url = new URL(value.trim());
+      } catch {
+        return { ok: false, message: `the ${kind.toUpperCase()} proxy is not a URL` };
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return { ok: false, message: 'a proxy URL starts with http:// or https://' };
+      }
+      this.deps.redactor.add(value.trim());
+      set.set(envName, value.trim());
+      doc.setIn(path, `\${env:${envName}}`);
+      notes.push(`set the ${kind.toUpperCase()} proxy (${url.host})`);
+    }
+    if (notes.length === 0) return { ok: false, message: 'no proxy to change' };
+    const next = doc.toString();
+    const parsed = parseAgentConfig(next);
+    if (!parsed.ok) {
+      return { ok: false, message: parsed.issues.map((i) => formatIssue(i)).join('; ') };
+    }
+    await this.backend.writeEnv(set, remove);
+    if (next !== text) await this.backend.save(next, text);
+    await this.deps.audit.append({ event: 'settings', actor: by, detail: notes.join('; ') });
+    return { ok: true };
   }
 
   /** Sets and removes keys in .env (values are registered with the redactor first). */

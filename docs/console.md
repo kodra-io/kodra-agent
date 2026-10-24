@@ -179,7 +179,34 @@ How a change is saved:
 Secrets are write-only. **Add** or **Replace** checks a new value with the connector's own
 check first, and only then saves it; the value is never shown again, logged, or sent anywhere.
 
-### Repos (M30a)
+### Everything in Settings (M30b)
+
+Every part of kodra-agent.yaml can be changed in Settings, through the same preview, diff,
+save, audit, and Undo as the rest, with policy changes announced or held for a second
+approver as the profile says:
+
+| Tab                  | What                                                                                                                                                                                                                              |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connectors           | Each connector's access, settings, and secrets; for Kubernetes, whether to keep a credential broader than it needs (`allowBroadCredentials`)                                                                                      |
+| Approvals and policy | Approvers (Slack `@name`s are looked up and saved as user ids, with the Slack bot token), expiry, destructive actions, the profile, and approval rules (approvers per change, self-approval, change references and their pattern) |
+| Environments         | Namespaces and repos with their own approvers, rules, model, and freeze windows (weekly or between dates)                                                                                                                         |
+| Checks and alerts    | When the checks run (times, days, zone), quiet when clean, and the limits on alert investigations                                                                                                                                 |
+| Model and limits     | The model, limits, the monthly budget, approved writes per hour, and other models (`spec.models`) with their keys                                                                                                                 |
+| Network              | Trusted CA certificates, the proxy (its URLs are saved as secrets; only the host is audited), hosts that skip it, and base image mirrors                                                                                          |
+| Data protection      | What is masked before the model sees it, or the profile's choice, and your own patterns                                                                                                                                           |
+| Console              | Chat, Prometheus metrics, OpenTelemetry traces, and audit records to the log                                                                                                                                                      |
+| Health               | Every doctor check, and the audit chain                                                                                                                                                                                           |
+
+A change that gives something away is named before it is saved: a broad credential kept,
+data the model now sees unmasked, a new model an environment's data can go to, or a traces
+endpoint.
+
+Two things stay outside the console on purpose: the Docker socket for the one-shot builder
+(chosen in the configurator, in docker-compose.yml), because a console that could give
+itself the socket would get around the safety rules; and the local image build for ship and
+onboard, which needs that builder (`docker compose run --rm kodra-builder onboard <repo>`).
+
+## Repos (M30a)
 
 The Repos page onboards a configured repo: Analyze writes the onboarding report (and posts
 the risks and questions to Slack), and Open pull request adds the Dockerfile, CI, chart, and
