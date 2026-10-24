@@ -101,7 +101,11 @@ cluster what the credential may do (`SelfSubjectAccessReview`) and refuses one t
 - is cluster-admin (`*` on `*`);
 - can read Secrets, in its namespaces or everywhere (`resources_get` could hand them to the
   model);
-- can change deployments in every namespace.
+- can change or scale deployments in every namespace.
+
+With write access, the role the agent needs is `get` and `update` on `deployments/scale` in
+its namespaces, and nothing else (the chart, the bundle's `rbac.yaml`, and the setup steps
+all grant exactly that). It can scale a deployment but never change its pod template.
 
 A refused connector is left out at startup and the rest of the agent runs. Make a kubeconfig
 with the steps under the kubeconfig in the console (a read-only service account), or keep

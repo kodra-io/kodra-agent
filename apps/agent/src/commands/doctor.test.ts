@@ -7,6 +7,7 @@ import {
   json,
   posixPath,
   tempDir,
+  TEST_ADMIN_HASH,
   testContext,
   writeConfig,
 } from '../test-helpers.ts';
@@ -41,9 +42,10 @@ describe('doctor', () => {
       },
     });
     const { path } = await setup(`    provider: ollama\n    name: m\n    baseUrl: ${server.url}`);
-    const t = testContext();
+    const t = testContext({ env: { KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH } });
     expect(await doctor({ configPath: path, json: false }, t.ctx)).toBe(0);
     const out = t.term.stdout;
+    expect(out.some((l) => /^PASS {4}console +admin password +set$/.test(l))).toBe(true);
     expect(out[0]).toMatch(/^STATUS {2}COMPONENT +CHECK +DETAILS$/);
     expect(
       out.some((l) => /^PASS {4}config +kodra-agent\.yaml +valid \(kodra\.io\/v1alpha1\)$/.test(l)),
@@ -106,7 +108,11 @@ describe('doctor', () => {
     const { dir, path } = await setup(
       '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
     );
-    await writeFile(join(dir, '.env'), 'ANTHROPIC_API_KEY=from-dotenv-1234\n', { mode: 0o600 }); // gitleaks:allow (fake value)
+    await writeFile(
+      join(dir, '.env'),
+      `ANTHROPIC_API_KEY=from-dotenv-1234\nKODRA_CONSOLE_ADMIN_HASH=${TEST_ADMIN_HASH}\n`, // gitleaks:allow (fake value)
+      { mode: 0o600 },
+    );
     const t = testContext({ endpoints: { anthropic: server.url }, platform: 'win32' });
     expect(await doctor({ configPath: path, json: true }, t.ctx)).toBe(0);
     expect(server.requests[0]?.headers['x-api-key']).toBe('from-dotenv-1234');
@@ -114,6 +120,21 @@ describe('doctor', () => {
     expect(rowsOf(t).find((r) => r.check === '.env permissions')?.message).toContain(
       'not checked on Windows',
     );
+  });
+
+  // L2: no default console password. Without one, run refuses to start the console.
+  it('fails the admin password row when init has not set one', async () => {
+    const { path } = await setup(
+      '    provider: ollama\n    name: m\n    baseUrl: http://127.0.0.1:1',
+    );
+    const t = testContext();
+    await doctor({ configPath: path, json: true }, t.ctx);
+    expect(rowsOf(t).find((r) => r.check === 'admin password')).toMatchObject({
+      status: 'fail',
+      component: 'console',
+      message: 'not set',
+    });
+    expect(rowsOf(t).find((r) => r.check === 'admin password')?.hint).toContain('kodra-agent init');
   });
 
   it('flags approver names left in the config, which cannot approve', async () => {

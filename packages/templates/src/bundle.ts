@@ -246,7 +246,7 @@ services:
 ${common}    command: ["run"]
 ${
   draft.console.enabled
-    ? `    # The web console, on this machine only. Sign in as admin (password admin the first time).
+    ? `    # The web console, on this machine only. Sign in as admin with the password init asked for.
     ports: ["127.0.0.1:${String(CONSOLE_PORT)}:${String(CONSOLE_PORT)}"]
 `
     : ''
@@ -309,9 +309,11 @@ const READ_RULES = `  - apiGroups: [""]
     resources: ["deployments", "replicasets"]
     verbs: ["get", "list", "watch"]`;
 
+// Scaling is a get and an update of the scale subresource, nothing else: the agent can
+// never change a pod template (F9).
 const WRITE_RULES = `  - apiGroups: ["apps"]
-    resources: ["deployments", "deployments/scale"]
-    verbs: ["patch"]`;
+    resources: ["deployments/scale"]
+    verbs: ["get", "update"]`;
 
 /** Namespace-scoped, least-privilege RBAC for the Kubernetes connector. */
 export function rbacYaml(draft: AgentDraft): string | null {
@@ -528,7 +530,7 @@ function readme(draft: AgentDraft): string {
       ].join(' '),
       '',
       [
-        'Sign in as `admin` with the password `admin`. The console asks for a new password right away.',
+        'Sign in as `admin` with the password `kodra-agent init` asked you for (there is no default password; the console does not start without one).',
         allApprovers(effectivePolicy(draft)).includes(CONSOLE_ADMIN)
           ? 'The admin (`console:admin`) can approve or deny changes in the console.'
           : 'To approve changes in the console as admin, add `console:admin` to the approvers.',

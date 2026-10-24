@@ -23,6 +23,7 @@ import {
   type AgentDraft,
 } from '@kodra-agent/templates';
 import { getConnector } from '@kodra-agent/connectors';
+import { adminPasswordHash } from '../src/console/admin.ts';
 
 /**
  * pnpm test:package: the M7 checks on a built agent image (KODRA_IMAGE, default the
@@ -184,7 +185,18 @@ async function compose(): Promise<void> {
     show('docker', ['compose', ...args], dir);
   };
   try {
-    dc('run', '--rm', '-T', 'kodra-agent', 'init', '--non-interactive');
+    dc(
+      'run',
+      '--rm',
+      '-T',
+      '-e',
+      `KODRA_CONSOLE_ADMIN_PASSWORD=${ADMIN_PASSWORD}`,
+      'kodra-agent',
+      'init',
+      '--non-interactive',
+    );
+    if (!/^KODRA_CONSOLE_ADMIN_HASH=scrypt1:/m.test(readFileSync(join(dir, '.env'), 'utf8')))
+      throw new Error('init did not write the console admin password hash');
     // init writes .env and secrets/ into the bundle folder: the container must be able to.
     dc(
       'run',
@@ -230,6 +242,9 @@ async function compose(): Promise<void> {
  * The console from the bundle README: http://localhost:8081 on this machine, signed in with
  * KODRA_CONSOLE_TOKEN from the .env that init wrote.
  */
+/** The console admin password `init` is given (L2: there is no default). Never printed. */
+const ADMIN_PASSWORD = randomBytes(18).toString('base64url');
+
 async function consoleCheck(dir: string): Promise<void> {
   const env = readFileSync(join(dir, '.env'), 'utf8');
   const token = /^KODRA_CONSOLE_TOKEN=(.+)$/m.exec(env)?.[1]?.trim();
@@ -245,6 +260,17 @@ async function consoleCheck(dir: string): Promise<void> {
   );
   if ((await fetch(`${base}/api/status`)).status !== 401)
     throw new Error('the console API is open without a sign-in');
+  // No default password: admin/admin is refused, the password given to init signs in.
+  const adminLogin = (password: string) =>
+    fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password }),
+    });
+  if ((await adminLogin('admin')).status !== 401)
+    throw new Error('the console accepted admin/admin');
+  if ((await adminLogin(ADMIN_PASSWORD)).status !== 200)
+    throw new Error('the console admin cannot sign in with the password given to init');
   const login = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -451,6 +477,7 @@ async function kind(): Promise<void> {
       '--from-literal=KODRA_PACKAGE_TEST=1',
       `--from-literal=KODRA_CONSOLE_TOKEN=${shared}`,
       `--from-literal=KODRA_CONSOLE_TOKEN_OPS=${approver}`,
+      `--from-literal=KODRA_CONSOLE_ADMIN_HASH=${await adminPasswordHash(ADMIN_PASSWORD)}`,
     );
     const [repository, tag] = [
       IMAGE.slice(0, IMAGE.lastIndexOf(':')),

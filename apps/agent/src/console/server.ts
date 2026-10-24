@@ -27,7 +27,6 @@ export const ACTION_HEADER = 'x-kodra-console';
 const MAX_ACTION_BODY = 64 * 1024;
 /** Actions that take a file bigger than that: CA certificates (Amazon RDS's are 170 KB). */
 const MAX_UPLOAD_BODY: Record<string, number | undefined> = { 'settings/ca-bundle': 768 * 1024 };
-const MUST_CHANGE = 'change the admin password first';
 const HEARTBEAT_MS = 20_000;
 
 export const CONSOLE_CSP = [
@@ -112,7 +111,7 @@ export interface ConsoleServerOptions {
   host?: string;
   /** The shared token (view and chat) and each console approver's own token. */
   accounts: readonly ConsoleAccount[];
-  /** The admin, who signs in with a password (admin/admin until it is changed). */
+  /** The admin, who signs in with the password set by `init` (there is no default). */
   admin?: { account: AdminAccount; user: ConsoleUser };
   routes: Record<string, ApiRoute>;
   actions?: Record<string, ActionRoute>;
@@ -130,8 +129,6 @@ interface Session {
   expires: number;
   user: ConsoleUser;
   streams: Set<() => void>;
-  /** Signed in with the default password: nothing works until it is changed. */
-  mustChange: boolean;
 }
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest();
@@ -235,6 +232,10 @@ export class SessionRegistry {
 }
 
 export async function startConsoleServer(o: ConsoleServerOptions): Promise<Server> {
+  // No default password (L2): an admin without one would be an account nobody set up.
+  if (o.admin && !o.admin.account.isSet()) {
+    throw new Error('the console admin has no password: run `kodra-agent init`');
+  }
   const now = o.now ?? (() => Date.now());
   const accounts = o.accounts.map((a) => ({ digest: digest(a.token), user: a.user }));
   const registry = o.sessions ?? new SessionRegistry({ now });
@@ -270,17 +271,16 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
       expires: e,
       user: account.user,
       streams: registry.seen(i, u, t),
-      mustChange: account.isAdmin && (o.admin?.account.mustChange() ?? false),
     };
   };
 
   /** The account a session names, with the key that signs its sessions. */
   const accountNamed = (name: string) => {
     if (o.admin?.user.name === name) {
-      return { user: o.admin.user, key: o.admin.account.sessionKey(), isAdmin: true };
+      return { user: o.admin.user, key: o.admin.account.sessionKey() };
     }
     const found = accounts.find((a) => a.user.name === name);
-    return found ? { user: found.user, key: found.digest, isAdmin: false } : null;
+    return found ? { user: found.user, key: found.digest } : null;
   };
 
   const sessionCookieFor = (user: ConsoleUser): string => {
@@ -350,10 +350,7 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
           }
           failures.delete(ip);
           res.setHeader('set-cookie', sessionCookieFor(user));
-          json(res, 200, {
-            signedIn: true,
-            mustChangePassword: user === o.admin?.user && o.admin.account.mustChange(),
-          });
+          json(res, 200, { signedIn: true });
           return;
         }
         if (name === 'logout') {
@@ -396,8 +393,8 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
           await changePassword(req, res, session, body, o.admin);
           return;
         }
-        if (session.mustChange || !action) {
-          json(res, 403, { error: MUST_CHANGE, mustChangePassword: true });
+        if (!action) {
+          json(res, 404, { error: 'not found' });
           return;
         }
         const result = await action({ query: url.searchParams, user: session.user, body });
@@ -419,7 +416,6 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
                 user: session.user.name,
                 canApprove: session.user.canApprove,
                 features: o.features ?? {},
-                mustChangePassword: session.mustChange,
                 passwordAccount: session.user === o.admin?.user,
               }
             : { signedIn: false },
@@ -429,10 +425,6 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
       const session = sessionOf(req);
       if (!session) {
         json(res, 401, { error: 'sign in first' });
-        return;
-      }
-      if (session.mustChange) {
-        json(res, 403, { error: MUST_CHANGE, mustChangePassword: true });
         return;
       }
       const stream = o.streams?.[name];

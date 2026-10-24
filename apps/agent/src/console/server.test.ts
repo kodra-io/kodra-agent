@@ -98,7 +98,6 @@ describe('console server', () => {
       user: 'console',
       canApprove: false,
       features: { chat: true },
-      mustChangePassword: false,
       passwordAccount: false,
     });
     expect(res.headers.get('cache-control')).toBe('no-store');

@@ -44,6 +44,7 @@ export function helpText(): string {
     '  --namespace <name>             Kubernetes namespace for the Secret (default: kodra-agent)',
     '  --non-interactive              Read values from the environment instead of asking',
     '  --dry-run                      Kubernetes: print the Secret manifest with placeholders',
+    '  --reset-console-password       Ask for a new console admin password even if one is set',
     '',
     'doctor, check, and audit verify options:',
     '  --json                         Print the results as JSON',
@@ -62,6 +63,7 @@ const OPTIONS = {
   namespace: { type: 'string' },
   'non-interactive': { type: 'boolean' },
   'dry-run': { type: 'boolean' },
+  'reset-console-password': { type: 'boolean' },
   json: { type: 'boolean' },
   post: { type: 'boolean' },
   message: { type: 'string' },
@@ -109,6 +111,7 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
           namespace: values.namespace,
           nonInteractive: values['non-interactive'] ?? false,
           dryRun: values['dry-run'] ?? false,
+          resetConsolePassword: values['reset-console-password'] ?? false,
         },
         ctx,
       );

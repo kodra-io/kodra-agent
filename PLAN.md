@@ -124,7 +124,7 @@ Done when three outside teams have used the agent for two weeks. The gate then o
 | ------------------------------------------- | ----------- | --- |
 | L0 Reset                                    | Done        | #82 |
 | L1 Launch narrower                          | Done        | #83 |
-| L2 Close the red flags                      | Not started |     |
+| L2 Close the red flags                      | Done        | #84 |
 | L3 Proof: scenarios, evals, and the demo    | Not started |     |
 | L4 Publish and release v0.4.0               | Not started |     |
 | L5 Partner zero: Kodra.io                   | Not started |     |

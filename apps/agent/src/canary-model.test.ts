@@ -9,6 +9,7 @@ import {
   posixPath,
   scriptedModel,
   tempDir,
+  TEST_ADMIN_HASH,
   testContext,
   writeConfig,
 } from './test-helpers.ts';
@@ -148,7 +149,11 @@ describe('secret canary: console chat', () => {
     const stop = new AbortController();
     let consolePort = 0;
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: API_KEY, KODRA_CONSOLE_TOKEN: CONSOLE_TOKEN },
+      env: {
+        ANTHROPIC_API_KEY: API_KEY,
+        KODRA_CONSOLE_TOKEN: CONSOLE_TOKEN,
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+      },
       launcher: fakeLauncher(),
       modelFactory: () => model,
       stopSignal: stop.signal,

@@ -1,6 +1,7 @@
 import { AxeBuilder } from '@axe-core/playwright';
 import {
   ADMIN_PASSWORD,
+  INIT_PASSWORD,
   APPROVER_TOKEN,
   CHAT_REQUEST,
   expect,
@@ -49,19 +50,26 @@ test('asks for the token, refuses a wrong one, and signs in', async ({ page, api
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 
-test('admin signs in with admin/admin and must set a new password first', async ({ page, api }) => {
+test('admin signs in with the password init set, never admin/admin, and can change it', async ({
+  page,
+  api,
+}) => {
   await page.goto('/');
   await page.getByLabel('Username').fill('admin');
-  await page.getByLabel('Password').fill('wrong');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveText('That username or password is not right.');
+  for (const guess of ['wrong', 'admin']) {
+    await page.getByLabel('Password').fill(guess);
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveText('That username or password is not right.');
+  }
 
-  await page.getByLabel('Password').fill('admin');
+  await page.getByLabel('Password').fill(INIT_PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Set a new password' })).toBeVisible();
-  await expect(page.getByRole('navigation')).toHaveCount(0);
+  // No forced password screen: the console opens.
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
 
-  await page.getByLabel('Current password').fill('admin');
+  await page.getByRole('button', { name: 'Change the admin password' }).click();
+  await expect(page.getByRole('heading', { name: 'Change the admin password' })).toBeVisible();
+  await page.getByLabel('Current password').fill(INIT_PASSWORD);
   await page.getByLabel('New password', { exact: true }).fill(ADMIN_PASSWORD);
   await page.getByLabel('New password again').fill('something else');
   await page.getByRole('button', { name: 'Save password' }).click();
@@ -80,6 +88,12 @@ test('admin signs in with admin/admin and must set a new password first', async 
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   expect(api).toContain('POST password');
   expect(api.join('\n')).not.toContain(ADMIN_PASSWORD);
+});
+
+test('a token sign-in has no password to change', async ({ page }) => {
+  await signIn(page, TOKEN);
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Change the admin password' })).toHaveCount(0);
 });
 
 test.describe('the operations center', () => {
