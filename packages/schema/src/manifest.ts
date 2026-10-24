@@ -546,6 +546,25 @@ export const manifestSchema = z
      */
     credentialScope: z.enum(['kubernetes-rbac']).optional(),
     /**
+     * After an approved change with `tool` (M29b): read the object with `read.tool` (the
+     * change's `copyArgs`) until the number at `have` reaches the one at `want`, for up to
+     * `timeoutSeconds`. If it does not, the agent says so and names the change that puts
+     * `rollbackArg` back to its value before the change (which needs approval again).
+     */
+    rolloutCheck: z
+      .strictObject({
+        tool: z.string().min(1),
+        read: z.strictObject({
+          tool: z.string().min(1),
+          copyArgs: z.array(z.string().min(1)).min(1),
+        }),
+        want: z.array(z.string().min(1)).min(1),
+        have: z.array(z.string().min(1)).min(1),
+        rollbackArg: z.string().min(1),
+        timeoutSeconds: z.int().min(30).max(1800).default(300),
+      })
+      .optional(),
+    /**
      * A scaling tool whose big cuts are treated as destructive (M29): to zero, or by more
      * than half of what the object runs now. `current` reads the object with the same
      * arguments (`copyArgs`) and finds its replicas at `path` in the YAML it returns.
@@ -581,6 +600,22 @@ export const manifestSchema = z
     }),
   })
   .superRefine((m, ctx) => {
+    if (m.rolloutCheck) {
+      if (m.tools[m.rolloutCheck.tool] !== 'write') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['rolloutCheck', 'tool'],
+          message: 'must be a write tool',
+        });
+      }
+      if (m.tools[m.rolloutCheck.read.tool] !== 'read') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['rolloutCheck', 'read', 'tool'],
+          message: 'must be a read tool',
+        });
+      }
+    }
     if (m.scaleLimit) {
       if (m.tools[m.scaleLimit.tool] !== 'write') {
         ctx.addIssue({

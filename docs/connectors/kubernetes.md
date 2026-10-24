@@ -108,5 +108,6 @@ with the steps under the kubeconfig in the console (a read-only service account)
 the broad one with `allowBroadCredentials: true` on the connector; the agent then warns at
 every start. A cluster that cannot answer the review is not a reason to refuse.
 
-Scaling to zero or by more than half counts as destructive (`scaleLimit` in the manifest);
-see `docs/approvals.md`.
+Scaling to zero or by more than half counts as destructive (`scaleLimit` in the manifest),
+and an approved scale is watched until its pods are ready, with the rollback named if they
+are not (`rolloutCheck`); see `docs/approvals.md`.

@@ -1,4 +1,6 @@
 import { verifyAuditChain } from '../audit.ts';
+import { readAudit } from '../console/data.ts';
+import { secretHealth } from './secret-health.ts';
 import type { Context } from '../context.ts';
 import { ConnectorDashboard } from '../dashboard.ts';
 import { fetchFiringAlerts, type Alert } from '../monitoring/alerts.ts';
@@ -67,6 +69,9 @@ export async function checkRunner(
       chain: await verifyAuditChain(auditPath),
       budget: await runtime.budget().catch(() => null),
       pendingApprovals: opts.pendingApprovals?.() ?? 0,
+      secrets: await secretHealth(runtime.inputs, await readAudit(auditPath).catch(() => [])).catch(
+        () => [],
+      ),
     }),
     rules: { defaultBranch: defaultBranchLookup(runtime) },
     state,

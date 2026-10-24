@@ -198,6 +198,15 @@ export default defineManifest({
       path: ['spec', 'replicas'],
     },
   },
+  // After an approved scale, watch until the pods are ready, else name the rollback (M29b).
+  rolloutCheck: {
+    tool: 'resources_scale',
+    read: { tool: 'resources_get', copyArgs: ['apiVersion', 'kind', 'namespace', 'name'] },
+    want: ['spec', 'replicas'],
+    have: ['status', 'readyReplicas'],
+    rollbackArg: 'scale',
+    timeoutSeconds: 300,
+  },
   // The console dashboard: read-only, per listed namespace (docs/console.md).
   dashboard: [
     {

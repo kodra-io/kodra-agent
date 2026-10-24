@@ -20,15 +20,15 @@ export async function bigCut(
   const copied = Object.fromEntries(
     limit.current.copyArgs.flatMap((k) => (args[k] === undefined ? [] : [[k, args[k]]])),
   );
-  const current = currentReplicas(await readCurrent(copied).catch(() => null), limit.current.path);
+  const current = numberAt(await readCurrent(copied).catch(() => null), limit.current.path);
   if (current !== null && target < current / 2) {
     return `scaling ${what} from ${String(current)} to ${String(target)} cuts it by more than half`;
   }
   return null;
 }
 
-/** The replicas at `path` in the object's YAML (or JSON), or null. */
-export function currentReplicas(text: string | null, path: readonly string[]): number | null {
+/** The whole number at `path` in an object's YAML (or JSON), like its replicas, or null. */
+export function numberAt(text: string | null, path: readonly string[]): number | null {
   if (!text) return null;
   let node: unknown;
   try {

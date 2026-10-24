@@ -1,5 +1,12 @@
 import { contextAdvice, filledWindow, promptTokens } from './model-context.ts';
-import { bigCut } from './scale-limit.ts';
+import {
+  readArgs,
+  rollbackArgs,
+  watchRollout,
+  type RolloutCheck,
+  type RolloutTiming,
+} from './rollout.ts';
+import { bigCut, numberAt } from './scale-limit.ts';
 import type { WriteGate } from './write-gate.ts';
 import { NO_TRACER, taskKind, type AgentTracer, type TraceSpan } from './tracing.ts';
 import {
@@ -97,6 +104,8 @@ export interface AgentDeps {
   paused?: () => string | null;
   /** Writes per hour, and one change at a time per environment (M29). Shared by every turn. */
   writes?: WriteGate;
+  /** How a change is watched after it ran (M29b); tests make it quick. */
+  rolloutTiming?: RolloutTiming;
   /** OpenTelemetry spans (M14): names, durations, and counts only. */
   tracer?: AgentTracer;
   /**
@@ -194,8 +203,8 @@ async function readFor(
   deps: AgentDeps,
   hosted: HostedTool,
   args: Record<string, unknown>,
+  tool = hosted.scaleLimit?.current.tool,
 ): Promise<string | null> {
-  const tool = hosted.scaleLimit?.current.tool;
   const reader = deps.host.tools().find((t) => t.connector === hosted.connector && t.tool === tool);
   if (!reader) return null;
   const check = decide(
@@ -204,6 +213,53 @@ async function readFor(
   if (check.kind !== 'allow') return null;
   const result = await deps.host.call(reader.name, args);
   return result.isError ? null : result.text;
+}
+
+/**
+ * Watches an approved change until it is ready (M29b), in the background so the conversation
+ * goes on. Audited either way; when it does not settle, approvers are told (Slack) and given
+ * the change that puts it back, which needs approval like any other.
+ */
+async function followRollout(
+  deps: AgentDeps,
+  hosted: HostedTool,
+  check: RolloutCheck,
+  args: Readonly<Record<string, unknown>>,
+  before: number | null,
+  base: { actor: string; task: string; connector: string; tool: string },
+): Promise<void> {
+  const source = `${hosted.connector}/${hosted.tool}`;
+  const shown = deps.redactor.redact(JSON.stringify(args));
+  try {
+    const outcome = await watchRollout(
+      check,
+      () => readFor(deps, hosted, readArgs(check, args), check.read.tool),
+      deps.rolloutTiming,
+    );
+    if (outcome.settled) {
+      await deps.audit.append({
+        ...base,
+        event: 'result',
+        detail: clip(
+          `${source} settled: ${String(outcome.ready)} of ${String(outcome.want)} ready; args ${shown}`,
+          3_500,
+        ),
+      });
+      return;
+    }
+    const rollback = rollbackArgs(check, args, before);
+    const text = deps.redactor.redact(
+      `The approved change ${source} ${shown} did not settle: ${outcome.why}. ` +
+        (rollback
+          ? `To roll back, ask the agent to run ${hosted.tool} with ${JSON.stringify(rollback)}; it needs approval like any change.`
+          : 'Check it; the value before the change is not known, so there is no rollback to suggest.'),
+    );
+    deps.term.out(`  [rollout] ${text}`);
+    await deps.audit.append({ ...base, event: 'error', detail: clip(text, 3_500) });
+    await deps.announce?.(text);
+  } catch {
+    // Watching is best-effort; the change itself was already audited.
+  }
 }
 
 /** The policy engine's view of one call to a hosted tool. */
@@ -483,8 +539,21 @@ function buildTools(
           deps.term.out(`  [${hosted.risk}] ${source} ${redactedArgs}`);
           toolEvent('running');
           try {
+            // The value before the change, for the rollback if it does not settle (M29b).
+            const watch = decision.kind === 'approve' ? hosted.rolloutCheck : undefined;
+            const before = watch
+              ? numberAt(
+                  await readFor(deps, hosted, readArgs(watch, args), watch.read.tool).catch(
+                    () => null,
+                  ),
+                  watch.want,
+                )
+              : null;
             const result = await deps.host.call(hosted.name, args, options.abortSignal);
             if (decision.kind === 'approve') slot?.done();
+            if (watch && !result.isError) {
+              void followRollout(deps, hosted, watch, args, before, base);
+            }
             await deps.audit.append({
               ...base,
               event: 'tool.call',

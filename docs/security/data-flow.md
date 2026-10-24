@@ -170,7 +170,7 @@ Reviewed manifest: `docker@41c1c3542fc5`
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@d8cb0f19b24f`
+Reviewed manifest: `kubernetes@50f719e91cdd`
 
 ### Prometheus
 

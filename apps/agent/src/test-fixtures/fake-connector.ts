@@ -57,6 +57,14 @@ export const fakeManifest: Manifest = defineManifest({
       },
     ],
   },
+  rolloutCheck: {
+    tool: 'resources_scale',
+    read: { tool: 'whoami', copyArgs: ['name'] },
+    want: ['spec', 'replicas'],
+    have: ['status', 'readyReplicas'],
+    rollbackArg: 'scale',
+    timeoutSeconds: 300,
+  },
   // whoami is no Deployment, so only a cut to zero is caught here.
   scaleLimit: {
     tool: 'resources_scale',

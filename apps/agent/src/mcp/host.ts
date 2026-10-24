@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import type { RolloutCheck } from '../rollout.ts';
 import type { ScaleLimit } from '../scale-limit.ts';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -50,6 +51,8 @@ export interface HostedTool {
   readFile?: FileReader;
   /** For the connector's scaling tool: when a cut counts as destructive (M29). */
   scaleLimit?: ScaleLimit;
+  /** For a change the agent watches until it is ready (M29b). */
+  rolloutCheck?: RolloutCheck;
   /** Index into the host's running servers. */
   server: number;
 }
@@ -423,6 +426,9 @@ export class ConnectorHost {
           : {}),
         ...(input.readFile ? { readFile: input.readFile } : {}),
         ...(manifest.scaleLimit?.tool === tool.name ? { scaleLimit: manifest.scaleLimit } : {}),
+        ...(manifest.rolloutCheck?.tool === tool.name
+          ? { rolloutCheck: manifest.rolloutCheck }
+          : {}),
         server: serverIndex,
       });
     }

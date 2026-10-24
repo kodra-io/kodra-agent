@@ -1,5 +1,6 @@
 import type { BudgetState } from '../budget.ts';
 import type { ChainCheck } from '../audit.ts';
+import type { SecretHealth } from './secret-health.ts';
 import type { DashboardResult, PanelData, RunsData } from '../dashboard.ts';
 import type { Alert } from '../monitoring/alerts.ts';
 
@@ -252,13 +253,61 @@ export function alertFindings(alerts: readonly Alert[]): Finding[] {
 /** Share of the monthly budget at which spend is worth a mention. */
 export const BUDGET_WARNING = 0.8;
 
-/** The agent's own state: an intact audit log, spend, approvals nobody has answered. */
-export function agentFindings(self: {
-  chain: ChainCheck;
-  budget: BudgetState | null;
-  pendingApprovals: number;
-}): Finding[] {
+/** Days before a secret's expiry that the digest mentions it. */
+export const EXPIRY_WARNING_DAYS = 14;
+/** Days after which a secret is due for rotation. */
+export const ROTATE_AFTER_DAYS = 90;
+const DAY = 24 * 60 * 60 * 1000;
+
+/** Secret hygiene (M29b): expired, expiring soon, or not rotated in a long while. */
+export function secretFindings(secrets: readonly SecretHealth[], now: Date): Finding[] {
   const out: Finding[] = [];
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  for (const s of secrets) {
+    if (s.expiresAt && s.expiresAt.getTime() <= now.getTime()) {
+      out.push({
+        id: `agent:secret-expired:${s.id}`,
+        check: 'agent',
+        severity: 'critical',
+        title: `${s.label} expired on ${day(s.expiresAt)}`,
+        where: 'secrets',
+      });
+      continue;
+    }
+    if (s.expiresAt && s.expiresAt.getTime() - now.getTime() <= EXPIRY_WARNING_DAYS * DAY) {
+      out.push({
+        id: `agent:secret-expiring:${s.id}`,
+        check: 'agent',
+        severity: 'warning',
+        title: `${s.label} expires on ${day(s.expiresAt)}`,
+        where: 'secrets',
+      });
+    }
+    if (s.setAt && now.getTime() - s.setAt.getTime() > ROTATE_AFTER_DAYS * DAY) {
+      const days = Math.floor((now.getTime() - s.setAt.getTime()) / DAY);
+      out.push({
+        id: `agent:secret-old:${s.id}`,
+        check: 'agent',
+        severity: 'warning',
+        title: `${s.label} was set ${String(days)} days ago; rotate it (every ${String(ROTATE_AFTER_DAYS)} days)`,
+        where: 'secrets',
+      });
+    }
+  }
+  return out;
+}
+
+/** The agent's own state: an intact audit log, spend, approvals nobody has answered, secrets. */
+export function agentFindings(
+  self: {
+    chain: ChainCheck;
+    budget: BudgetState | null;
+    pendingApprovals: number;
+    secrets?: readonly SecretHealth[];
+  },
+  now: Date = new Date(),
+): Finding[] {
+  const out: Finding[] = secretFindings(self.secrets ?? [], now);
   if (!self.chain.ok) {
     out.push({
       id: 'agent:audit-chain',

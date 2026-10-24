@@ -30,21 +30,27 @@ spec:
 
 ## What is checked
 
-| Check       | Reads                                                    | Finds                                                                                             |
-| ----------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Pods        | Kubernetes pods in each listed namespace                 | Failing pods (critical), pending, not ready, or restarted 5 times or more                         |
-| Deployments | Kubernetes deployments                                   | Fewer ready replicas than desired (critical at none)                                              |
-| Warnings    | Kubernetes warning events                                | Up to five per namespace, the rest counted                                                        |
-| Pipelines   | GitHub Actions runs, GitLab CI pipelines                 | A workflow whose latest run on the default branch failed                                          |
-| Jobs        | Jenkins jobs                                             | Jobs whose last build failed or was unstable                                                      |
-| Databases   | The Databases connector, and database pods in Kubernetes | Down (critical) or degraded, with the reasons                                                     |
-| Alerts      | Alertmanager, or Prometheus                              | Every firing alert; critical when its severity is critical, page, or error                        |
-| The agent   | Its own audit log, budget, and approvals                 | A broken audit chain (critical), 80% or more of the monthly budget, approvals nobody has answered |
+| Check       | Reads                                                    | Finds                                                                                                                                                                                        |
+| ----------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pods        | Kubernetes pods in each listed namespace                 | Failing pods (critical), pending, not ready, or restarted 5 times or more                                                                                                                    |
+| Deployments | Kubernetes deployments                                   | Fewer ready replicas than desired (critical at none)                                                                                                                                         |
+| Warnings    | Kubernetes warning events                                | Up to five per namespace, the rest counted                                                                                                                                                   |
+| Pipelines   | GitHub Actions runs, GitLab CI pipelines                 | A workflow whose latest run on the default branch failed                                                                                                                                     |
+| Jobs        | Jenkins jobs                                             | Jobs whose last build failed or was unstable                                                                                                                                                 |
+| Databases   | The Databases connector, and database pods in Kubernetes | Down (critical) or degraded, with the reasons                                                                                                                                                |
+| Alerts      | Alertmanager, or Prometheus                              | Every firing alert; critical when its severity is critical, page, or error                                                                                                                   |
+| The agent   | Its own audit log, budget, approvals, and secrets        | A broken audit chain (critical), 80% or more of the monthly budget, approvals nobody has answered, secrets that expired (critical), expire within 14 days, or were set more than 90 days ago |
 
 The reads are the console Dashboard's cards: the same read tools, the same policy check,
 and output redacted before it is parsed. A check sees only the parsed fields. The default
 branch comes from the GitHub or GitLab connector; without it, `main` and `master` count as
 default.
+
+Secrets (M29b): a secret's expiry comes from the value itself, when it carries one (a
+kubeconfig's token or client certificate, or any JWT). When it was set comes from the audit
+log (the console records each replacement) or the secret file's time; a secret in `.env`
+that was never replaced in the console has no known age. The digest names the secret, never
+its value.
 
 A check whose connector is off, or that has nothing listed, is named under "Not checked".
 A card that fails to read is listed under "Could not check". A problem it found before

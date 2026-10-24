@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { SecretHealth } from './secret-health.ts';
 import { scheduleDue, type ScheduleInput } from '@kodra-agent/schema';
 import type { AuditLog, ChainCheck } from '../audit.ts';
 import type { BudgetState } from '../budget.ts';
@@ -23,7 +24,12 @@ export interface CheckRunnerDeps {
   dashboard: () => Promise<DashboardResult>;
   /** Firing alerts; undefined when no alert source is configured. */
   alerts?: (() => Promise<Alert[]>) | undefined;
-  self: () => Promise<{ chain: ChainCheck; budget: BudgetState | null; pendingApprovals: number }>;
+  self: () => Promise<{
+    chain: ChainCheck;
+    budget: BudgetState | null;
+    pendingApprovals: number;
+    secrets?: readonly SecretHealth[];
+  }>;
   rules?: RuleOptions;
   state: ChecksState;
   audit: AuditLog;
@@ -132,7 +138,7 @@ export class CheckRunner {
         }
       }
       const self = await this.deps.self();
-      findings.push(...agentFindings(self));
+      findings.push(...agentFindings(self, this.now()));
       const checked = (Object.keys(CHECK_TITLES) as CheckId[]).filter((c) => ran.has(c));
       const skipped = (Object.keys(CHECK_TITLES) as CheckId[]).filter(
         (c) => !ran.has(c) && !gaps.some((g) => g.check === c),

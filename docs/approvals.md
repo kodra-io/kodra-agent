@@ -174,3 +174,15 @@ approves them:
   object runs now, is treated as a destructive action: blocked under `destructiveActions:
 deny`, and asked as destructive under `require-approval`. The current count comes from a
   read the policy checks like any other; when it cannot be read, only a cut to zero is caught.
+
+## After a change (M29b)
+
+An approved change the manifest can watch (`rolloutCheck`; Kubernetes scaling) is followed
+in the background, so the conversation goes on. The agent reads the object again every 15
+seconds, for up to five minutes, until its ready replicas reach the desired number.
+
+- It settles: the audit log records it.
+- It does not: the audit log records an error, and approvers are told in Slack how far it got,
+  with the change that puts it back (the replicas before the change). The rollback is not
+  run on its own: asking for it is a new change and needs approval like any other.
+- The value before the change could not be read: they are told to check it, with no rollback.
