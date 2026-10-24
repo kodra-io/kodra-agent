@@ -575,8 +575,8 @@ Update this table at the end of every milestone.
 | M26 Onboard a repo                                   | After launch | Done        | #67 |
 | M27 Scheduled checks and the daily digest            | After launch | Done        | #68 |
 | M28 Set up every connector from the console          | After launch | Done        | #71 |
-| M29 Guardrails                                       | After launch | In review   | #76 |
-| M29b After a change, and secret hygiene              | After launch | In review   |     |
+| M29 Guardrails                                       | After launch | Done        | #76 |
+| M29b After a change, and secret hygiene              | After launch | Done        | #78 |
 
 Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 
