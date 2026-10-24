@@ -53,6 +53,36 @@ export interface ShipOptions {
   onboard?: boolean;
 }
 
+/**
+ * How the console runs ship and onboard inside the running agent (M30a): its runtime, its
+ * approvals (console and Slack), and its Slack channel. The agent has no Docker socket
+ * (M14), so the image is not built here: `verify: 'ci'` opens the PR for the repo's CI to
+ * build, and says so in it.
+ */
+export interface ShipHooks {
+  runtime?: Runtime;
+  approvals?: ApprovalChannel;
+  /** 'local' builds and smoke-tests the image first (the CLI); 'ci' leaves that to the PR. */
+  verify?: 'local' | 'ci';
+  /** Onboard: stop after the report and the Slack post. */
+  reportOnly?: boolean;
+  /** Posts to the team's channel; the CLI opens its own Slack connection instead. */
+  post?: (text: string) => Promise<void>;
+  /** Who asked, for the approval request (a console user). */
+  requestedBy?: string;
+  /** What came out of it, as it happens: the report, then the PR. */
+  onResult?: (result: ShipResult) => void;
+}
+
+export interface ShipResult {
+  report?: string;
+  /** Whether the stack can be shipped (else the report is all there is). */
+  shippable?: boolean;
+  risks?: number;
+  gaps?: number;
+  prUrl?: string;
+}
+
 interface Source {
   provider: SourceProvider;
   /** As configured, e.g. acme/payments-api. */
@@ -107,7 +137,12 @@ const refuseAll: ApprovalChannel = {
  * templates, build and smoke-test the image (the model may fix a failing Dockerfile a few
  * times), lint the chart, then push a new branch and open a PR after one approval.
  */
-export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
+export async function ship(
+  opts: ShipOptions,
+  ctx: Context,
+  hooks: ShipHooks = {},
+): Promise<number> {
+  const local = (hooks.verify ?? 'local') === 'local';
   const baseExec = ctx.exec ?? spawnExec;
   // git, helm, and docker get the proxy and CA settings too (M12), once the runtime is up.
   let networkEnv: Readonly<Record<string, string>> = {};
@@ -121,7 +156,7 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
     return 2;
   }
 
-  const runtime = await startRuntime(opts.configPath, ctx);
+  const runtime = hooks.runtime ?? (await startRuntime(opts.configPath, ctx));
   if (!runtime) return 1;
   networkEnv = runtime.networkEnv;
   const work = await mkdtemp(join(tmpdir(), 'kodra-ship-'));
@@ -140,6 +175,8 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
     // Inside the agent container, the app under test is reached over a private network.
     const self = ctx.selfContainer === undefined ? selfContainer() : ctx.selfContainer;
     const toolsReady = async (): Promise<boolean> => {
+      // Verified in the PR's CI: nothing to build here, and the chart is checked if Helm is.
+      if (!local) return true;
       for (const tool of ['docker', 'helm'] as const) {
         if (!(await toolAvailable(exec, tool))) {
           ctx.term.err(
@@ -205,7 +242,19 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       analysis = analyzeRepo(repoFiles(repoDir), name, TOKEN_PATTERNS);
       report = onboardingReport(name, analysis);
       ctx.term.out(report);
-      await postToSlack(ctx, runtime, slackSummary(name, analysis));
+      hooks.onResult?.({
+        report,
+        shippable: analysis.detection.ok,
+        risks: analysis.findings.filter((f) => f.level === 'risk').length,
+        gaps: analysis.findings.filter((f) => f.level === 'gap').length,
+      });
+      if (hooks.post) {
+        await hooks.post(ctx.redactor.redact(slackSummary(name, analysis))).catch(() => undefined);
+      } else await postToSlack(ctx, runtime, slackSummary(name, analysis));
+      if (hooks.reportOnly) {
+        await audit(runtime.audit, task, 'onboard: report');
+        return 0;
+      }
       if (!analysis.detection.ok) {
         ctx.term.out('Nothing was shipped: answer the questions above, then run onboard again.');
         await audit(runtime.audit, task, 'onboard: report only, stack not supported');
@@ -280,7 +329,12 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       });
       return [built, smoke];
     };
-    let checks = await verifyImage();
+    let checks: Check[] = local ? await verifyImage() : [];
+    if (!local) {
+      verification.push(
+        'Not built by the agent: it has no Docker access. Check that this pull request builds in CI before merging.',
+      );
+    }
     let attempt = 0;
     for (;;) {
       const failed = checks.find((c): c is Extract<Check, { ok: false }> => !c.ok);
@@ -324,14 +378,16 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
     verification.push(...checks.map((c) => c.detail));
 
     // 5. Package: lint and render the chart.
-    ctx.term.out('Checking the Helm chart...');
-    const helm = await helmCheck(exec, repoDir, plan.chartDir);
-    if (!helm.ok) {
-      ctx.term.err(`${helm.detail}:\n${ctx.redactor.redact(helm.log)}`);
-      await audit(runtime.audit, task, 'stopped: chart check failed');
-      return 1;
-    }
-    verification.push(helm.detail);
+    if (local || (await toolAvailable(exec, 'helm'))) {
+      ctx.term.out('Checking the Helm chart...');
+      const helm = await helmCheck(exec, repoDir, plan.chartDir);
+      if (!helm.ok) {
+        ctx.term.err(`${helm.detail}:\n${ctx.redactor.redact(helm.log)}`);
+        await audit(runtime.audit, task, 'stopped: chart check failed');
+        return 1;
+      }
+      verification.push(helm.detail);
+    } else verification.push('The chart was not linted here: Helm is not available.');
     for (const line of verification) ctx.term.out(`  ${line}`);
 
     // 6. Ship: a local folder gets the files; a repo gets a branch and a PR.
@@ -375,10 +431,12 @@ export async function ship(opts: ShipOptions, ctx: Context): Promise<number> {
       body,
       task,
       onboard: opts.onboard ?? false,
+      local,
+      hooks,
     });
   } finally {
     await rm(work, { recursive: true, force: true }).catch(() => undefined);
-    await runtime.close();
+    if (!hooks.runtime) await runtime.close();
   }
 }
 
@@ -449,6 +507,9 @@ interface PrInput {
   body: string;
   task: string;
   onboard: boolean;
+  /** Whether the image was built and tested here. */
+  local: boolean;
+  hooks: ShipHooks;
 }
 
 const TITLE = 'Add a Dockerfile, CI, and a Helm chart';
@@ -548,10 +609,8 @@ async function openPullRequest(i: PrInput): Promise<number> {
       tool: `git push + ${prTool.tool}`,
       risk: 'write',
       args: summary,
-      reason: i.onboard
-        ? 'Onboard: push the verified Dockerfile, CI, Helm chart, and onboarding report to a new branch and open a pull request.'
-        : 'Ship: push the verified Dockerfile, CI, and Helm chart to a new branch and open a pull request.',
-      requestedBy: 'ship',
+      reason: `${i.onboard ? 'Onboard' : 'Ship'}: push the ${i.local ? 'verified ' : ''}Dockerfile, CI, Helm chart${i.onboard ? ', and onboarding report' : ''} to a new branch and open a pull request.${i.local ? '' : " The image was not built by the agent: the pull request's CI builds it."}`,
+      requestedBy: i.hooks.requestedBy ?? 'ship',
     },
     rules.rules,
   );
@@ -562,7 +621,8 @@ async function openPullRequest(i: PrInput): Promise<number> {
     tool: req.tool,
     detail: `${req.id}; args ${summary}`,
   });
-  const approvals = ctx.prompter ? cliApprovalChannel(ctx.prompter, ctx.term) : refuseAll;
+  const approvals =
+    i.hooks.approvals ?? (ctx.prompter ? cliApprovalChannel(ctx.prompter, ctx.term) : refuseAll);
   const outcome = await approvals.request(req);
   await runtime.audit.append({
     ...base,
@@ -580,7 +640,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
     ctx.term.err(
       outcome.decision === 'expired'
         ? 'The approval expired. Nothing was pushed.'
-        : `Not approved${ctx.prompter ? '' : ' (no terminal to ask on)'}. Nothing was pushed.`,
+        : `Not approved${ctx.prompter || i.hooks.approvals ? '' : ' (no terminal to ask on)'}. Nothing was pushed.`,
     );
     return 1;
   }
@@ -625,6 +685,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
   ctx.term.out(
     url ? `Opened: ${url}` : `Opened a ${github ? 'pull' : 'merge'} request from ${head}.`,
   );
+  i.hooks.onResult?.(url ? { prUrl: url } : {});
   await audit(runtime.audit, task, `opened ${url ?? head}`);
   return 0;
 }

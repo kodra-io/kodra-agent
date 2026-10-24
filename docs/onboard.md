@@ -11,6 +11,23 @@ kodra-agent onboard ./payments-api       # a local folder: files are written, no
 
 It takes the same options as `ship` (`--branch`, `--max-fixes`).
 
+## From the console (M30a)
+
+The console's **Repos** page lists the GitHub repos and GitLab projects configured on their
+connectors. A console approver picks one (and a branch, or its default one):
+
+- **Analyze** clones it, writes the report below, and posts the risks and questions to
+  Slack. Nothing in the repo runs, and nothing is pushed.
+- **Open pull request** does the whole flow and asks for the one approval in Approvals (and
+  Slack) before it pushes. It needs the connector's read-write-approved access.
+
+It runs inside the running agent, one onboarding at a time, in the background; the page
+shows its progress and keeps every report, also after a restart (`onboarding.json` next to
+the audit log, redacted). The always-on agent has no Docker socket (see
+`docs/security/`), so the console does not build the image: the pull request says so, and
+its CI builds it. To build and smoke-test before the push, use the terminal with the
+one-shot builder (`docker compose run --rm kodra-builder onboard <repo>`).
+
 ## 1. Understand (read-only)
 
 The repo is cloned the same way `ship` clones it. The analysis reads file contents only:

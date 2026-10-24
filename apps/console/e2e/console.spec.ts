@@ -347,6 +347,23 @@ test('shows how to make a kubeconfig on each system, then takes one pasted', asy
   await expect(page.getByRole('status').filter({ hasText: 'Restarting the agent' })).toBeVisible();
 });
 
+test('onboards a repo from the console: the report, then the pull request', async ({ page }) => {
+  await signIn(page, APPROVER_TOKEN);
+  await page.getByRole('navigation').getByRole('link', { name: 'Repos' }).click();
+  await expect(page.getByRole('heading', { name: 'Onboard a repo' })).toBeVisible();
+  await expect(page.getByRole('combobox')).toHaveValue('jordan-kodra/terraform');
+  await page.getByRole('button', { name: 'Analyze' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Onboarding: jordan-kodra/terraform' }),
+  ).toBeVisible();
+  await expect(page.getByText('1 risks, 2 gaps')).toBeVisible();
+  await page.getByRole('button', { name: 'Open pull request' }).click();
+  await expect(page.getByRole('link', { name: 'Open the pull request' })).toHaveAttribute(
+    'href',
+    'https://gitlab.example.com/jordan-kodra/terraform/-/merge_requests/7',
+  );
+});
+
 test('trusts CA certificates pasted in Network', async ({ page }) => {
   await signIn(page, APPROVER_TOKEN);
   await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
