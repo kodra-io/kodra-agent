@@ -76,6 +76,8 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.3.9 
   it also checks the agent's access (`kubectl auth can-i`: its own objects only), saves a
   setting from the console and waits for the new pod to run with it, and checks that a
   `helm upgrade` with the same config keeps it and one with a changed config replaces it.
+- The Compose bundle limits the agent to 2 GB of memory, 2 CPUs, and 512 processes, and
+  rotates its logs (5 files of 10 MB), so a runaway connector cannot take the machine with it.
 - `src/release.test.ts` keeps the CLI, bundle, and chart versions equal, checks that the chart
   accepts every value the bundle sets, and that the Dockerfile pins every image.
 

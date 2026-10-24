@@ -540,6 +540,28 @@ export const manifestSchema = z
     /** Cards on the console dashboard, each from one read tool. */
     dashboard: z.array(dashboardPanel).optional(),
     /**
+     * How the connector's credential is checked for more access than the agent needs (M29):
+     * when it is tested (doctor, init, the console) and at startup. A broad one is refused
+     * unless the connector's entry sets allowBroadCredentials.
+     */
+    credentialScope: z.enum(['kubernetes-rbac']).optional(),
+    /**
+     * A scaling tool whose big cuts are treated as destructive (M29): to zero, or by more
+     * than half of what the object runs now. `current` reads the object with the same
+     * arguments (`copyArgs`) and finds its replicas at `path` in the YAML it returns.
+     */
+    scaleLimit: z
+      .strictObject({
+        tool: z.string().min(1),
+        replicasArg: z.string().min(1),
+        current: z.strictObject({
+          tool: z.string().min(1),
+          copyArgs: z.array(z.string().min(1)).min(1),
+          path: z.array(z.string().min(1)).min(1),
+        }),
+      })
+      .optional(),
+    /**
      * Model providers: list prices per model, for the console's estimated cost. Dated and
      * sourced, because prices change; the config can override them (spec.console.pricing).
      */
@@ -559,6 +581,22 @@ export const manifestSchema = z
     }),
   })
   .superRefine((m, ctx) => {
+    if (m.scaleLimit) {
+      if (m.tools[m.scaleLimit.tool] !== 'write') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scaleLimit', 'tool'],
+          message: 'must be a write tool',
+        });
+      }
+      if (m.tools[m.scaleLimit.current.tool] !== 'read') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scaleLimit', 'current', 'tool'],
+          message: 'must be a read tool',
+        });
+      }
+    }
     const keys = [...m.configFields.map((f) => f.key), ...m.secrets.map((s) => s.key)];
     const dupes = keys.filter((k, i) => keys.indexOf(k) !== i);
     if (dupes.length > 0) {

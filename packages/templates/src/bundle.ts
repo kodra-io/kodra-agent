@@ -214,6 +214,14 @@ function composeYaml(draft: AgentDraft): string {
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
+    # Limits, so a runaway agent or connector cannot take the machine down with it.
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 512
+    # Rotated logs, so a noisy connector cannot fill the disk.
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 `;
   // The always-on agent never gets the Docker socket (M14): only a one-shot builder does,
   // started by hand for `ship` and gone when the build is done.

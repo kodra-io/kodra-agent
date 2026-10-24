@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Context } from './context.ts';
 import { jsonLogger, memoryTerminal, type Prompter } from './io.ts';
-import type { KubernetesClient, KubernetesFactory } from './kubernetes.ts';
+import type { AccessCheck, KubernetesClient, KubernetesFactory } from './kubernetes.ts';
 import { Redactor } from './redactor.ts';
 
 export interface RecordedRequest {
@@ -90,6 +90,11 @@ export function fakeKubernetes(behavior: Partial<KubernetesClient> = {}): Kubern
     upsertSecret: async (ns: string, name: string, data: Record<string, string>) => {
       calls.push({ kubeconfig, op: 'upsertSecret', args: [ns, name, data] });
       return behavior.upsertSecret ? behavior.upsertSecret(ns, name, data) : 'created';
+    },
+    // Least privilege unless a test says otherwise.
+    canI: async (checks: readonly AccessCheck[]) => {
+      calls.push({ kubeconfig, op: 'canI', args: [checks] });
+      return behavior.canI ? behavior.canI(checks) : checks.map(() => false);
     },
   })) as KubernetesFactory & { calls: typeof calls };
   factory.calls = calls;

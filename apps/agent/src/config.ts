@@ -50,6 +50,8 @@ export interface Component {
   secrets: SecretUse[];
   /** For a named model (spec.models), its name (M13). */
   named?: string;
+  /** Keeps a credential broader than the agent needs (M29, `credentialScope`). */
+  allowBroadCredentials?: boolean;
 }
 
 export interface SecretUse {
@@ -70,7 +72,10 @@ export function components(config: AgentConfig): Component[] {
     if (!entry?.enabled) continue;
     const manifest = getConnector(id);
     if (!manifest) continue;
-    out.push(component(manifest, entry.config ?? {}, entry.secrets ?? {}));
+    const comp = component(manifest, entry.config ?? {}, entry.secrets ?? {});
+    out.push(
+      entry.allowBroadCredentials === true ? { ...comp, allowBroadCredentials: true } : comp,
+    );
   }
   // Named models, for environments that pin one (M13): their keys are checked like any other.
   for (const [name, named] of Object.entries(config.spec.models)) {

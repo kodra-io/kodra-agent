@@ -421,12 +421,61 @@ describe('Kubernetes', () => {
       ),
     ).toEqual({
       status: 'pass',
-      message: 'can list pods in 2 namespaces',
+      message: 'can list pods in 2 namespaces, and nothing more than it needs',
     });
-    expect(k8s.calls.map((c) => [c.kubeconfig, c.args[0]])).toEqual([
+    expect(
+      k8s.calls.filter((c) => c.op === 'listPods').map((c) => [c.kubeconfig, c.args[0]]),
+    ).toEqual([
       ['kc', 'api'],
       ['kc', 'web'],
     ]);
+  });
+
+  it('refuses a kubeconfig with more access than the agent needs, unless it is kept (M29)', async () => {
+    const admin = fakeKubernetes({ canI: (checks) => Promise.resolve(checks.map(() => true)) });
+    const comp = byId(componentsFor(ollama('http://o:1'), k8sYaml), 'kubernetes');
+    expect(
+      await runProbe(
+        'kubernetes.list-pods',
+        ctxFor(comp, { kubeconfig: 'kc' }, { kubernetes: admin }),
+      ),
+    ).toMatchObject({
+      status: 'fail',
+      message:
+        'the kubeconfig has more access than the agent needs: it is cluster-admin (it can do anything in the cluster)',
+    });
+    // Reads Secrets in one namespace only: named, and nothing else.
+    const secrets = fakeKubernetes({
+      canI: (checks) =>
+        Promise.resolve(checks.map((c) => c.resource === 'secrets' && c.namespace === 'web')),
+    });
+    expect(
+      await runProbe(
+        'kubernetes.list-pods',
+        ctxFor(comp, { kubeconfig: 'kc' }, { kubernetes: secrets }),
+      ),
+    ).toMatchObject({
+      status: 'fail',
+      message: 'the kubeconfig has more access than the agent needs: it can read Secrets in web',
+    });
+    const kept = { ...comp, allowBroadCredentials: true };
+    expect(
+      await runProbe(
+        'kubernetes.list-pods',
+        ctxFor(kept, { kubeconfig: 'kc' }, { kubernetes: admin }),
+      ),
+    ).toMatchObject({ status: 'pass' });
+    // A cluster that cannot review access is not a reason to refuse.
+    const unknown = fakeKubernetes({ canI: () => Promise.reject(new Error('no')) });
+    expect(
+      await runProbe(
+        'kubernetes.list-pods',
+        ctxFor(comp, { kubeconfig: 'kc' }, { kubernetes: unknown }),
+      ),
+    ).toMatchObject({
+      status: 'pass',
+      message: 'can list pods in 2 namespaces (its other access could not be checked)',
+    });
   });
 
   it("gives an EKS kubeconfig's exec plugin the connector's AWS keys, once both are there", async () => {

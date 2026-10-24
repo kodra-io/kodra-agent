@@ -4,6 +4,7 @@ import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import type { Component } from './config.ts';
 import { checkDatabase, type CheckDeps } from './databases/health.ts';
 import { databaseEntries } from './databases/server.ts';
+import { BROAD_HINT, kubernetesScopeProblems } from './credential-scope.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
 import { ollamaContext, SMALL_CONTEXT } from './model-context.ts';
 
@@ -345,8 +346,18 @@ export const probes: Record<string, Probe> = {
         );
       }
     }
-    return pass(
-      `can list pods in ${String(namespaces.length)} namespace${namespaces.length === 1 ? '' : 's'}`,
+    const reach = `can list pods in ${String(namespaces.length)} namespace${namespaces.length === 1 ? '' : 's'}`;
+    if (ctx.component.manifest.credentialScope !== 'kubernetes-rbac') return pass(reach);
+    const problems = await kubernetesScopeProblems(client, namespaces).catch(() => null);
+    // A cluster that cannot review access is not a reason to refuse; the reach is unknown.
+    if (problems === null) return pass(`${reach} (its other access could not be checked)`);
+    if (problems.length === 0) return pass(`${reach}, and nothing more than it needs`);
+    if (ctx.component.allowBroadCredentials) {
+      return pass(`${reach}; kept with more access than needed (${problems.join('; ')})`);
+    }
+    return fail(
+      `the kubeconfig has more access than the agent needs: ${problems.join('; ')}`,
+      BROAD_HINT,
     );
   },
 

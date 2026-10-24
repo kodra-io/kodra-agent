@@ -542,6 +542,16 @@ Nobody edits `kodra-agent.yaml` or `.env`, or copies files by hand, once the age
 
 Done when every available connector's secrets have steps (a test), a kubeconfig and a tunnel key go from the console to a working connector without a file edit, and a broken file is refused in plain words.
 
+### M29: Guardrails
+
+DevOps practice for an agent that can change things: least privilege, small blast radius, and limits on the host. See `docs/approvals.md` and `docs/connectors/kubernetes.md`.
+
+- **Least privilege.** A kubeconfig that is cluster-admin, reads Secrets, or changes deployments in every namespace is refused when tested and at startup, unless the connector sets `allowBroadCredentials`.
+- **Blast radius.** `spec.limits.maxWritesPerHour` (default 10), one change at a time per environment, and scaling to zero or by more than half counts as destructive.
+- **Host limits.** The Compose bundle caps memory, CPU, and processes, and rotates logs.
+
+Next (M29b): watch each change's rollout and offer the rollback; secret age and expiry in the daily digest.
+
 ---
 
 ## 9. Status
@@ -562,6 +572,7 @@ Update this table at the end of every milestone.
 | M26 Onboard a repo                                   | After launch | Done        | #67 |
 | M27 Scheduled checks and the daily digest            | After launch | Done        | #68 |
 | M28 Set up every connector from the console          | After launch | Done        | #71 |
+| M29 Guardrails                                       | After launch | In review   |     |
 
 Candidates after launch, not scheduled: M27b (more checks); M20 to M25 (pipelines); M16, M9b, M9c (diagnosis to fix); M17, M18, M19 (more teams).
 

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { WriteGate } from './write-gate.ts';
 import { resolvePolicy, type EffectivePolicy } from '@kodra-agent/schema';
 import { join } from 'node:path';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
@@ -160,6 +161,49 @@ describe('agent loop', () => {
       decision: 'blocked',
       risk: 'read',
     });
+  });
+
+  it('treats scaling to zero as destructive (M29)', async () => {
+    const denied = await setup({
+      access: 'read-write-approved',
+      responses: [
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', scale: 0 }),
+        answer('Blocked.'),
+      ],
+    });
+    await runTurn(denied.deps, [], 'scale web to 0', 't-zero');
+    expect(promptOf(denied.model, 1)).toContain(
+      'BLOCKED by policy: scaling web to 0 stops it, which counts as destructive: destructive actions are denied by policy',
+    );
+    expect(denied.channel.requests).toHaveLength(0);
+    await host?.close();
+
+    const asked = await setup({
+      access: 'read-write-approved',
+      destructive: 'require-approval',
+      responses: [
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', scale: 0 }),
+        answer('Scaled.'),
+      ],
+    });
+    await runTurn(asked.deps, [], 'scale web to 0', 't-zero2');
+    expect(asked.channel.requests[0]?.risk).toBe('destructive');
+  });
+
+  it('stops writes past maxWritesPerHour (M29)', async () => {
+    const { deps, model, channel } = await setup({
+      access: 'read-write-approved',
+      responses: [
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', scale: 3 }),
+        call('fakek8s__resources_scale', { namespace: 'api', name: 'web', scale: 4 }),
+        answer('Done.'),
+      ],
+    });
+    await runTurn({ ...deps, writes: new WriteGate(1) }, [], 'scale web twice', 't-rate');
+    expect(channel.requests).toHaveLength(1);
+    expect(promptOf(model, 2)).toContain(
+      '1 approved writes in the last hour is the most spec.limits.maxWritesPerHour allows',
+    );
   });
 
   it("applies the environment's approval rules to a write in its namespace", async () => {
@@ -417,7 +461,7 @@ describe('agent loop', () => {
         call('fakek8s__resources_scale', {
           namespace: 'api',
           name: 'web',
-          scale: 0,
+          scale: 1,
           [REASON_ARG]: 'x',
         }),
         answer('ok'),

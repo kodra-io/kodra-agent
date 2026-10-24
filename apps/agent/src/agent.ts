@@ -1,4 +1,6 @@
 import { contextAdvice, filledWindow, promptTokens } from './model-context.ts';
+import { bigCut } from './scale-limit.ts';
+import type { WriteGate } from './write-gate.ts';
 import { NO_TRACER, taskKind, type AgentTracer, type TraceSpan } from './tracing.ts';
 import {
   dynamicTool,
@@ -93,6 +95,8 @@ export interface AgentDeps {
   signal?: AbortSignal;
   /** Why changes are refused right now (the pause switch), or null. Checked when a change runs. */
   paused?: () => string | null;
+  /** Writes per hour, and one change at a time per environment (M29). Shared by every turn. */
+  writes?: WriteGate;
   /** OpenTelemetry spans (M14): names, durations, and counts only. */
   tracer?: AgentTracer;
   /**
@@ -180,6 +184,26 @@ function schemaFor(tool: HostedTool): Record<string, unknown> {
     },
     required: [...(base.required ?? []), REASON_ARG],
   };
+}
+
+/**
+ * Reads an object with the connector's read tool for a scale limit (M29), checked by the
+ * policy like any read. Never shown to the model. Null when it is not allowed or fails.
+ */
+async function readFor(
+  deps: AgentDeps,
+  hosted: HostedTool,
+  args: Record<string, unknown>,
+): Promise<string | null> {
+  const tool = hosted.scaleLimit?.current.tool;
+  const reader = deps.host.tools().find((t) => t.connector === hosted.connector && t.tool === tool);
+  if (!reader) return null;
+  const check = decide(
+    policyInputFor(reader, args, deps.policy.destructiveActions, deps.policy.self),
+  );
+  if (check.kind !== 'allow') return null;
+  const result = await deps.host.call(reader.name, args);
+  return result.isError ? null : result.text;
 }
 
 /** The policy engine's view of one call to a hosted tool. */
@@ -331,132 +355,161 @@ function buildTools(
         if (decision.kind === 'approve' && !rules.ok) {
           decision = { kind: 'block', reason: rules.reason };
         }
-
-        if (decision.kind === 'block') {
-          deps.term.out(`  [blocked] ${source}: ${decision.reason}`);
-          toolEvent('blocked', decision.reason);
-          await deps.audit.append({
-            ...base,
-            event: 'tool.call',
-            decision: 'blocked',
-            detail: clip(`${decision.reason}; args ${redactedArgs}`, 3_500),
-          });
-          settle('blocked');
-          return wrapUntrusted(
-            source,
-            `BLOCKED by policy: ${decision.reason}. Nothing was run.`,
-            deps.redactor,
-          );
+        // A big cut in replicas is destructive (M29): blocked or approved as one.
+        let risk = hosted.risk;
+        if (decision.kind === 'approve' && hosted.scaleLimit) {
+          const cut = await bigCut(hosted.scaleLimit, args, (a) => readFor(deps, hosted, a));
+          if (cut) {
+            risk = 'destructive';
+            const strict = decide({
+              ...policyInputFor(hosted, args, deps.policy.destructiveActions, deps.policy.self),
+              risk,
+            });
+            if (strict.kind === 'block') {
+              decision = {
+                kind: 'block',
+                reason: `${cut}, which counts as destructive: ${strict.reason}`,
+              };
+            }
+          }
         }
-
-        if (decision.kind === 'approve') {
-          const req = newApprovalRequest(
-            {
-              connector: hosted.connector,
-              tool: hosted.tool,
-              risk: hosted.risk,
-              args: redactedArgs,
-              reason: deps.redactor.redact(
-                typeof reason === 'string' && reason ? reason : '(no reason given)',
-              ),
-              requestedBy: actor,
-            },
-            rules.ok
-              ? rules.rules
-              : { ...deps.policy.effective.default, environment: null, freeze: null },
-          );
-          await deps.audit.append({
-            ...base,
-            event: 'approval.request',
-            detail: clip(`${req.id}; args ${redactedArgs}`, 3_500),
-          });
-          deps.events?.({
-            type: 'approval',
-            call,
-            id: req.id,
-            connector: req.connector,
-            tool: req.tool,
-            risk: req.risk,
-            args: req.args,
-            reason: req.reason,
-            expiresAt: req.expiresAt.toISOString(),
-            environment: req.environment,
-            needed: req.ballot.rules.minApprovers,
-            needs: req.ballot.needs,
-            changeRefPattern: req.ballot.rules.changeRefPattern,
-            freeze: req.ballot.rules.freeze,
-          });
-          const outcome = await waitForApproval(deps.approvals, req, options.abortSignal);
-          const note =
-            outcome.decision === 'denied' && outcome.note
-              ? deps.redactor.redact(outcome.note).slice(0, 500)
-              : undefined;
-          await deps.audit.append({
-            ...base,
-            event: 'approval.decision',
-            ...decisionAudit(req, outcome, actor, note),
-          });
-          await recordOverride(deps, req, outcome, base);
-          deps.events?.({
-            type: 'decision',
-            call,
-            id: req.id,
-            decision: outcome.decision,
-            ...(outcome.decision === 'expired' ? {} : { by: outcome.by }),
-          });
-          if (outcome.decision !== 'approved') {
-            deps.term.out(`  [${outcome.decision}] ${source}`);
-            toolEvent(outcome.decision, note);
-            settle(outcome.decision);
+        // At most so many writes an hour, and one change at a time per environment (M29).
+        let slot: { release: () => void; done: () => void } | null = null;
+        if (decision.kind === 'approve' && deps.writes) {
+          const taken = deps.writes.begin(rules.ok ? rules.rules.environment : null);
+          if ('refused' in taken) decision = { kind: 'block', reason: taken.refused };
+          else slot = taken;
+        }
+        try {
+          if (decision.kind === 'block') {
+            deps.term.out(`  [blocked] ${source}: ${decision.reason}`);
+            toolEvent('blocked', decision.reason);
+            await deps.audit.append({
+              ...base,
+              event: 'tool.call',
+              decision: 'blocked',
+              detail: clip(`${decision.reason}; args ${redactedArgs}`, 3_500),
+            });
+            settle('blocked');
             return wrapUntrusted(
               source,
-              outcome.decision === 'expired'
-                ? 'The approver did not answer in time. Nothing was run.'
-                : `The approver denied this action${note ? `, saying: ${note}` : ''}. Nothing was run.`,
+              `BLOCKED by policy: ${decision.reason}. Nothing was run.`,
               deps.redactor,
             );
           }
-        }
 
-        // Paused while it waited for approval: the approval does not count any more.
-        const pausedNow = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
-        if (pausedNow) {
-          toolEvent('blocked', pausedNow);
-          await deps.audit.append({
-            ...base,
-            event: 'tool.call',
-            decision: 'blocked',
-            detail: clip(`${pausedNow}; args ${redactedArgs}`, 3_500),
-          });
-          settle('blocked');
-          return wrapUntrusted(source, `BLOCKED: ${pausedNow}. Nothing was run.`, deps.redactor);
-        }
-        deps.term.out(`  [${hosted.risk}] ${source} ${redactedArgs}`);
-        toolEvent('running');
-        try {
-          const result = await deps.host.call(hosted.name, args, options.abortSignal);
-          await deps.audit.append({
-            ...base,
-            event: 'tool.call',
-            decision: decision.kind === 'approve' ? 'approved' : 'allowed',
-            detail: clip(`${result.isError ? 'error' : 'ok'}; args ${redactedArgs}`, 3_500),
-          });
-          toolEvent(result.isError ? 'error' : 'ok');
-          settle(result.isError ? 'error' : decision.kind === 'approve' ? 'approved' : 'allowed');
-          return wrapUntrusted(
-            source,
-            result.isError ? `ERROR: ${result.text}` : result.text,
-            deps.redactor,
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          await deps.audit.append({
-            ...base,
-            event: 'error',
-            detail: clip(deps.redactor.redact(message), 3_500),
-          });
-          toolEvent('error', message);
-          return wrapUntrusted(source, `ERROR: the tool call failed: ${message}`, deps.redactor);
+          if (decision.kind === 'approve') {
+            const req = newApprovalRequest(
+              {
+                connector: hosted.connector,
+                tool: hosted.tool,
+                risk,
+                args: redactedArgs,
+                reason: deps.redactor.redact(
+                  typeof reason === 'string' && reason ? reason : '(no reason given)',
+                ),
+                requestedBy: actor,
+              },
+              rules.ok
+                ? rules.rules
+                : { ...deps.policy.effective.default, environment: null, freeze: null },
+            );
+            await deps.audit.append({
+              ...base,
+              event: 'approval.request',
+              detail: clip(`${req.id}; args ${redactedArgs}`, 3_500),
+            });
+            deps.events?.({
+              type: 'approval',
+              call,
+              id: req.id,
+              connector: req.connector,
+              tool: req.tool,
+              risk: req.risk,
+              args: req.args,
+              reason: req.reason,
+              expiresAt: req.expiresAt.toISOString(),
+              environment: req.environment,
+              needed: req.ballot.rules.minApprovers,
+              needs: req.ballot.needs,
+              changeRefPattern: req.ballot.rules.changeRefPattern,
+              freeze: req.ballot.rules.freeze,
+            });
+            const outcome = await waitForApproval(deps.approvals, req, options.abortSignal);
+            const note =
+              outcome.decision === 'denied' && outcome.note
+                ? deps.redactor.redact(outcome.note).slice(0, 500)
+                : undefined;
+            await deps.audit.append({
+              ...base,
+              event: 'approval.decision',
+              ...decisionAudit(req, outcome, actor, note),
+            });
+            await recordOverride(deps, req, outcome, base);
+            deps.events?.({
+              type: 'decision',
+              call,
+              id: req.id,
+              decision: outcome.decision,
+              ...(outcome.decision === 'expired' ? {} : { by: outcome.by }),
+            });
+            if (outcome.decision !== 'approved') {
+              deps.term.out(`  [${outcome.decision}] ${source}`);
+              toolEvent(outcome.decision, note);
+              settle(outcome.decision);
+              return wrapUntrusted(
+                source,
+                outcome.decision === 'expired'
+                  ? 'The approver did not answer in time. Nothing was run.'
+                  : `The approver denied this action${note ? `, saying: ${note}` : ''}. Nothing was run.`,
+                deps.redactor,
+              );
+            }
+          }
+
+          // Paused while it waited for approval: the approval does not count any more.
+          const pausedNow = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
+          if (pausedNow) {
+            toolEvent('blocked', pausedNow);
+            await deps.audit.append({
+              ...base,
+              event: 'tool.call',
+              decision: 'blocked',
+              detail: clip(`${pausedNow}; args ${redactedArgs}`, 3_500),
+            });
+            settle('blocked');
+            return wrapUntrusted(source, `BLOCKED: ${pausedNow}. Nothing was run.`, deps.redactor);
+          }
+          deps.term.out(`  [${hosted.risk}] ${source} ${redactedArgs}`);
+          toolEvent('running');
+          try {
+            const result = await deps.host.call(hosted.name, args, options.abortSignal);
+            if (decision.kind === 'approve') slot?.done();
+            await deps.audit.append({
+              ...base,
+              event: 'tool.call',
+              decision: decision.kind === 'approve' ? 'approved' : 'allowed',
+              detail: clip(`${result.isError ? 'error' : 'ok'}; args ${redactedArgs}`, 3_500),
+            });
+            toolEvent(result.isError ? 'error' : 'ok');
+            settle(result.isError ? 'error' : decision.kind === 'approve' ? 'approved' : 'allowed');
+            return wrapUntrusted(
+              source,
+              result.isError ? `ERROR: ${result.text}` : result.text,
+              deps.redactor,
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await deps.audit.append({
+              ...base,
+              event: 'error',
+              detail: clip(deps.redactor.redact(message), 3_500),
+            });
+            toolEvent('error', message);
+            return wrapUntrusted(source, `ERROR: the tool call failed: ${message}`, deps.redactor);
+          }
+        } finally {
+          slot?.release();
         }
       }
     };

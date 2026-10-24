@@ -57,6 +57,12 @@ export const fakeManifest: Manifest = defineManifest({
       },
     ],
   },
+  // whoami is no Deployment, so only a cut to zero is caught here.
+  scaleLimit: {
+    tool: 'resources_scale',
+    replicasArg: 'scale',
+    current: { tool: 'whoami', copyArgs: ['name'], path: ['spec', 'replicas'] },
+  },
   runtime: {
     type: 'mcp-stdio',
     source: { kind: 'pypi', package: 'unused', version: '0.0.0', command: 'unused' },
