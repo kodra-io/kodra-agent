@@ -179,7 +179,13 @@ How a change is saved:
 Secrets are write-only. **Add** or **Replace** checks a new value with the connector's own
 check first, and only then saves it; the value is never shown again, logged, or sent anywhere.
 
-### Setting up a connector from the console
+### Repos (M30a)
+
+The Repos page onboards a configured repo: Analyze writes the onboarding report (and posts
+the risks and questions to Slack), and Open pull request adds the Dockerfile, CI, chart, and
+report after one approval. See `docs/onboard.md`.
+
+## Setting up a connector from the console
 
 Everything a connector needs can be set here, without editing files on the host:
 

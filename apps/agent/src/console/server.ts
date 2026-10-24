@@ -78,6 +78,14 @@ export class Forbidden {
   }
 }
 
+/** A GET route's answer when what it was asked for is not there. */
+export class NotFound {
+  readonly error: string;
+  constructor(error: string) {
+    this.error = error;
+  }
+}
+
 /** A write route (POST with a JSON body). */
 export type ActionRoute = (
   req: RouteRequest & { body: Record<string, unknown> },
@@ -439,6 +447,7 @@ export async function startConsoleServer(o: ConsoleServerOptions): Promise<Serve
       }
       const result = await route({ query: url.searchParams, user: session.user });
       if (result instanceof Forbidden) json(res, 403, { error: result.error });
+      else if (result instanceof NotFound) json(res, 404, { error: result.error });
       else json(res, 200, result);
       return;
     }

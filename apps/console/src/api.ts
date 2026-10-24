@@ -672,3 +672,35 @@ export interface ContextWarning {
   needed: number;
   window: number;
 }
+
+/** Onboarding from the console (M30a). */
+export interface OnboardRepo {
+  provider: 'github' | 'gitlab';
+  repo: string;
+  canOpenPr: boolean;
+}
+
+export interface OnboardJobSummary {
+  id: string;
+  kind: 'analyze' | 'pr';
+  repo: string;
+  branch: string | null;
+  by: string;
+  startedAt: string;
+  endedAt: string | null;
+  state: 'running' | 'done' | 'failed';
+  shippable: boolean | null;
+  risks: number | null;
+  gaps: number | null;
+  prUrl: string | null;
+}
+
+export interface OnboardJob extends OnboardJobSummary {
+  log: string[];
+  report: string | null;
+}
+
+export interface OnboardView {
+  repos: OnboardRepo[];
+  jobs: OnboardJobSummary[];
+}

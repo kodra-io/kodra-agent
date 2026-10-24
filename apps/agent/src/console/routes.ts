@@ -1,4 +1,5 @@
 import { getModelProvider } from '@kodra-agent/connectors';
+import type { OnboardJobs } from './onboard.ts';
 import { auditHead } from '../audit.ts';
 import { modelOptions } from '../model-options.ts';
 import type { CheckRunner } from '../checks/runner.ts';
@@ -20,7 +21,13 @@ import {
   usage,
   type InvestigationLog,
 } from './data.ts';
-import { Forbidden, type ActionRoute, type ApiRoute, type StreamRoute } from './server.ts';
+import {
+  Forbidden,
+  NotFound,
+  type ActionRoute,
+  type ApiRoute,
+  type StreamRoute,
+} from './server.ts';
 
 export interface ConsoleInfo {
   version: string;
@@ -60,7 +67,7 @@ export function consoleApi(
   pending: ConsoleApprovals,
   chat: ConsoleChat | null,
   settings?: { store: SettingsStore; restart: () => void; people?: People; gate?: PolicyGate },
-  extra: { dashboard?: ConnectorDashboard; checks?: CheckRunner } = {},
+  extra: { dashboard?: ConnectorDashboard; checks?: CheckRunner; onboard?: OnboardJobs } = {},
 ): ConsoleApi {
   const auditPath = runtime.config.spec.audit.path;
   const model = `${runtime.config.spec.model.provider}/${runtime.config.spec.model.name}`;
@@ -140,6 +147,34 @@ export function consoleApi(
       const digest = await checks.run(`run by ${user.name}`, { post: false, commit: true });
       return { status: 200, body: { latest: digest } };
     };
+  }
+
+  const { onboard } = extra;
+  if (onboard) {
+    // Onboarding (M30a): anyone signed in sees the repos and reports; starting a job clones
+    // with the forge token and posts to Slack, so it is for approvers.
+    routes['onboard'] = () => ({ repos: onboard.repos(), jobs: onboard.list() });
+    routes['onboard/job'] = ({ query }) =>
+      onboard.get(query.get('id') ?? '') ?? new NotFound('no such onboarding');
+    const startJob =
+      (kind: 'analyze' | 'pr'): ActionRoute =>
+      ({ user, body }) => {
+        if (!user.canApprove) {
+          return { status: 403, body: { error: 'only a console approver can onboard a repo' } };
+        }
+        const branch = typeof body['branch'] === 'string' && body['branch'] ? body['branch'] : null;
+        const started = onboard.start(
+          kind,
+          typeof body['repo'] === 'string' ? body['repo'] : '',
+          branch,
+          user.name,
+        );
+        return 'job' in started
+          ? { status: 200, body: { id: started.job.id } }
+          : { status: started.status, body: { error: started.error } };
+      };
+    actions['onboard/analyze'] = startJob('analyze');
+    actions['onboard/pr'] = startJob('pr');
   }
 
   if (chat) {

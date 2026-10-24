@@ -3,7 +3,10 @@ import { dirname } from 'node:path';
 import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { ApprovalOutcome, ApprovalRequest } from '../approvals.ts';
 import { main } from '../cli.ts';
+import { OnboardJobs } from '../console/onboard.ts';
+import { startRuntime } from '../runtime.ts';
 import { spawnExec, type Exec, type ExecOptions } from '../ship/exec.ts';
 import { fakeLauncher } from '../test-fixtures/fake-connector.ts';
 import {
@@ -579,5 +582,110 @@ describe('kodra-agent onboard', () => {
     const t = testContext();
     expect(await main(['onboard'], t.ctx)).toBe(2);
     expect(t.output()).toContain('Usage: kodra-agent onboard');
+  });
+});
+
+// M30a: onboarding from the console, inside the running agent, without Docker.
+describe('onboarding from the console', () => {
+  const start = async (s: Awaited<ReturnType<typeof setup>>, decision: 'approved' | 'denied') => {
+    const runtime = await startRuntime(s.path, s.t.ctx);
+    if (!runtime) throw new Error('no runtime');
+    const posted: string[] = [];
+    const asked: ApprovalRequest[] = [];
+    const jobs = new OnboardJobs({
+      runtime,
+      ctx: s.t.ctx,
+      configPath: s.path,
+      approvals: {
+        request: (req) => {
+          asked.push(req);
+          return Promise.resolve({ decision, by: 'console:admin' } as ApprovalOutcome);
+        },
+      },
+      post: (text) => {
+        posted.push(text);
+        return Promise.resolve();
+      },
+      path: join(s.dir, 'onboarding.json'),
+    });
+    await jobs.load();
+    return { runtime, jobs, posted, asked };
+  };
+
+  it(
+    'analyzes a configured repo, then opens the PR after one approval, building nothing',
+    { timeout: 60_000 },
+    async () => {
+      const s = await setup({ extra: ONBOARD_EXTRA });
+      const { runtime, jobs, posted, asked } = await start(s, 'approved');
+      try {
+        expect(jobs.repos()).toEqual([
+          { provider: 'github', repo: 'acme/node-api', canOpenPr: true },
+        ]);
+        const analyzed = jobs.start('analyze', 'ACME/node-api', null, 'console:admin');
+        if (!('job' in analyzed)) throw new Error(analyzed.error);
+        expect(jobs.start('analyze', 'acme/node-api', null, 'console:admin')).toMatchObject({
+          status: 409,
+        });
+        await jobs.idle();
+        const report = jobs.get(analyzed.job.id);
+        expect(report).toMatchObject({ state: 'done', shippable: true, risks: 1, gaps: 1 });
+        expect(report?.report).toContain('# Onboarding: acme/node-api');
+        expect(posted.join('\n')).toContain('*Onboarding acme/node-api*: 1 risk, 1 gap.');
+        expect(asked).toHaveLength(0);
+        expect((await s.recorded()).some((c) => c.tool === 'create_pull_request')).toBe(false);
+
+        const pr = jobs.start('pr', 'acme/node-api', null, 'console:admin');
+        if (!('job' in pr)) throw new Error(pr.error);
+        await jobs.idle();
+        expect(jobs.get(pr.job.id)?.state).toBe('done');
+        expect(asked).toHaveLength(1);
+        expect(asked[0]?.requestedBy).toBe('console:admin');
+        expect(asked[0]?.reason).toContain("the pull request's CI builds it");
+        const opened = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
+        expect(opened?.args['body']).toContain('Not built by the agent');
+        // No Docker in the agent: nothing was built or run.
+        expect(s.exec.calls.some((c) => c.command === 'docker')).toBe(false);
+
+        // Kept for after a restart, redacted.
+        const saved = await readFile(join(s.dir, 'onboarding.json'), 'utf8');
+        expect(saved).toContain('# Onboarding: acme/node-api');
+        expect(saved).not.toContain(LEAKED);
+        expect(saved).not.toContain(TOKEN);
+      } finally {
+        await runtime.close();
+      }
+    },
+  );
+
+  it('refuses repos that are not configured and PRs on a read-only connector', async () => {
+    const s = await setup({ access: 'read-only' });
+    const { runtime, jobs } = await start(s, 'approved');
+    try {
+      expect(jobs.start('analyze', 'acme/other', null, 'console:admin')).toMatchObject({
+        status: 400,
+      });
+      const refused = jobs.start('pr', 'acme/node-api', null, 'console:admin');
+      expect('error' in refused && refused.error).toContain('read-only');
+      expect(jobs.start('analyze', 'acme/node-api', 'bad branch;', 'console:admin')).toMatchObject({
+        status: 400,
+      });
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it('pushes nothing when the approver says no', { timeout: 60_000 }, async () => {
+    const s = await setup();
+    const { runtime, jobs } = await start(s, 'denied');
+    try {
+      const pr = jobs.start('pr', 'acme/node-api', null, 'console:admin');
+      if (!('job' in pr)) throw new Error(pr.error);
+      await jobs.idle();
+      expect(jobs.get(pr.job.id)).toMatchObject({ state: 'failed', prUrl: null });
+      expect(await s.remoteBranches()).toEqual(['main']);
+    } finally {
+      await runtime.close();
+    }
   });
 });

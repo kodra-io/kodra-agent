@@ -1,4 +1,5 @@
 import { proxyOptions } from '../network.ts';
+import { OnboardJobs } from '../console/onboard.ts';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -318,6 +319,19 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         redactor: ctx.redactor,
         announce,
       });
+      // Onboarding from the console (M30a): approvals in the console and Slack, as for chat.
+      const onboard = new OnboardJobs({
+        runtime,
+        ctx,
+        configPath: opts.configPath,
+        approvals: fanOut([
+          ...consoleChannels,
+          ...(approvals && channelId ? [approvals.channelFor(channelId, undefined)] : []),
+        ]),
+        ...(slack ? { post: announce } : {}),
+        path: join(dirname(runtime.config.spec.audit.path), 'onboarding.json'),
+      });
+      await onboard.load();
       const api = consoleApi(
         runtime,
         { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },
@@ -345,7 +359,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
             }, 300);
           },
         },
-        { dashboard, checks },
+        { dashboard, checks, onboard },
       );
       consoleServer = await startConsoleServer({
         port: ctx.consolePort ?? runtime.config.spec.console.port,

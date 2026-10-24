@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ReposPage } from './onboard.tsx';
 import {
   get,
   pauseAgent,
@@ -34,6 +35,7 @@ const PAGES = [
   { path: '/approvals', label: 'nav.approvals', icon: 'shield', Page: ApprovalsPage },
   { path: '/activity', label: 'nav.activity', icon: 'activity', Page: ActivityPage },
   { path: '/investigations', label: 'nav.investigations', icon: 'bell', Page: InvestigationsPage },
+  { path: '/repos', label: 'nav.repos', icon: 'branch', Page: ReposPage },
   { path: '/usage', label: 'nav.usage', icon: 'chart', Page: UsagePage },
   { path: '/settings', label: 'nav.settings', icon: 'settings', Page: SettingsPage },
 ] as const satisfies readonly { path: string; label: MessageKey; icon: IconName; Page: unknown }[];

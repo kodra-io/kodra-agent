@@ -813,6 +813,8 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
   let startedAt = '2026-10-09T08:00:00.000Z';
   let base = 'base-1';
   let undoable = false;
+  // Onboarding (M30a): jobs finish at once here.
+  const onboardJobs: Record<string, unknown>[] = [];
   // A rotated token of your own signs you out when the agent comes back.
   let signOutOnRestart = false;
   const restart = () => {
@@ -1291,6 +1293,34 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         }
         return route.fulfill({ json: { result: approve ? 'approved' : 'denied' } });
       }
+      if (name === 'onboard/analyze' || name === 'onboard/pr') {
+        if (body['repo'] !== 'jordan-kodra/terraform') {
+          return route.fulfill({ status: 400, json: { error: 'that is not a configured repo' } });
+        }
+        const pr = name === 'onboard/pr';
+        const id = `onb-${String(onboardJobs.length + 1)}`;
+        onboardJobs.unshift({
+          id,
+          kind: pr ? 'pr' : 'analyze',
+          repo: body['repo'],
+          branch: null,
+          by: user.name,
+          startedAt: '2026-10-24T09:00:00.000Z',
+          endedAt: '2026-10-24T09:00:20.000Z',
+          state: 'done',
+          shippable: true,
+          risks: 1,
+          gaps: 2,
+          prUrl: pr ? 'https://gitlab.example.com/jordan-kodra/terraform/-/merge_requests/7' : null,
+          log: [
+            'Cloning jordan-kodra/terraform...',
+            pr ? 'Opened a merge request.' : 'Report done.',
+          ],
+          report:
+            '# Onboarding: jordan-kodra/terraform\n\n## Risks\n\n- A committed credential at `main.tf:3`',
+        });
+        return route.fulfill({ json: { id } });
+      }
       if (name === 'checks/run') {
         const checks = fixtures['checks'] as { latest: Record<string, unknown> };
         return route.fulfill({
@@ -1346,6 +1376,20 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
       });
     }
     if (name === 'approvals/pending') return route.fulfill({ json: pending });
+    if (name === 'onboard') {
+      return route.fulfill({
+        json: {
+          repos: [{ provider: 'gitlab', repo: 'jordan-kodra/terraform', canOpenPr: true }],
+          jobs: onboardJobs.map((j) => ({ ...j, log: undefined, report: undefined })),
+        },
+      });
+    }
+    if (name === 'onboard/job') {
+      const job = onboardJobs.find((j) => j['id'] === url.searchParams.get('id'));
+      return job
+        ? route.fulfill({ json: job })
+        : route.fulfill({ status: 404, json: { error: 'no such onboarding' } });
+    }
     if (name === 'settings') {
       return route.fulfill({ json: settingsView(base, undoable, policyChanges, held) });
     }
