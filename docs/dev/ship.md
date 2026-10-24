@@ -1,0 +1,7 @@
+# Ship and onboard
+
+Developer notes for working on the code. Moved from `CLAUDE.md`. User docs: `docs/ship.md`, `docs/onboard.md`.
+
+- Ship (M6): `src/commands/ship.ts` runs git, docker, and helm through `Context.exec` (no shell; tests fake docker and helm, use real git against a local bare remote, and open the PR via the fake MCP server's `--record` tools). Git gets the token only as an `http.extraHeader` env var with the user's git config off. Push and PR are checked by `decide()` with the connector's `create_branch` and PR tool guards, then one approval covers both. Base images are pinned in `packages/templates/src/ship/images.ts`. `KODRA_SHIP_E2E=1` runs the real Docker and Helm test on `examples/ship`.
+- Onboard (M26): see `docs/onboard.md`. `packages/templates/src/onboard` is pure functions over `RepoFiles` (`analyzeRepo`, `onboardingReport`); the secret scan takes the redactor's `TOKEN_PATTERNS` and keeps only file, line, and rule. `ship({ onboard: true })` prints the report, posts risks and questions to Slack without approval, passes env names to the chart (`envFromSecret`), and adds `ONBOARDING.md` to the PR.
+- Onboard from the console (M30a): `src/console/onboard.ts` (`OnboardJobs`: one job at a time, kept in `onboarding.json`, routes `onboard`, `onboard/job`, actions `onboard/analyze` and `onboard/pr` for approvers) runs `ship()` with `ShipHooks` (the running runtime, the console+Slack approvals, `verify: 'ci'` skips the Docker build, `reportOnly`, `post`, `onResult`). Console page `onboard.tsx` (Repos).
