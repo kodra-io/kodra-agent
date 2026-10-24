@@ -24,6 +24,7 @@ const CANARIES = {
   github: 'canary-github-4e8d1a6f',
   slackBot: 'canary-slackbot-2b9c7e1d',
   slackApp: 'canary-slackapp-9a1f3c5e',
+  consoleAdmin: 'canary-console-admin-5c8e1f',
   kubeconfig: 'apiVersion: v1\nusers:\n- user:\n    token: canary-kube-6d2e8b4a\n', // gitleaks:allow (canary, fake)
 };
 
@@ -104,6 +105,8 @@ describe('secret canary', () => {
         CANARIES.slackBot,
         CANARIES.slackApp,
         'keep',
+        CANARIES.consoleAdmin,
+        CANARIES.consoleAdmin,
       ]),
     });
     expect(await main(['init', '--config', path], first.ctx)).toBe(0);
@@ -129,9 +132,15 @@ describe('secret canary', () => {
       await readFile(auditPath, 'utf8'),
     ].join('\n');
 
-    for (const canary of ALL) {
+    // The console admin password is never stored; its hash stays in .env only.
+    const adminHash = /^KODRA_CONSOLE_ADMIN_HASH=(\S+)$/m.exec(
+      await readFile(join(dir, '.env'), 'utf8'),
+    )?.[1];
+    expect(adminHash).toBeDefined();
+    for (const canary of [...ALL, adminHash ?? '']) {
       expect(everything.includes(canary), `leaked: ${canary.slice(0, 16)}…`).toBe(false);
     }
+    expect(await readFile(join(dir, '.env'), 'utf8')).not.toContain(CANARIES.consoleAdmin);
     // The stored values are where they belong, so the test did exercise them.
     expect(await readFile(join(dir, '.env'), 'utf8')).toContain(CANARIES.github);
     expect(await readFile(kubeconfigPath, 'utf8')).toContain('canary-kube-6d2e8b4a');

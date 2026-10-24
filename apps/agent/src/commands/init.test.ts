@@ -9,6 +9,7 @@ import {
   posixPath,
   scriptedPrompter,
   tempDir,
+  TEST_ADMIN_PASSWORD,
   testContext,
   writeConfig,
 } from '../test-helpers.ts';
@@ -22,6 +23,10 @@ afterEach(async () => {
 });
 
 const base = { nonInteractive: false, dryRun: false };
+// The console admin password, typed twice (L2: there is no default).
+const PW = [TEST_ADMIN_PASSWORD, TEST_ADMIN_PASSWORD];
+const PW_ASKED = ['Console admin password:', 'The same password again:'];
+const PW_ENV = { KODRA_CONSOLE_ADMIN_PASSWORD: TEST_ADMIN_PASSWORD };
 
 async function anthropicServer(validKey: string) {
   return fakeServer({
@@ -49,13 +54,17 @@ describe('init on compose', () => {
   it('asks with hidden input, checks the key, and writes an owner-only .env', async () => {
     server = await anthropicServer('good-key-1234');
     const { dir, path } = await setup();
-    const prompter = scriptedPrompter(['good-key-1234']);
+    const prompter = scriptedPrompter(['good-key-1234', ...PW]);
     const t = testContext({ prompter, endpoints: { anthropic: server.url } });
 
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
-    expect(prompter.asked).toEqual(['Anthropic apiKey (ANTHROPIC_API_KEY):']);
+    expect(prompter.asked).toEqual(['Anthropic apiKey (ANTHROPIC_API_KEY):', ...PW_ASKED]);
     const env = await readFile(join(dir, '.env'), 'utf8');
     expect(env).toContain('ANTHROPIC_API_KEY=good-key-1234');
+    // Only the password's hash is stored, and the password is never shown.
+    expect(env).toMatch(/^KODRA_CONSOLE_ADMIN_HASH=scrypt1:\d+:/m);
+    expect(env).not.toContain(TEST_ADMIN_PASSWORD);
+    expect(t.output()).not.toContain(TEST_ADMIN_PASSWORD);
     expect(t.output()).toContain('PASS  Anthropic apiKey (ANTHROPIC_API_KEY): API key accepted');
     expect(t.output()).not.toContain('good-key-1234');
     if (process.platform !== 'win32') {
@@ -66,7 +75,7 @@ describe('init on compose', () => {
   it('lets the user retry after a failed check, then keeps the good value', async () => {
     server = await anthropicServer('good-key-1234');
     const { dir, path } = await setup();
-    const prompter = scriptedPrompter(['bad-key-5678', 'retry', 'good-key-1234']);
+    const prompter = scriptedPrompter(['bad-key-5678', 'retry', 'good-key-1234', ...PW]);
     const t = testContext({ prompter, endpoints: { anthropic: server.url } });
 
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
@@ -90,12 +99,13 @@ describe('init on compose', () => {
   it('offers to keep values already in .env and keeps other keys untouched', async () => {
     const { dir, path } = await setup();
     await writeFile(join(dir, '.env'), 'MY_OWN=stay\nANTHROPIC_API_KEY=existing-key-999\n');
-    const prompter = scriptedPrompter([true]);
+    const prompter = scriptedPrompter([true, ...PW]);
     const t = testContext({ prompter });
 
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
     expect(prompter.asked).toEqual([
       'Anthropic apiKey (ANTHROPIC_API_KEY) is already set. Keep it?',
+      ...PW_ASKED,
     ]);
     const env = await readFile(join(dir, '.env'), 'utf8');
     // Existing keys untouched; a console sign-in token is added once, never printed.
@@ -107,7 +117,7 @@ describe('init on compose', () => {
     expect(t.output()).toContain(
       'Created a console sign-in token for the team (view and chat) in .env (KODRA_CONSOLE_TOKEN)',
     );
-    // A second run keeps the same token.
+    // A second run keeps the same token and the password, without asking for it again.
     const again = testContext({ prompter: scriptedPrompter([true]) });
     expect(await init({ ...base, configPath: path }, again.ctx)).toBe(0);
     expect(await readFile(join(dir, '.env'), 'utf8')).toContain(`KODRA_CONSOLE_TOKEN=${token}`);
@@ -120,7 +130,7 @@ describe('init on compose', () => {
     await writeFile(join(dir, 'my-kubeconfig'), 'apiVersion: v1\nkind: Config\n');
     const k8s = fakeKubernetes();
     server = await anthropicServer('good-key-1234');
-    const prompter = scriptedPrompter(['good-key-1234', 'my-kubeconfig']);
+    const prompter = scriptedPrompter(['good-key-1234', 'my-kubeconfig', ...PW]);
     const t = testContext({ prompter, kubernetes: k8s, endpoints: { anthropic: server.url } });
 
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
@@ -141,7 +151,7 @@ describe('init on compose', () => {
     await mkdir(join(dir, 'dot-kube'));
     server = await anthropicServer('good-key-1234');
     // A folder first (the common mistake), then Enter once the file is in secrets/.
-    const prompter = scriptedPrompter(['good-key-1234', 'dot-kube', '']);
+    const prompter = scriptedPrompter(['good-key-1234', 'dot-kube', '', ...PW]);
     const original = prompter.text.bind(prompter);
     prompter.text = async (m) => {
       if (prompter.asked.length === 2) {
@@ -175,7 +185,7 @@ describe('init on compose', () => {
       "    prometheus:\n      enabled: true\n      config: {url: 'http://127.0.0.1:1'}\n      secrets: {bearerToken: '${env:PROMETHEUS_TOKEN}'}",
     );
     server = await anthropicServer('good-key-1234');
-    const prompter = scriptedPrompter(['good-key-1234', '']);
+    const prompter = scriptedPrompter(['good-key-1234', '', ...PW]);
     const t = testContext({ prompter, endpoints: { anthropic: server.url } });
 
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
@@ -220,6 +230,7 @@ describe('init on compose', () => {
       'billing-pw-1234',
       'not-a-key',
       'keep',
+      ...PW,
     ]);
     const t = testContext({ prompter, endpoints: { anthropic: server.url } });
 
@@ -240,6 +251,60 @@ describe('init on compose', () => {
     expect(env).toContain('KODRA_DB_BILLING_TUNNEL_KEY=not-a-key');
     expect(out).not.toContain('billing-pw-1234');
   });
+
+  it('asks again for a short or mismatched password, and stops after three tries', async () => {
+    server = await anthropicServer('good-key-1234');
+    const { dir, path } = await setup();
+    const prompter = scriptedPrompter([
+      'good-key-1234',
+      'admin',
+      TEST_ADMIN_PASSWORD,
+      'something-else-entirely',
+      ...PW,
+    ]);
+    const t = testContext({ prompter, endpoints: { anthropic: server.url } });
+    expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
+    expect(t.term.stderr).toEqual([
+      'Use at least 12 characters.',
+      'The two passwords do not match.',
+    ]);
+    expect(await readFile(join(dir, '.env'), 'utf8')).toContain('KODRA_CONSOLE_ADMIN_HASH=');
+
+    const { dir: other, path: otherPath } = await setup();
+    const tries = testContext({
+      prompter: scriptedPrompter(['good-key-1234', 'admin', 'admin', 'short']),
+      endpoints: { anthropic: server.url },
+    });
+    expect(await init({ ...base, configPath: otherPath }, tries.ctx)).toBe(1);
+    expect(tries.term.stderr.at(-1)).toBe('Stopped. Nothing was written.');
+    await expect(readFile(join(other, '.env'), 'utf8')).rejects.toThrow();
+  });
+
+  it('replaces the password with --reset-console-password, keeping everything else', async () => {
+    const { dir, path } = await setup();
+    await writeFile(join(dir, '.env'), 'ANTHROPIC_API_KEY=existing-key-999\n');
+    expect(
+      await init(
+        { ...base, configPath: path },
+        testContext({ prompter: scriptedPrompter([true, ...PW]) }).ctx,
+      ),
+    ).toBe(0);
+    const first = await readFile(join(dir, '.env'), 'utf8');
+    const hash = /^KODRA_CONSOLE_ADMIN_HASH=(\S+)$/m.exec(first)?.[1];
+    expect(hash).toBeDefined();
+
+    const reset = testContext({
+      prompter: scriptedPrompter([true, 'a-brand-new-password', 'a-brand-new-password']),
+    });
+    expect(await init({ ...base, configPath: path, resetConsolePassword: true }, reset.ctx)).toBe(
+      0,
+    );
+    const second = await readFile(join(dir, '.env'), 'utf8');
+    expect(second).toMatch(/^KODRA_CONSOLE_ADMIN_HASH=scrypt1:/m);
+    expect(second).not.toContain(hash ?? '-');
+    expect(second).toContain('ANTHROPIC_API_KEY=existing-key-999');
+    expect(reset.output()).not.toContain('a-brand-new-password');
+  });
 });
 
 describe('init with no secrets to ask for', () => {
@@ -255,7 +320,7 @@ describe('init with no secrets to ask for', () => {
 
   it('still creates the console token, without asking anything', async () => {
     const { dir, path } = await noSecrets(true);
-    const t = testContext({ prompter: scriptedPrompter([]) });
+    const t = testContext({ prompter: scriptedPrompter([]), env: PW_ENV });
     expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
     expect(await readFile(join(dir, '.env'), 'utf8')).toMatch(/^KODRA_CONSOLE_TOKEN=\S{43}$/m);
   });
@@ -269,7 +334,7 @@ describe('init with no secrets to ask for', () => {
       }),
       dir,
     );
-    const t = testContext();
+    const t = testContext({ env: PW_ENV });
     expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
     const env = await readFile(join(dir, '.env'), 'utf8');
     const shared = /^KODRA_CONSOLE_TOKEN=(\S{43})$/m.exec(env)?.[1];
@@ -280,9 +345,12 @@ describe('init with no secrets to ask for', () => {
     expect(t.output()).toContain('for console:on-call in .env (KODRA_CONSOLE_TOKEN_ON_CALL)');
     expect(t.output()).not.toContain(own);
 
-    expect(await init({ ...base, configPath: path, nonInteractive: true }, testContext().ctx)).toBe(
-      0,
-    );
+    expect(
+      await init(
+        { ...base, configPath: path, nonInteractive: true },
+        testContext({ env: PW_ENV }).ctx,
+      ),
+    ).toBe(0);
     expect(await readFile(join(dir, '.env'), 'utf8')).toBe(env);
   });
 
@@ -300,7 +368,7 @@ describe('init --non-interactive', () => {
     server = await anthropicServer('ci-key-1234');
     const { dir, path } = await setup();
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: 'ci-key-1234' },
+      env: { ANTHROPIC_API_KEY: 'ci-key-1234', ...PW_ENV },
       endpoints: { anthropic: server.url },
     });
 
@@ -317,6 +385,22 @@ describe('init --non-interactive', () => {
     expect(t.term.stderr).toEqual([
       'Missing Anthropic apiKey (ANTHROPIC_API_KEY).',
       'Missing GitHub token (GITHUB_TOKEN).',
+      'Missing console admin password (KODRA_CONSOLE_ADMIN_PASSWORD).',
+      'Nothing was written.',
+    ]);
+    await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
+  });
+
+  it('refuses a short password from the environment', async () => {
+    server = await anthropicServer('ci-key-1234');
+    const { dir, path } = await setup();
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: 'ci-key-1234', KODRA_CONSOLE_ADMIN_PASSWORD: 'short-pw' },
+      endpoints: { anthropic: server.url },
+    });
+    expect(await init({ ...base, nonInteractive: true, configPath: path }, t.ctx)).toBe(1);
+    expect(t.term.stderr).toEqual([
+      'The console admin password (KODRA_CONSOLE_ADMIN_PASSWORD): Use at least 12 characters.',
       'Nothing was written.',
     ]);
     await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow();
@@ -339,7 +423,7 @@ describe('init on kubernetes', () => {
     );
     await writeFile(join(dir, 'kc'), 'kube-contents\n');
     const k8s = fakeKubernetes();
-    const prompter = scriptedPrompter(['k-key-1234', 'kc']);
+    const prompter = scriptedPrompter(['k-key-1234', 'kc', ...PW]);
     const t = testContext({ prompter, kubernetes: k8s, endpoints: { anthropic: server.url } });
 
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
@@ -348,7 +432,9 @@ describe('init on kubernetes', () => {
     expect([ns, name]).toEqual(['kodra-agent', 'test-agent-secrets']);
     expect(data).toMatchObject({ ANTHROPIC_API_KEY: 'k-key-1234', kubeconfig: 'kube-contents' });
     expect(data['KODRA_CONSOLE_TOKEN']).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(t.term.stdout).toContain('Created Secret kodra-agent/test-agent-secrets with 3 key(s).');
+    expect(data['KODRA_CONSOLE_ADMIN_HASH']).toMatch(/^scrypt1:/);
+    expect(JSON.stringify(data)).not.toContain(TEST_ADMIN_PASSWORD);
+    expect(t.term.stdout).toContain('Created Secret kodra-agent/test-agent-secrets with 4 key(s).');
     expect(t.output()).not.toContain(data['KODRA_CONSOLE_TOKEN']);
     expect(t.output()).not.toContain('k-key-1234');
   });
@@ -364,13 +450,17 @@ describe('init on kubernetes', () => {
       dir,
     );
     const k8s = fakeKubernetes();
-    const t = testContext({ kubernetes: k8s });
+    const t = testContext({ kubernetes: k8s, env: PW_ENV });
     expect(await init({ ...base, configPath: path, nonInteractive: true }, t.ctx)).toBe(0);
     const data = (k8s.calls.find((c) => c.op === 'upsertSecret')?.args[2] ?? {}) as Record<
       string,
       string
     >;
-    expect(Object.keys(data).sort()).toEqual(['KODRA_CONSOLE_TOKEN', 'KODRA_CONSOLE_TOKEN_OMAR']);
+    expect(Object.keys(data).sort()).toEqual([
+      'KODRA_CONSOLE_ADMIN_HASH',
+      'KODRA_CONSOLE_TOKEN',
+      'KODRA_CONSOLE_TOKEN_OMAR',
+    ]);
     expect(t.output()).toContain(
       "The console sign-in token for console:omar is key KODRA_CONSOLE_TOKEN_OMAR of that Secret: kubectl --namespace kodra-agent get secret test-agent-secrets -o jsonpath='{.data.KODRA_CONSOLE_TOKEN_OMAR}' | base64 -d",
     );
@@ -381,6 +471,7 @@ describe('init on kubernetes', () => {
     expect(dry.output()).toContain(
       'KODRA_CONSOLE_TOKEN_OMAR: "<a long random string: the sign-in token for console:omar>"',
     );
+    expect(dry.output()).toContain('KODRA_CONSOLE_ADMIN_HASH: "<the console admin password hash');
   });
 
   it('--dry-run prints placeholders, asks nothing, and never reads values', async () => {
@@ -410,7 +501,7 @@ describe('init on kubernetes', () => {
         Promise.reject(Object.assign(new Error('body had k-key-1234'), { code: 403 })),
     });
     const t = testContext({
-      prompter: scriptedPrompter(['k-key-1234']),
+      prompter: scriptedPrompter(['k-key-1234', ...PW]),
       kubernetes: k8s,
       endpoints: { anthropic: server.url },
     });
@@ -460,6 +551,7 @@ describe('init and approver names', () => {
       ANTHROPIC_API_KEY: 'k',
       SLACK_BOT_TOKEN: 'xoxb-names-test',
       SLACK_APP_TOKEN: 'xapp-names-test',
+      ...PW_ENV,
     };
     return { dir, path, env, endpoints: { anthropic: server.url, slack: server.url } };
   }
@@ -467,7 +559,7 @@ describe('init and approver names', () => {
   it('looks names up once, shows who matched, and writes the ids after a yes', async () => {
     const { path, env, endpoints } = await slackSetup(['@omar', 'console:omar']);
     // The key and two tokens, then yes to writing the ids.
-    const prompter = scriptedPrompter(['k', 'xoxb-names-test', 'xapp-names-test', true]);
+    const prompter = scriptedPrompter(['k', 'xoxb-names-test', 'xapp-names-test', true, ...PW]);
     const t = testContext({ prompter, env, endpoints });
     expect(await init({ ...base, configPath: path }, t.ctx)).toBe(0);
     expect(t.output()).toContain('@omar -> U01OMAR (Omar A)');

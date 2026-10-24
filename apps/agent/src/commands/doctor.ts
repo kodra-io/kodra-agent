@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { AuditLog, verifyAuditChain } from '../audit.ts';
+import { ADMIN_HASH_ENV, AdminAccount } from '../console/admin.ts';
 import {
   allApprovers,
   isSecretRequired,
@@ -134,6 +135,9 @@ export async function doctorRows(
   }
 
   if (envText !== null) add(await envPermissions(envPath, ctx));
+
+  // No default console password (L2): without one, `run` refuses to start the console.
+  if (config.spec.console.enabled) add(await consolePasswordRow(config.spec.audit.path, env, ctx));
 
   for (const comp of components(config)) {
     const { values, missing } = await resolveAll(comp.secrets, { env, redactor: ctx.redactor });
@@ -339,4 +343,30 @@ async function networkRows(
     ),
   );
   return rows;
+}
+
+async function consolePasswordRow(
+  auditPath: string,
+  env: Readonly<Record<string, string | undefined>>,
+  ctx: Context,
+): Promise<DoctorRow> {
+  const envHash = env[ADMIN_HASH_ENV];
+  if (envHash) ctx.redactor.add(envHash);
+  const admin = new AdminAccount({
+    path: join(dirname(auditPath), 'console-users.json'),
+    envHash,
+  });
+  const problem = await admin.load().then(
+    () => (admin.isSet() ? null : 'not set'),
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  );
+  return problem
+    ? {
+        status: 'fail',
+        component: 'console',
+        check: 'admin password',
+        message: problem,
+        hint: 'Run `kodra-agent init` to set the console admin password. The console does not start without one.',
+      }
+    : { status: 'pass', component: 'console', check: 'admin password', message: 'set' };
 }

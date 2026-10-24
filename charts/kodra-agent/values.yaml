@@ -38,7 +38,8 @@ rbac:
   create: false
   # Namespaces the agent may read (and change, with write: true).
   namespaces: []
-  # Allows patching and scaling deployments. Every change still needs an approval in Slack.
+  # Allows scaling deployments (get and update on deployments/scale), nothing else. Every
+  # change still needs an approval.
   write: false
 
 # The web console (spec.console in kodra-agent.yaml; keep the ports the same).

@@ -20,6 +20,8 @@ export interface AccessCheck {
   verb: string;
   resource: string;
   group?: string;
+  /** Like `scale` for `deployments/scale`. */
+  subresource?: string;
   namespace?: string;
 }
 
@@ -62,6 +64,7 @@ export const realKubernetes: KubernetesFactory = (kubeconfig, execEnv) => {
                 verb: c.verb,
                 resource: c.resource,
                 group: c.group ?? '',
+                ...(c.subresource === undefined ? {} : { subresource: c.subresource }),
                 ...(c.namespace === undefined ? {} : { namespace: c.namespace }),
               },
             },

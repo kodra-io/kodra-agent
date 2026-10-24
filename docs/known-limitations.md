@@ -28,6 +28,15 @@ do about it. The threat model is in [docs/security/threat-model.md](security/thr
 - **Masked values cannot be revealed.** An approver sees `[email:7f3a]`, not the address.
 - **The Docker socket is close to root on that machine.** With Docker build access on
   Compose, `kodra-builder` mounts it while a build runs. Use a machine meant for builds.
+- **Any process in the agent's pod can read its ServiceAccount token.** With write access the
+  token can only scale deployments in the agent's namespaces (get and update on
+  `deployments/scale`, nothing else), so it cannot change a pod template, but it can scale
+  outside an approval. An admission policy that limits the token further is on the roadmap
+  (M9b). Keep write access off where you do not need it.
+- **The console has one password account.** `admin` signs in with the password `kodra-agent
+init` asked for; there is no default, and the console does not start without one. Everyone
+  else uses sign-in tokens. A forgotten password is reset with `kodra-agent init
+--reset-console-password`. Keep the console off public networks.
 - **Server-side tool filters are best effort.** For example, GitLab's deny regex silently
   stops working past 200 characters. The agent's own classification and guards are the real
   gate, and they do not depend on the servers.

@@ -82,9 +82,9 @@ export function App() {
     };
   }, [refreshSession]);
 
-  // Signed in with the default admin password: only the password screen until it changes.
-  const mustChange = session?.signedIn === true && session.mustChangePassword === true;
-  const signedIn = session?.signedIn === true && !mustChange;
+  const signedIn = session?.signedIn === true;
+  // The admin's own password change, from the sidebar.
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // The approvals badge (sidebar and tab title) and the status card.
   const loadStatus = useCallback(() => {
@@ -132,16 +132,24 @@ export function App() {
   if (session === null) {
     return <p className="p-6">{t('app.loading')}</p>;
   }
-  if (mustChange) {
-    return <ChangePassword onChanged={refreshSession} onSignedOut={onSignedOut} />;
-  }
   if (!signedIn) {
     return <SignIn onSignedIn={refreshSession} />;
+  }
+  if (changingPassword) {
+    const done = () => {
+      setChangingPassword(false);
+      refreshSession();
+    };
+    return <ChangePassword onChanged={done} onCancel={done} />;
   }
 
   const pages = pagesFor(session);
   const page = pages.find((p) => p.path === path) ?? PAGES[0];
-  const me = { user: session.user ?? 'console', canApprove: session.canApprove === true };
+  const me = {
+    user: session.user ?? 'console',
+    canApprove: session.canApprove === true,
+    hasPassword: session.passwordAccount === true,
+  };
   const fullBleed = page.path === '/chat';
 
   return (
@@ -166,6 +174,9 @@ export function App() {
           }}
           onSignedOut={onSignedOut}
           onChanged={loadStatus}
+          onChangePassword={() => {
+            setChangingPassword(true);
+          }}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {status?.paused && (
@@ -250,17 +261,19 @@ function Sidebar({
   toggleMenu,
   onSignedOut,
   onChanged,
+  onChangePassword,
 }: {
   pages: ReturnType<typeof pagesFor>;
   path: string;
   go: (path: string) => void;
   pending: number;
   status: StatusView | null;
-  me: { user: string; canApprove: boolean };
+  me: { user: string; canApprove: boolean; hasPassword: boolean };
   menuOpen: boolean;
   toggleMenu: () => void;
   onSignedOut: () => void;
   onChanged: () => void;
+  onChangePassword: () => void;
 }) {
   const { t } = useI18n();
   const { dark, toggle } = useTheme();
@@ -378,6 +391,16 @@ function Sidebar({
               >
                 <Icon name={dark ? 'sun' : 'moon'} size={16} />
               </button>
+              {me.hasPassword && (
+                <button
+                  type="button"
+                  aria-label={t('app.changePassword')}
+                  className="inline-flex size-8 items-center justify-center rounded-lg border border-line-strong text-ink-secondary hover:text-ink"
+                  onClick={onChangePassword}
+                >
+                  <Icon name="key" size={16} />
+                </button>
+              )}
               <button
                 type="button"
                 aria-label={t('app.signOut')}
@@ -547,14 +570,8 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   );
 }
 
-/** After signing in with admin/admin: a new password before anything else. */
-function ChangePassword({
-  onChanged,
-  onSignedOut,
-}: {
-  onChanged: () => void;
-  onSignedOut: () => void;
-}) {
+/** The admin's new password: needs the current one, and signs the admin out elsewhere. */
+function ChangePassword({ onChanged, onCancel }: { onChanged: () => void; onCancel: () => void }) {
   const { t } = useI18n();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -626,11 +643,9 @@ function ChangePassword({
         <button
           type="button"
           className="mt-3 w-full text-sm text-ink-secondary underline underline-offset-2"
-          onClick={() => {
-            void signOut().then(onSignedOut);
-          }}
+          onClick={onCancel}
         >
-          {t('app.signOut')}
+          {t('password.cancel')}
         </button>
       </form>
     </main>

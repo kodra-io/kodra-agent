@@ -28,7 +28,7 @@ EOF`,
   kubectl create rolebinding kodra-agent-read -n "$ns" --role=kodra-agent-read --serviceaccount=kodra-agent:kodra-agent
 done`,
   scale: `for ns in {{namespaces}}; do
-  kubectl create role kodra-agent-scale -n "$ns" --verb=patch --resource=deployments,deployments/scale
+  kubectl create role kodra-agent-scale -n "$ns" --verb=get,update --resource=deployments/scale
   kubectl create rolebinding kodra-agent-scale -n "$ns" --role=kodra-agent-scale --serviceaccount=kodra-agent:kodra-agent
 done`,
   kubeconfig: `SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
@@ -52,7 +52,7 @@ ${TOKEN_SECRET}
   kubectl create rolebinding kodra-agent-read -n $ns --role=kodra-agent-read --serviceaccount=kodra-agent:kodra-agent
 }`,
   scale: `foreach ($ns in '{{namespaces}}'.Split(' ')) {
-  kubectl create role kodra-agent-scale -n $ns --verb=patch --resource=deployments,deployments/scale
+  kubectl create role kodra-agent-scale -n $ns --verb=get,update --resource=deployments/scale
   kubectl create rolebinding kodra-agent-scale -n $ns --role=kodra-agent-scale --serviceaccount=kodra-agent:kodra-agent
 }`,
   kubeconfig: `$server = kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'

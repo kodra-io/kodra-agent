@@ -15,7 +15,7 @@ import {
   resolvePolicy,
 } from '@kodra-agent/schema';
 import { fanOut, type ApprovalChannel, type SettleableChannel } from '../approvals.ts';
-import { ADMIN_USER, AdminAccount } from '../console/admin.ts';
+import { ADMIN_HASH_ENV, ADMIN_USER, AdminAccount } from '../console/admin.ts';
 import { ConsoleApprovals } from '../console/approvals.ts';
 import { ConsoleChat } from '../console/chat.ts';
 import { budgetRefusal } from '../budget.ts';
@@ -101,7 +101,27 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   const everyApprover = allApprovers(resolvePolicy(runtime.config.spec));
   // The admin signs in with a password, and approves where console:admin is an approver.
   const adminCanApprove = consoleOn && everyApprover.includes(ADMIN_USER);
+  // No default console password (L2): without one set by init, the agent does not start.
+  const admin = new AdminAccount({
+    path: join(dirname(runtime.config.spec.audit.path), 'console-users.json'),
+    envHash: runtime.env[ADMIN_HASH_ENV],
+    audit: runtime.audit,
+  });
   if (consoleOn) {
+    const envHash = runtime.env[ADMIN_HASH_ENV];
+    if (envHash) ctx.redactor.add(envHash);
+    const problem = await admin.load().then(
+      () => (admin.isSet() ? null : 'the console admin has no password'),
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    if (problem) {
+      ctx.term.err(
+        `The console cannot start: ${problem}. Run \`kodra-agent init\` to set it, or turn the console off (spec.console.enabled: false).`,
+      );
+      await runtime.close();
+      await closeServer(health);
+      return 1;
+    }
     for (const entry of everyApprover.filter(isTokenApprover)) {
       const token = runtime.env[consoleApproverTokenEnv(entry)];
       if (token) consoleAccounts.push({ token, user: { name: entry, canApprove: true } });
@@ -258,11 +278,6 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
 
     if (consoleOn) {
       const token = runtime.env[CONSOLE_TOKEN_ENV];
-      const admin = new AdminAccount({
-        path: join(dirname(runtime.config.spec.audit.path), 'console-users.json'),
-        audit: runtime.audit,
-      });
-      await admin.load();
       if (runtime.config.spec.console.chat) {
         // A console question asks for approval in the console and in Slack's channel.
         const slackChannel =
@@ -376,9 +391,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         ...(ctx.consoleStaticDir ? { staticDir: ctx.consoleStaticDir } : {}),
       });
       ctx.term.out(
-        admin.mustChange()
-          ? `Console on port ${String(portOf(consoleServer))}: sign in as admin with the password admin, then set a new one.`
-          : `Console on port ${String(portOf(consoleServer))}: sign in as admin.`,
+        `Console on port ${String(portOf(consoleServer))}: sign in as admin with the password set by init.`,
       );
     }
 

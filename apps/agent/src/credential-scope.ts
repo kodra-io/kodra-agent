@@ -33,6 +33,10 @@ export async function kubernetesScopeProblems(
       check: { verb: 'patch', resource: 'deployments', group: 'apps' },
       problem: 'it can change deployments in every namespace',
     },
+    {
+      check: { verb: 'update', resource: 'deployments', subresource: 'scale', group: 'apps' },
+      problem: 'it can scale deployments in every namespace',
+    },
   ];
   const allowed = await client.canI(checks.map((c) => c.check));
   const has = (i: number) => allowed[i] === true;

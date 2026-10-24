@@ -1,3 +1,6 @@
+import { getConnector } from '@kodra-agent/connectors';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse, parseAllDocuments } from 'yaml';
 import { digestDestination, generateBundle, quickstartCommands } from './bundle.ts';
@@ -192,10 +195,40 @@ describe('kubernetes bundle', () => {
     expect(docs.some((d) => d.kind.startsWith('Cluster'))).toBe(false);
   });
 
-  it('adds patch on deployments only for read-write access', () => {
+  // F9: scaling is a get and an update of deployments/scale. Nothing may patch or update a
+  // Deployment itself, which could change its pod template.
+  it('adds only get and update on deployments/scale for read-write access', () => {
     const rbac = file(generateBundle(kubernetesDraft('read-write-approved')), 'rbac.yaml');
-    expect(rbac).toContain('verbs: ["patch"]');
-    expect(rbac).not.toMatch(/delete|create|\*/);
+    const writes = parseAllDocuments(rbac)
+      .map((d) => d.toJS() as { kind: string; rules?: { resources: string[]; verbs: string[] }[] })
+      .filter((d) => d.kind === 'Role')
+      .flatMap((d) => d.rules ?? [])
+      .filter((r) => r.verbs.some((v) => !['get', 'list', 'watch'].includes(v)));
+    expect(writes.length).toBeGreaterThan(0);
+    for (const rule of writes) {
+      expect(rule).toEqual({
+        apiGroups: ['apps'],
+        resources: ['deployments/scale'],
+        verbs: ['get', 'update'],
+      });
+    }
+    expect(rbac).not.toMatch(/patch|delete|create|\*/);
+  });
+
+  it('grants the same write rule as the chart and the kubeconfig setup steps', () => {
+    const chart = readFileSync(
+      fileURLToPath(new URL('../../../charts/kodra-agent/templates/rbac.yaml', import.meta.url)),
+      'utf8',
+    );
+    const rule = '    resources: ["deployments/scale"]\n    verbs: ["get", "update"]';
+    expect(chart).toContain(rule);
+    expect(file(generateBundle(kubernetesDraft('read-write-approved')), 'rbac.yaml')).toContain(
+      rule,
+    );
+    expect(chart).not.toMatch(/patch|\*/);
+    const steps = JSON.stringify(getConnector('kubernetes'));
+    expect(steps).toContain('--verb=get,update --resource=deployments/scale');
+    expect(steps).not.toContain('--verb=patch');
   });
 
   it('never mounts the Docker socket, even with Docker build access', () => {

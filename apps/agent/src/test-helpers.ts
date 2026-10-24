@@ -101,6 +101,11 @@ export function fakeKubernetes(behavior: Partial<KubernetesClient> = {}): Kubern
   return factory;
 }
 
+/** A console admin password for tests, and its KODRA_CONSOLE_ADMIN_HASH (there is no default). */
+export const TEST_ADMIN_PASSWORD = 'test-admin-password-1'; // gitleaks:allow
+export const TEST_ADMIN_HASH =
+  'scrypt1:1767225600000:WWB+wrDVssfnDpVRTPuAXQ==:856gNPkltEeAnSZk8Zh3p0sEYPKNGTAaHTHyoTM4+/0='; // gitleaks:allow
+
 export function testContext(overrides: Partial<Context> = {}) {
   const redactor = overrides.redactor ?? new Redactor();
   const term = memoryTerminal(redactor);

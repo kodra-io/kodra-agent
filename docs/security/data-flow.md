@@ -165,12 +165,12 @@ Reviewed manifest: `docker@3b37b8682456` (preview)
 - **Reads:** pods, logs, events, deployments, and other resources in the configured
   `namespaces`. The server's config refuses Secrets, ServiceAccounts, and RBAC objects.
 - **Writes, after approval:** scaling deployments in those namespaces, never the agent's own
-  objects. Creating, changing, deleting, and exec are classified destructive: blocked unless
+  objects. The write role grants only get and update on `deployments/scale` (L2). Creating, changing, deleting, and exec are classified destructive: blocked unless
   `destructiveActions: require-approval`.
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@50f719e91cdd`
+Reviewed manifest: `kubernetes@d51e73a10ea6`
 
 ### Prometheus
 
