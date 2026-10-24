@@ -1,6 +1,7 @@
 import { getModelProvider } from '@kodra-agent/connectors';
+import type { DoctorRow } from '../commands/doctor.ts';
 import type { OnboardJobs } from './onboard.ts';
-import { auditHead } from '../audit.ts';
+import { auditHead, verifyAuditChain } from '../audit.ts';
 import { modelOptions } from '../model-options.ts';
 import type { CheckRunner } from '../checks/runner.ts';
 import { connectorDashboard } from '../checks/setup.ts';
@@ -66,7 +67,14 @@ export function consoleApi(
   investigations: InvestigationLog,
   pending: ConsoleApprovals,
   chat: ConsoleChat | null,
-  settings?: { store: SettingsStore; restart: () => void; people?: People; gate?: PolicyGate },
+  settings?: {
+    store: SettingsStore;
+    restart: () => void;
+    people?: People;
+    gate?: PolicyGate;
+    /** Every doctor check (M30b). */
+    doctor?: () => Promise<DoctorRow[]>;
+  },
   extra: { dashboard?: ConnectorDashboard; checks?: CheckRunner; onboard?: OnboardJobs } = {},
 ): ConsoleApi {
   const auditPath = runtime.config.spec.audit.path;
@@ -420,6 +428,33 @@ export function consoleApi(
     actions['settings/test'] = async ({ body }) => ({
       status: 200,
       body: { results: await store.test(str(body['connector'])) },
+    });
+    // The proxy URLs are secrets: approvers only, like any other (M30b).
+    actions['settings/proxy'] = async ({ user, body }) => {
+      if (!user.canApprove) return approverOnly;
+      const pick = (key: string) =>
+        body[key] === null ? null : typeof body[key] === 'string' ? body[key] : undefined;
+      const https = pick('https');
+      const http = pick('http');
+      const result = await store.setProxy(
+        { ...(https !== undefined ? { https } : {}), ...(http !== undefined ? { http } : {}) },
+        user.name,
+      );
+      if (!result.ok) return { status: 400, body: { error: result.message } };
+      restart();
+      return { status: 200, body: { restarting: true } };
+    };
+    // Health (M30b): every doctor check, and the audit chain. They read, and doctor audits.
+    const { doctor } = settings;
+    if (doctor) {
+      actions['settings/doctor'] = async ({ user }) => {
+        if (!user.canApprove) return approverOnly;
+        return { status: 200, body: { rows: await doctor() } };
+      };
+    }
+    actions['settings/audit-verify'] = async () => ({
+      status: 200,
+      body: await verifyAuditChain(auditPath),
     });
   }
 

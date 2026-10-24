@@ -566,9 +566,28 @@ function settingsView(
       expiresAfterMinutes: 15,
       destructiveActions: 'deny',
     },
-    limits: { maxSteps: 12, tokenBudget: 200000, timeoutMinutes: 5 },
+    limits: { maxSteps: 12, tokenBudget: 200000, timeoutMinutes: 5, maxWritesPerHour: 10 },
     console: { chat: true },
-    network: { caBundleFile: null, caWritable: true },
+    network: {
+      caBundleFile: null,
+      caWritable: true,
+      noProxy: null,
+      proxy: { https: false, http: false },
+      proxyWritable: true,
+    },
+    profile: 'starter',
+    rules: {},
+    environments: [
+      { name: 'production', production: true, namespaces: ['dev'], repos: [], freezes: [] },
+    ],
+    checks: { schedules: [], quietWhenClean: false },
+    monitoring: { maxConcurrent: 2, maxPerHour: 10, cooldownMinutes: 60 },
+    dataProtection: { redact: null, defaults: ['cards', 'ibans'], patterns: [] },
+    models: [],
+    ship: { baseImageMirrors: {} },
+    metrics: { enabled: true, port: 9464 },
+    tracing: { enabled: false },
+    audit: { stdout: false },
     lastChange: undoable
       ? { by: 'console:omar', at: '2026-10-09T09:10:00.000Z', detail: 'changed gitlab.access' }
       : null,
@@ -620,6 +639,7 @@ function settingsView(
         steps: {},
         entrySteps: {},
         missing: [],
+        broadCredentials: null,
         tools: { read: 18, write: 6, destructive: 2 },
       },
       {
@@ -670,6 +690,7 @@ function settingsView(
         steps: {},
         entrySteps: {},
         missing: ['Kubernetes kubeconfig'],
+        broadCredentials: false,
         tools: { read: 8, write: 1, destructive: 5 },
       },
       {
@@ -753,6 +774,7 @@ function settingsView(
         steps: {},
         entrySteps: {},
         missing: [],
+        broadCredentials: null,
         tools: { read: 2, write: 0, destructive: 0 },
       },
       {
@@ -771,6 +793,7 @@ function settingsView(
         steps: {},
         entrySteps: {},
         missing: [],
+        broadCredentials: null,
         tools: { read: 20, write: 5, destructive: 4 },
       },
     ],
@@ -997,6 +1020,9 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           connectors?: Record<string, { access?: string; config?: { projects?: string[] } }>;
           limits?: { monthlyBudgetUsd?: number | null };
           model?: { name?: string };
+          profile?: string;
+          environments?: { name: string; freezes: { name: string }[] }[];
+          dataProtection?: { redact?: string[] | null };
         };
         const gitlab = patch.connectors?.['gitlab'];
         const diff: string[] = [];
@@ -1029,6 +1055,16 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           });
         }
         if (patch.model?.name) diff.push(`+    name: ${patch.model.name}`);
+        if (patch.profile) diff.push(`+  profile: ${patch.profile}`);
+        for (const env of patch.environments ?? []) {
+          for (const f of env.freezes) diff.push(`+        - name: ${f.name}`);
+        }
+        const redact = patch.dataProtection?.redact;
+        if (Array.isArray(redact)) {
+          diff.push(`+    redact: [${redact.join(', ')}]`);
+          const dropped = ['cards', 'ibans'].filter((d) => !redact.includes(d));
+          if (dropped.length > 0) moreAccess.push({ code: 'unmasked', detectors: dropped });
+        }
         if (patch.limits && 'monthlyBudgetUsd' in patch.limits) {
           diff.push(`+    monthlyBudgetUsd: ${String(patch.limits.monthlyBudgetUsd)}`);
         }
@@ -1292,6 +1328,25 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
           c.busy = false;
         }
         return route.fulfill({ json: { result: approve ? 'approved' : 'denied' } });
+      }
+      if (name === 'settings/doctor') {
+        return route.fulfill({
+          json: {
+            rows: [
+              { status: 'pass', component: 'config', check: 'kodra-agent.yaml', message: 'valid' },
+              {
+                status: 'fail',
+                component: 'Kubernetes',
+                check: 'kubernetes.list-pods',
+                message: 'the kubeconfig has more access than the agent needs',
+                hint: 'Make a kubeconfig for a read-only service account.',
+              },
+            ],
+          },
+        });
+      }
+      if (name === 'settings/audit-verify') {
+        return route.fulfill({ json: { ok: true, records: 42, unchained: 0, head: null } });
       }
       if (name === 'onboard/analyze' || name === 'onboard/pr') {
         if (body['repo'] !== 'jordan-kodra/terraform') {

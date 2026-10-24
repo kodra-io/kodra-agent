@@ -571,7 +571,7 @@ describe('trusted certificates from the console', () => {
   it('saves a CA file in the bundle, points the network at it, and can stop trusting it', async () => {
     const files = await setup();
     const pem = `${rootCertificates[0] ?? ''}\r\n${rootCertificates[1] ?? ''}`;
-    expect((await files.store.view(null)).network).toEqual({
+    expect((await files.store.view(null)).network).toMatchObject({
       caBundleFile: null,
       caWritable: true,
     });
@@ -610,5 +610,147 @@ describe('trusted certificates from the console', () => {
       ok: false,
       message: 'trusted certificates cannot be changed here',
     });
+  });
+});
+
+describe('everything else from the console (M30b)', () => {
+  it('patches every section, keeping comments, and the result is a valid config', () => {
+    const text = yaml('https://gitlab.example.com', '/var/lib/kodra-agent/audit.jsonl');
+    const next = patchConfigText(text, {
+      profile: 'team',
+      policy: { minApprovers: 2, requireChangeRef: true, changeRefPattern: '^CHG[0-9]+$' },
+      environments: [
+        {
+          name: 'production',
+          production: true,
+          namespaces: ['payments'],
+          repos: [],
+          freezes: [
+            {
+              name: 'weekend',
+              timezone: 'Asia/Amman',
+              weekly: { from: 'Fri 18:00', to: 'Sun 08:00' },
+            },
+          ],
+        },
+      ],
+      checks: {
+        schedules: [{ name: 'daily', at: '09:00', days: ['mon', 'tue'], timezone: 'Asia/Amman' }],
+        quietWhenClean: true,
+      },
+      monitoring: { maxPerHour: 5 },
+      network: { noProxy: 'localhost,.svc' },
+      dataProtection: { redact: ['cards'], patterns: [{ name: 'order', regex: 'ORD-[0-9]{6}' }] },
+      models: {
+        local: { provider: 'ollama', name: 'llama3', config: { baseUrl: 'http://o:11434' } },
+      },
+      ship: { baseImageMirrors: { 'docker.io': 'harbor.example.com/mirror' } },
+      metrics: { enabled: false },
+      tracing: { enabled: true, endpoint: 'http://otel:4318/v1/traces' },
+      audit: { stdout: true },
+      limits: { maxWritesPerHour: 4 },
+    });
+    expect(next).toContain("# The team's GitLab.");
+    const parsed = parseAgentConfig(next);
+    if (!parsed.ok) throw new Error(parsed.issues.map((i) => i.message).join('; '));
+    const spec = parsed.config.spec;
+    expect(spec.profile).toBe('team');
+    expect(spec.policy.approvals).toMatchObject({ minApprovers: 2, requireChangeRef: true });
+    expect(spec.environments[0]?.freezes[0]?.name).toBe('weekend');
+    expect(spec.checks).toMatchObject({ quietWhenClean: true });
+    expect(spec.monitoring.maxPerHour).toBe(5);
+    expect(spec.network.proxy?.noProxy).toBe('localhost,.svc');
+    expect(spec.dataProtection.redact).toEqual(['cards']);
+    expect(spec.models['local']).toMatchObject({ provider: 'ollama', name: 'llama3' });
+    expect(spec.ship.baseImageMirrors).toEqual({ 'docker.io': 'harbor.example.com/mirror' });
+    expect(spec.metrics.enabled).toBe(false);
+    expect(spec.tracing).toMatchObject({ enabled: true });
+    expect(spec.audit.stdout).toBe(true);
+    expect(spec.limits.maxWritesPerHour).toBe(4);
+    // null takes a rule back to the profile's default.
+    const back = patchConfigText(next, { policy: { minApprovers: null } });
+    expect(back).not.toContain('minApprovers');
+  });
+
+  it('says what a change gives away: a broad credential, unmasked data, a model, traces', () => {
+    const withK8s = yaml('https://gitlab.example.com', '/var/lib/kodra-agent/audit.jsonl').replace(
+      '  connectors:\n',
+      '  connectors:\n    kubernetes:\n      enabled: true\n      config: {namespaces: [api]}\n',
+    );
+    const before = parseAgentConfig(withK8s);
+    if (!before.ok) throw new Error('bad fixture');
+    const after = parseAgentConfig(
+      patchConfigText(withK8s, {
+        connectors: { kubernetes: { allowBroadCredentials: true } },
+        dataProtection: { redact: [] },
+        models: {
+          local: { provider: 'ollama', name: 'llama3', config: { baseUrl: 'http://o:11434' } },
+        },
+        tracing: { enabled: true, endpoint: 'http://otel:4318/v1/traces' },
+      }),
+    );
+    if (!after.ok) throw new Error(after.issues.map((i) => i.message).join('; '));
+    const codes = moreAccess(before.config, after.config).map((c) => c.code);
+    expect(codes).toEqual(expect.arrayContaining(['broad', 'unmasked', 'named-model', 'tracing']));
+  });
+
+  it('saves proxy URLs as secrets, audits the host only, and removes them', async () => {
+    const files = await setup();
+    const proxy = 'http://user:proxy-secret-9d8c@proxy.corp:3128';
+    expect(await files.store.setProxy({ https: 'ftp://nope' }, 'console:omar')).toEqual({
+      ok: false,
+      message: 'a proxy URL starts with http:// or https://',
+    });
+    expect(await files.store.setProxy({ https: proxy }, 'console:omar')).toEqual({ ok: true });
+    expect(await readFile(files.configPath, 'utf8')).toContain('${env:KODRA_HTTPS_PROXY}');
+    expect(await readFile(join(files.dir, '.env'), 'utf8')).toContain(`KODRA_HTTPS_PROXY=${proxy}`);
+    const audited = JSON.stringify(await files.audit());
+    expect(audited).toContain('set the HTTPS proxy (proxy.corp:3128)');
+    expect(audited).not.toContain('proxy-secret');
+    expect(await files.store.setProxy({ https: null }, 'console:omar')).toEqual({ ok: true });
+    expect(await readFile(files.configPath, 'utf8')).not.toContain('KODRA_HTTPS_PROXY');
+    expect(await readFile(join(files.dir, '.env'), 'utf8')).not.toContain('proxy-secret');
+  });
+
+  it('turns new Slack @names into user ids, and says when a name matches nobody', async () => {
+    const files = await setup();
+    await writeFile(
+      files.configPath,
+      (await readFile(files.configPath, 'utf8')).replace(
+        '  connectors:\n',
+        [
+          '  connectors:',
+          '    slack:',
+          '      enabled: true',
+          "      config: {channel: '#ops'}",
+          "      secrets: {botToken: '${env:SLACK_BOT_TOKEN}', appToken: '${env:SLACK_APP_TOKEN}'}",
+          '',
+        ].join('\n'),
+      ),
+    );
+    server = await fakeServer({
+      '/api/users.list': (_req, res) => {
+        json(res, 200, {
+          ok: true,
+          members: [{ id: 'U0SARA', name: 'sara', profile: { display_name: 'Sara' } }],
+        });
+      },
+    });
+    const redactor = new Redactor();
+    const store = new SettingsStore({
+      backend: fileBackend(files.configPath),
+      audit: new AuditLog(join(files.dir, 'audit2.jsonl'), redactor),
+      redactor,
+      env: { ANTHROPIC_API_KEY: 'k', SLACK_BOT_TOKEN: 'xoxb-1', SLACK_APP_TOKEN: 'xapp-1' },
+      fetch: globalThis.fetch,
+      kubernetes: fakeKubernetes(),
+      probeTimeoutMs: 2000,
+      slackBase: server.url,
+    });
+    const ok = await store.preview({ policy: { approvers: ['@omar', 'console:omar', '@sara'] } });
+    expect(ok.errors).toEqual([]);
+    expect(ok.diff).toContain('U0SARA');
+    const bad = await store.preview({ policy: { approvers: ['console:omar', '@nobody'] } });
+    expect(bad.errors).toEqual(['@nobody matches nobody in this Slack workspace.']);
   });
 });

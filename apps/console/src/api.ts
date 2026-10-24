@@ -439,6 +439,8 @@ export interface ConnectorSettings {
   entrySteps: Record<string, Record<string, FilledStep[]>>;
   /** Labels of the secrets still needed. */
   missing: string[];
+  /** Whether a credential broader than needed is kept; null when not checked (M29). */
+  broadCredentials: boolean | null;
   tools: { read: number; write: number; destructive: number };
 }
 
@@ -454,10 +456,43 @@ export interface SettingsView {
     tokenBudget: number;
     timeoutMinutes: number;
     monthlyBudgetUsd?: number;
+    maxWritesPerHour: number;
   };
   console: { chat: boolean };
   /** The extra CA certificates the agent trusts, and whether the console can change them. */
-  network: { caBundleFile: string | null; caWritable: boolean };
+  network: {
+    caBundleFile: string | null;
+    caWritable: boolean;
+    noProxy: string | null;
+    proxy: { https: boolean; http: boolean };
+    proxyWritable: boolean;
+  };
+  profile: string;
+  rules: {
+    minApprovers?: number;
+    allowSelfApproval?: boolean;
+    requireChangeRef?: boolean;
+    changeRefPattern?: string;
+  };
+  environments: Environment[];
+  checks: { schedules: CheckScheduleConfig[]; quietWhenClean: boolean };
+  monitoring: { maxConcurrent: number; maxPerHour: number; cooldownMinutes: number };
+  dataProtection: {
+    redact: string[] | null;
+    defaults: string[];
+    patterns: { name: string; regex: string }[];
+  };
+  models: {
+    name: string;
+    provider: string;
+    model: string;
+    config: Record<string, string>;
+    secrets: { key: string; label: string; set: boolean }[];
+  }[];
+  ship: { baseImageMirrors: Record<string, string> };
+  metrics: { enabled: boolean; port: number };
+  tracing: { enabled: boolean; endpoint?: string };
+  audit: { stdout: boolean };
   connectors: ConnectorSettings[];
   lastChange: { by: string; at: string; detail: string } | null;
   undoable: boolean;
@@ -477,17 +512,92 @@ export interface PendingPolicyChange {
 export interface SettingsPatch {
   connectors?: Record<
     string,
-    { enabled?: boolean; access?: string; config?: Record<string, unknown> }
+    {
+      enabled?: boolean;
+      access?: string;
+      config?: Record<string, unknown>;
+      allowBroadCredentials?: boolean | null;
+    }
   >;
-  policy?: { approvers?: string[]; expiresAfterMinutes?: number; destructiveActions?: string };
+  policy?: {
+    approvers?: string[];
+    expiresAfterMinutes?: number;
+    destructiveActions?: string;
+    minApprovers?: number | null;
+    allowSelfApproval?: boolean | null;
+    requireChangeRef?: boolean | null;
+    changeRefPattern?: string | null;
+  };
   model?: { name?: string };
   limits?: {
     maxSteps?: number;
     tokenBudget?: number;
     timeoutMinutes?: number;
     monthlyBudgetUsd?: number | null;
+    maxWritesPerHour?: number;
   };
   console?: { chat?: boolean };
+  profile?: string;
+  environments?: Environment[];
+  checks?: { schedules?: CheckScheduleConfig[]; quietWhenClean?: boolean };
+  monitoring?: { maxConcurrent?: number; maxPerHour?: number; cooldownMinutes?: number };
+  network?: { noProxy?: string | null };
+  dataProtection?: { redact?: string[] | null; patterns?: { name: string; regex: string }[] };
+  models?: Record<
+    string,
+    { provider: string; name: string; config?: Record<string, string> } | null
+  >;
+  ship?: { baseImageMirrors?: Record<string, string> };
+  metrics?: { enabled?: boolean; port?: number };
+  tracing?: { enabled?: boolean; endpoint?: string | null };
+  audit?: { stdout?: boolean };
+}
+
+/** A freeze window, weekly or between dates (M11). */
+export interface Freeze {
+  name: string;
+  timezone: string;
+  weekly?: { from: string; to: string };
+  dates?: { from: string; to: string };
+}
+
+/** A named group of namespaces and repos with its own approval rules (M10). */
+export interface Environment {
+  name: string;
+  production: boolean;
+  namespaces: string[];
+  repos: string[];
+  approvers?: string[];
+  approvals?: {
+    minApprovers?: number;
+    allowSelfApproval?: boolean;
+    requireChangeRef?: boolean;
+    changeRefPattern?: string;
+    expiresAfterMinutes?: number;
+  };
+  freezes: Freeze[];
+  model?: string;
+}
+
+export interface CheckScheduleConfig {
+  name: string;
+  at: string;
+  days: string[];
+  timezone: string;
+}
+
+export interface DoctorRow {
+  status: 'pass' | 'fail' | 'skip';
+  component: string;
+  check: string;
+  message: string;
+  hint?: string;
+}
+
+export interface AuditChain {
+  ok: boolean;
+  records: number;
+  problem?: string;
 }
 
 export type AccessChange =
@@ -497,7 +607,11 @@ export type AccessChange =
   | { code: 'approver'; approver: string }
   | { code: 'destructive' }
   | { code: 'chat' }
-  | { code: 'model'; from: string; to: string };
+  | { code: 'model'; from: string; to: string }
+  | { code: 'broad'; connector: string }
+  | { code: 'unmasked'; detectors: string[] }
+  | { code: 'named-model'; name: string }
+  | { code: 'tracing'; endpoint: string };
 
 export interface SettingsPreview {
   ok: boolean;
