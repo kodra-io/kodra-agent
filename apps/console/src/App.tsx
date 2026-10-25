@@ -15,6 +15,7 @@ import {
 } from './api.ts';
 import { ChatPage } from './chat.tsx';
 import { DashboardPage } from './dashboard.tsx';
+import kodraLogo from './assets/kodra-logo.png';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon, type IconName } from './icons.tsx';
 import {
@@ -282,15 +283,7 @@ function Sidebar({
   return (
     <aside className="flex shrink-0 flex-col gap-5 border-b border-line bg-raised px-3 py-4 md:sticky md:top-0 md:h-screen md:w-60 md:border-e md:border-b-0 md:py-5">
       <div className="flex items-center justify-between gap-2 px-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span
-            aria-hidden="true"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-[15px] font-bold text-white"
-          >
-            K
-          </span>
-          <span className="text-[15px] font-semibold">{t('app.productName')}</span>
-        </div>
+        <KodraMark size="small" />
         <button
           type="button"
           className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line-strong px-3 text-sm font-medium md:hidden"
@@ -423,17 +416,35 @@ const FIELD = 'mt-1.5 h-10 w-full rounded-lg border border-line-strong bg-surfac
 const SUBMIT =
   'mt-5 h-10 w-full rounded-lg bg-primary font-semibold text-white shadow-md hover:bg-primary-deep disabled:opacity-50';
 
-function Brand() {
+/**
+ * The Kodra Build mark: the Kodra.io logo, a divider, and the product's name. The logo turns
+ * white in the dark theme, where its blue would be too faint.
+ */
+function KodraMark({ size }: { size: 'small' | 'large' }) {
   const { t } = useI18n();
   return (
-    <div className="mb-5 flex items-center gap-2.5">
+    <div className="flex min-w-0 items-center gap-2.5">
+      <img
+        src={kodraLogo}
+        alt="Kodra.io"
+        className={`${size === 'small' ? 'h-7' : 'h-9'} w-auto shrink-0 dark:brightness-0 dark:invert`}
+        width={size === 'small' ? 114 : 147}
+        height={size === 'small' ? 28 : 36}
+      />
+      <span aria-hidden="true" className="h-6 w-px shrink-0 bg-line-strong" />
       <span
-        aria-hidden="true"
-        className="inline-flex size-9 items-center justify-center rounded-lg bg-primary font-bold text-white"
+        className={`${size === 'small' ? 'text-base' : 'text-xl'} font-extrabold tracking-tight whitespace-nowrap`}
       >
-        K
+        {t('app.productShort')}
       </span>
-      <span className="font-semibold">{t('app.productName')}</span>
+    </div>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="mb-5">
+      <KodraMark size="large" />
     </div>
   );
 }

@@ -1,5 +1,12 @@
 {
   "app.productName": "Kodra AI Agent",
+  "app.productShort": "AI Agent",
+  "app.home": "Kodra Build home",
+  "app.footerBrand": "Kodra Build",
+  "app.footerPartOf": "Part of",
+  "app.footerLinks": "Kodra Build links",
+  "app.privacyPolicy": "Privacy Policy",
+  "app.terms": "Terms",
   "app.title": "Create your agent",
   "app.tagline": "A self-hosted AI DevOps agent that runs in your environment, with your keys.",
   "app.privacy": "This page never asks for your keys. Your choices stay in your browser.",

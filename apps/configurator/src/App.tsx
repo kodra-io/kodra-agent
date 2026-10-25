@@ -1,5 +1,6 @@
 import { generateBundle, validateDraft, type StepId } from '@kodra-agent/templates';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import kodraLogo from './assets/kodra-logo.png';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { EnvironmentsStep, ProfileStep } from './policy-steps.tsx';
 import { useDraft } from './state.ts';
@@ -125,30 +126,35 @@ export function App() {
     <div className="min-h-screen">
       <a
         href="#step-content"
-        className="absolute start-2 top-2 z-10 -translate-y-20 rounded-md bg-primary px-3 py-2 text-white focus:translate-y-0"
+        className="absolute start-2 top-2 z-10 -translate-y-20 rounded-lg bg-primary px-3 py-2 text-white focus:translate-y-0"
       >
         {t('app.skip')}
       </a>
 
-      <header className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4">
-          <div>
-            <p className="font-heading text-sm font-bold text-primary">{t('app.productName')}</p>
-            <h1 className="text-2xl font-bold text-ink">{t('app.title')}</h1>
-          </div>
+      {/* The Kodra Build header: the Kodra.io logo, a divider, and the product's name. */}
+      <header className="border-b border-line bg-white/90 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-7xl items-center px-4 sm:px-6 lg:px-8">
+          <a href="/" className="flex items-center gap-3" aria-label={t('app.home')}>
+            <img src={kodraLogo} alt="Kodra.io" className="h-10 w-auto" width="163" height="40" />
+            <span aria-hidden="true" className="h-8 w-px bg-line" />
+            <span className="text-2xl font-extrabold tracking-tight text-ink">
+              {t('app.productShort')}
+            </span>
+          </a>
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:px-6 lg:px-8">
+        <h1 className="text-3xl font-extrabold tracking-tight text-ink">{t('app.title')}</h1>
         <p className="text-ink-secondary">{t('app.tagline')}</p>
         <p
           data-testid="privacy-line"
-          className="rounded-md border border-line bg-primary-tint px-4 py-3 font-medium text-ink"
+          className="rounded-lg border border-line bg-primary-tint px-4 py-3 font-medium text-ink"
         >
           {t('app.privacy')}
         </p>
         {invalidLink ? (
-          <p role="status" className="rounded-md border border-line bg-white px-4 py-3">
+          <p role="status" className="rounded-lg border border-line bg-white px-4 py-3">
             {t('app.invalidLink')}
           </p>
         ) : null}
@@ -197,7 +203,7 @@ export function App() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]">
           <main
             id="step-content"
-            className="flex min-w-0 flex-col gap-6 rounded-lg border border-line bg-white p-4 sm:p-6"
+            className="flex min-w-0 flex-col gap-6 rounded-xl border border-line bg-white p-4 sm:p-6"
           >
             <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold outline-none">
               {t(step.heading)}
@@ -239,7 +245,7 @@ export function App() {
                 onClick={() => {
                   goTo(stepIndex - 1);
                 }}
-                className="rounded-md border border-line px-4 py-2 hover:bg-primary-tint disabled:invisible"
+                className="rounded-lg border border-line px-4 py-2 hover:bg-primary-tint disabled:invisible"
               >
                 {t('nav.back')}
               </button>
@@ -247,7 +253,7 @@ export function App() {
                 <button
                   type="button"
                   onClick={next}
-                  className="rounded-md bg-primary px-4 py-2 font-medium text-white hover:bg-primary-deep"
+                  className="rounded-lg bg-primary px-4 py-2 font-medium text-white hover:bg-primary-deep"
                 >
                   {t('nav.next')}
                 </button>
@@ -258,6 +264,27 @@ export function App() {
           <Preview files={bundle.files} />
         </div>
       </div>
+
+      <footer className="mt-12 border-t border-line bg-surface">
+        <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-4 px-4 py-8 text-sm text-ink-secondary sm:px-6 md:flex-row md:items-center lg:px-8">
+          <p>
+            &copy; {new Date().getFullYear()}{' '}
+            <span className="font-semibold text-ink">{t('app.footerBrand')}</span>.{' '}
+            {t('app.footerPartOf')}{' '}
+            <a href="https://kodra.io" className="text-primary underline underline-offset-2">
+              Kodra.io
+            </a>
+          </p>
+          <nav aria-label={t('app.footerLinks')} className="flex gap-4">
+            <a href="/privacy-policy" className="hover:text-ink">
+              {t('app.privacyPolicy')}
+            </a>
+            <a href="/terms" className="hover:text-ink">
+              {t('app.terms')}
+            </a>
+          </nav>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -284,7 +311,7 @@ function Preview({ files }: { files: readonly { path: string; content: string }[
   return (
     <aside
       aria-labelledby="preview-heading"
-      className="flex min-w-0 flex-col gap-3 self-start rounded-lg border border-line bg-white p-4 lg:sticky lg:top-4"
+      className="flex min-w-0 flex-col gap-3 self-start rounded-xl border border-line bg-white p-4 lg:sticky lg:top-4"
     >
       <h2 id="preview-heading" className="text-lg font-bold">
         {t('preview.heading')}
@@ -308,7 +335,7 @@ function Preview({ files }: { files: readonly { path: string; content: string }[
             onKeyDown={(e) => {
               onKeyDown(e, i);
             }}
-            className={`rounded-md px-2 py-1 font-mono text-xs ${
+            className={`rounded-lg px-2 py-1 font-mono text-xs ${
               i === active ? 'bg-primary text-white' : 'bg-primary-tint text-ink hover:bg-line'
             }`}
           >
@@ -322,7 +349,7 @@ function Preview({ files }: { files: readonly { path: string; content: string }[
         aria-labelledby={`tab-${String(active)}`}
         tabIndex={0}
         data-testid="preview"
-        className="max-h-[70vh] overflow-auto rounded-md bg-ink p-3 font-mono text-xs leading-relaxed text-white"
+        className="max-h-[70vh] overflow-auto rounded-lg bg-ink p-3 font-mono text-xs leading-relaxed text-white"
       >
         {current?.content}
       </pre>

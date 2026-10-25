@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p e2e",
-    "test:e2e": "playwright test -c e2e"
+    "test:e2e": "playwright test -c e2e",
+    "check:deploy": "node --experimental-strip-types --disable-warning=ExperimentalWarning e2e/check-deploy.ts"
   },
   "dependencies": {
     "@kodra-agent/connectors": "workspace:*",

@@ -250,6 +250,27 @@ test.describe('daily checks', () => {
   });
 });
 
+// L4: the Kodra Build look. The logo is the configurator's own file (any other origin fails
+// every test), and the footer links back to the Build site and Kodra.io.
+test('has the Kodra Build header and footer', async ({ page }) => {
+  const logo = page.getByRole('banner').getByRole('img', { name: 'Kodra.io' });
+  await expect(logo).toBeVisible();
+  expect(await logo.getAttribute('src')).toMatch(/^\/agent\/assets\/kodra-logo-[\w-]+\.png$/);
+  await expect(page.getByRole('banner')).toContainText('AI Agent');
+  await expect(page.getByRole('link', { name: 'Kodra Build home' })).toHaveAttribute('href', '/');
+  const footer = page.getByRole('contentinfo');
+  await expect(footer).toContainText('Kodra Build. Part of Kodra.io');
+  await expect(footer.getByRole('link', { name: 'Kodra.io' })).toHaveAttribute(
+    'href',
+    'https://kodra.io',
+  );
+  await expect(footer.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+    'href',
+    '/privacy-policy',
+  );
+  await expect(footer.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
+});
+
 test('coming-soon connectors are visible but cannot be enabled', async ({ page }) => {
   await fillBasics(page);
   const teams = connectorCard(page, 'teams');

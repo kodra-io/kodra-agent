@@ -218,7 +218,9 @@ describe('console admin password', () => {
     ];
     for (const name of files) {
       const text = await readFile(new URL(name, root), 'utf8');
-      expect(text, name).not.toMatch(/admin\/admin|`admin`\/`admin`|password `?admin`?[ .,)]/);
+      expect(text, name).not.toMatch(
+        /admin\/admin|`admin`\/`admin`|password `?admin`?[ .,)]|admin and admin|first time, use admin/i,
+      );
       expect(text, name).not.toContain('DEFAULT_ADMIN_PASSWORD');
       expect(text, name).not.toContain('mustChange');
     }

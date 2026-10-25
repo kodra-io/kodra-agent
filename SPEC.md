@@ -219,17 +219,23 @@ A static single-page app, deployable to S3 and CloudFront.
 
 ### Brand tokens
 
-| Token | Value |
-|---|---|
-| primary | `#3250A0` |
-| primary-deep | `#26407F` |
-| primary-tint | `#EEF1F8` |
-| text | `#172554` |
-| text-secondary | `#6B7785` |
-| background | `#FAFBFC` |
-| border | `#E4E8EE` |
+The configurator and the console follow the Kodra Build site (build.kodra.io), where the
+configurator is published: the Kodra.io logo with the product name beside it, Tailwind's blue
+for actions, and grays for everything else.
 
-One accent color only. Headings in Arial. Body in a system font stack. Copy rules: plain language, no em dashes, no fabricated stats or testimonials.
+| Token          | Value                 |
+| -------------- | --------------------- |
+| primary        | `#2563EB` (blue-600)  |
+| primary-deep   | `#1D4ED8` (blue-700)  |
+| primary-tint   | `#EFF6FF` (blue-50)   |
+| text           | `#172554` (blue-950)  |
+| text-secondary | `#4B5563` (gray-600)  |
+| background     | `#F9FAFB` (gray-50)   |
+| border         | `#E5E7EB` (gray-200)  |
+
+One accent color only. One system font stack for headings and body, nothing loaded from
+outside. Every text and background pair passes WCAG AA. Copy rules: plain language, no em
+dashes, no fabricated stats or testimonials.
 
 ### Bundle contents
 

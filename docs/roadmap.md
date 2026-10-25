@@ -603,6 +603,8 @@ Open branches stay unmerged until the gate opens (PLAN.md). None are open now. T
 
 New ideas found while the gate is closed. Each one waits here until Omar picks it after the gate opens.
 
+- **A dark theme for the configurator** (found in L4). The Kodra Build site and the console
+  both have one; the configurator is light only.
 - **Make the console admin hash on its own** (found in L2). `kodra-agent init --dry-run` prints a
   placeholder for `KODRA_CONSOLE_ADMIN_HASH`, so a team that creates the agent's Secret by hand
   or with External Secrets has to run `init --target kubernetes` once to get a password set. A

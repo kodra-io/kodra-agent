@@ -1,17 +1,20 @@
 @import 'tailwindcss';
 
-/* Brand tokens (SPEC section 7). One accent color only. */
+/* Kodra Build theme (build.kodra.io): Tailwind blue for actions, blue-950 for text, grays for
+   everything else, and the system font stack. One accent color only. Every text pair here
+   passes WCAG AA (4.5:1). */
 @theme {
-  --color-primary: #3250a0;
-  --color-primary-deep: #26407f;
-  --color-primary-tint: #eef1f8;
-  --color-ink: #172554;
-  /* Brand text-secondary is #6b7785, which is under 4.5:1 on surface and tint (WCAG AA). */
-  --color-ink-secondary: #5f6b78;
-  --color-surface: #fafbfc;
-  --color-line: #e4e8ee;
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  --font-heading: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+  --color-primary: #2563eb; /* blue-600 */
+  --color-primary-deep: #1d4ed8; /* blue-700 */
+  --color-primary-tint: #eff6ff; /* blue-50 */
+  --color-ink: #172554; /* blue-950 */
+  --color-ink-secondary: #4b5563; /* gray-600 */
+  --color-surface: #f9fafb; /* gray-50 */
+  --color-line: #e5e7eb; /* gray-200 */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell',
+    'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  --font-heading: var(--font-sans);
 }
 
 body {

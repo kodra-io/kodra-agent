@@ -1,5 +1,6 @@
 {
   "app.productName": "Kodra AI Agent",
+  "app.productShort": "AI Agent",
   "app.title": "Console",
   "app.skip": "Skip to the content",
   "app.signOut": "Sign out",
@@ -21,7 +22,7 @@
   "login.submit": "Sign in",
   "login.wrong": "That token is not right.",
   "login.tooMany": "Too many attempts. Wait a minute and try again.",
-  "login.passwordIntro": "Sign in with your console username and password. The first time, use admin and admin; you will set a new password right away.",
+  "login.passwordIntro": "Sign in as admin with the password you chose when you ran kodra-agent init.",
   "login.username": "Username",
   "login.password": "Password",
   "login.wrongPassword": "That username or password is not right.",
