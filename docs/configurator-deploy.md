@@ -26,17 +26,28 @@ terraform repo, `Modules/cloudfront/functions/` (`agent-configurator-rewrite.js`
 
 ## Publishing a new version
 
-With AWS credentials that can write to the bucket and invalidate the distribution:
+The Build site's GitLab pipeline publishes the configurator (`kodra-build-frontend`,
+`.gitlab-ci.yml`, jobs `deploy_agent` and `deploy_agent_prod`), on the same runner and with the
+same buckets, distributions, and CI variables as the Build site:
+
+1. Set `KODRA_AGENT_REF` in that `.gitlab-ci.yml` to the tag (or commit) of this repo to
+   publish, in a merge request to `main`.
+2. When it merges, `deploy_agent` publishes to the dev Build site (`build.dev.kodra.io/agent`).
+   Run `pnpm check:deploy https://build.dev.kodra.io` from a checkout of this repo.
+3. Run the manual `deploy_agent_prod` job, then `pnpm check:deploy https://build.kodra.io`.
+
+Both jobs fetch this repo at `KODRA_AGENT_REF`, install with pnpm from the lockfile, and run
+`scripts/deploy-configurator.sh`: it builds the site, uploads the content-hashed files with a
+one-year cache, then `index.html` with `no-cache`, and invalidates `/agent*` only. Old hashed
+files are kept, so a browser that still has the previous `index.html` keeps working. The
+runner needs Node 22.12 or newer and `git`.
+
+The same script works by hand in an emergency, with AWS credentials that can write to the
+bucket and invalidate the distribution:
 
 ```sh
-KODRA_AGENT_BUCKET=<bucket> KODRA_AGENT_DISTRIBUTION=<distribution id> \
-  scripts/deploy-configurator.sh
+KODRA_AGENT_BUCKET=<bucket> KODRA_AGENT_DISTRIBUTION=<distribution id>   scripts/deploy-configurator.sh
 ```
-
-The script builds the site, uploads the content-hashed files with a one-year cache, then
-`index.html` with `no-cache`, and invalidates `/agent*` only. Old hashed files are kept, so a
-browser that still has the previous `index.html` keeps working. Deploy to the dev Build site
-first, check it, then prod.
 
 ## Checking a deploy
 

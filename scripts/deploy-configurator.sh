@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
-# Builds the configurator and publishes it to <bucket>/agent/ behind CloudFront.
-# See docs/configurator-deploy.md. The bucket and distribution are passed in, never stored here:
+# Builds the configurator and publishes it to <bucket>/agent/ behind CloudFront. The Build site's
+# GitLab pipeline runs it (kodra-build-frontend, jobs deploy_agent and deploy_agent_prod); see
+# docs/configurator-deploy.md. The bucket and distribution are passed in, never stored here:
 #
 #   KODRA_AGENT_BUCKET=<bucket> KODRA_AGENT_DISTRIBUTION=<distribution id> scripts/deploy-configurator.sh
 set -eu
@@ -10,7 +11,7 @@ set -eu
 DIST=apps/configurator/dist
 TARGET="s3://$KODRA_AGENT_BUCKET/agent"
 
-pnpm build
+pnpm --filter @kodra-agent/configurator build
 test -f "$DIST/index.html"
 
 # Content-hashed files first, cached for a year, so the new index.html never points at a
