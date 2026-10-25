@@ -6,3 +6,4 @@ CLAUDE.md
 schema/*.json
 charts/*/templates/
 docker/mcp/
+evals/reports/

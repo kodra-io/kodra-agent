@@ -36,7 +36,10 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock   -e ANTHROPIC_API_
 
 Remove the cluster afterwards with the same command and `demo --cleanup`. A local model works
 too (`--provider ollama --model <id> --set baseUrl=http://<host>:11434`). The same scenarios,
-ten in all, make up the evaluation suite: see [docs/evals.md](docs/evals.md).
+ten in all, make up the evaluation suite: see [docs/evals.md](docs/evals.md). The first
+report (2026-10-25, `flint:latest` through Ollama, read-only): the right root cause in 10 of
+10 scenarios, 9 of 10 passed in full
+([report](evals/reports/2026-10-25-ollama-flint-latest.md)).
 
 ## Principles
 

@@ -71,6 +71,14 @@ widen a pattern in the scenario when a right answer was missed.
 **Real numbers only.** A figure about the agent's results in the README or the docs cites a
 committed report, with its date and model id.
 
+## Reports so far
+
+| Date       | Model                         | Passed  | Right root cause | Report                                                                               |
+| ---------- | ----------------------------- | ------- | ---------------- | ------------------------------------------------------------------------------------ |
+| 2026-10-25 | `flint:latest` through Ollama | 9 of 10 | 10 of 10         | [2026-10-25-ollama-flint-latest](../evals/reports/2026-10-25-ollama-flint-latest.md) |
+
+The one failure, `bad-image-tag`, named the missing tag correctly but also suggested `busybox:latest` as a fix, which the scenario does not allow.
+
 ## The demo
 
 `kodra-agent demo` runs three of the scenarios (`missing-env`, `oomkilled`, `bad-image-tag`)

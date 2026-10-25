@@ -1,0 +1,346 @@
+{
+  "kind": "kodra-agent-eval",
+  "version": 1,
+  "startedAt": "2026-10-25T05:12:47.101Z",
+  "commit": "e2f0c8e",
+  "agentVersion": "0.3.10",
+  "provider": "ollama",
+  "model": "flint:latest",
+  "pricing": null,
+  "scenarios": [
+    {
+      "id": "bad-image-tag",
+      "title": "An image tag that does not exist",
+      "passed": false,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the image cannot be pulled",
+          "found": true,
+          "matched": "ImagePullBackOff"
+        },
+        {
+          "fact": "the tag does not exist",
+          "found": true,
+          "matched": "1.99.99"
+        }
+      ],
+      "violations": [
+        {
+          "why": "an unpinned latest tag trades one problem for another",
+          "detail": "said: `busybox:1.36.1` or `busybox:latest`, then let the Deployment roll out the new replica."
+        }
+      ],
+      "steps": 3,
+      "blocked": 0,
+      "modelCalls": 3,
+      "tokens": {
+        "input": 8543,
+        "cacheRead": 6640,
+        "cacheWrite": 0,
+        "output": 752
+      },
+      "costUsd": null,
+      "durationMs": 24917,
+      "answer": "**What's wrong:** The `api` container in the `search-api` Deployment is configured to pull the image **`busybox:1.99.99-does-not-exist`**, which is not a valid, existing image tag:\n\n```\nimage: busybox:1.99.99-does-not-exist\nimagePullPolicy: IfNotPresent\n```\n\nThe pod event confirms it: the kubelet tried to pull the image, failed with `failed to resolve reference \"docker.io/library/busybox:1.99.99-does-not-exist\": not found`, and went into `ImagePullBackOff`, so the pod never became ready and the Deployment is stuck at `0/1` ready with `MinimumReplicasUnavailable`.\n\n**Why it never starts:** The Deployment itself is fine (it scaled the pod up, scheduling worked, container command is valid). The failure is purely at the image pull step — the pod is pending on a nonexistent image reference, so it can never reach readiness.\n\n**Suggested fix:** Update the container image in the Deployment spec to a valid image tag, e.g. `busybox:1.36.1` or `busybox:latest`, then let the Deployment roll out the new replica.\n\nWould you like me to make this change (e.g., update the image to a valid tag via the Deployment spec)? If you have a preferred image/version in mind, tell me, otherwise I can set it to a known-valid tag."
+    },
+    {
+      "id": "crashloop",
+      "title": "A service that cannot reach its database",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the database it connects to",
+          "found": true,
+          "matched": "db:5432"
+        },
+        {
+          "fact": "the connection is refused",
+          "found": true,
+          "matched": "connection refused"
+        }
+      ],
+      "violations": [],
+      "steps": 8,
+      "blocked": 0,
+      "modelCalls": 5,
+      "tokens": {
+        "input": 23101,
+        "cacheRead": 18400,
+        "cacheWrite": 0,
+        "output": 2359
+      },
+      "costUsd": null,
+      "durationMs": 71348,
+      "answer": "# Investigation Report: KubePodCrashLooping (orders-api)\n\n## What is wrong\n\nThe `orders-api` deployment in the `crashloop` namespace is running a **placeholder/BusyBox command** instead of the real application. The container immediately exits with code 1, causing an endless crash loop. The failure is *not* an infrastructure fault — the app itself is misconfigured at the Deployment level.\n\n**Root cause:** The container image (`busybox:1.37`) with the command:\n```\nsh -c 'echo Error: cannot connect to database at db:5432: connection refused; sleep 5; exit 1'\n```\nThis is a self-contained test script that tries to reach a database host named `db` on port 5432, which doesn't exist as a reachable service in this deployment, then exits.\n\n## Evidence\n\n**1. Pod status — container in Error state with restarts (crashloop):**\n```\nNAMESPACE   APIVERSION   KIND   NAME                        READY   STATUS   RESTARTS      AGE\ncrashloop   v1           Pod    orders-api-d7546786-vtzxj   0/1     Error    3 (39s ago)   74s\n```\n\n**2. Pod spec (`kubernetes__pods_get`)** — the container command and image:\n```yaml\ncontainers:\n- command:\n  - sh\n  - -c\n  - 'echo ''Error: cannot connect to database at db:5432: connection refused'';\n    sleep 5; exit 1'\n  image: busybox:1.37\n  name: app\n...\nstatus:\n  containerStatuses:\n  - containerID: containerd://...\n    lastState:\n      terminated:\n        exitCode: 1\n        reason: Error\n    restartCount: 3\n  state:\n    terminated:\n      exitCode: 1\n      finishedAt: \"2026-10-25T05:14:19Z\"\n```\n\n**3. BackOff event (Kubernetes events):**\n- `Back-off restarting failed container app in pod orders-api-d7546786-vtzxj_crashloop(...)` — `Reason: BackOff` (Warning)\n\n**4. Container logs:**\n```\nError: cannot connect to database at db:5432: connection refused\n```\n\n**5. Deployment (`kubernetes__resources_get`)** — confirmed the same broken command/image is set at the Deployment level (not just a bad pod template hash):\n```yaml\nspec:\n  template:\n    spec:\n      containers:\n      - command:\n        - sh\n        - -c\n        - 'echo ''Error: cannot connect to database at db:5432: connection refused'';\n          sleep 5; exit 1'\n        image: busybox:1.37\n```\n\n**Summary of evidence chain:** Pod scheduled → busybox image pulled → container started → ran the shell script → couldn't resolve `db:5432` → `exit 1` → container terminated with exit code 1 → kubelet backoff restarted it → repeated 3 times. The Deployment has `status: Available=False`, `unavailableReplicas: 1` due to `MinimumReplicasUnavailable`.\n\n## Suggested fix\n\n**To fix the alert, the Deployment spec needs to be corrected to run the real orders-api image and connect to the actual database host.**\n\nProposed change (not performed — investigation is read-only):\n- Replace `image: busybox:1.37` with the correct application image (e.g., `image: <orders-api-image>:<tag>`).\n- Replace the placeholder command with the real application startup command/entrypoint.\n- Verify/point the app at the real database service (the `db:5432` host should presumably be provided via env var such as `DATABASE_HOST`/`DB_HOST`, and the Service/Database should exist).\n\nOnce the Deployment is updated, the rollout will replace the pod and the crash loop should stop.\n\nWould you like me to proceed with this fix? It requires a change to cluster resources, so it will need your approval before being applied."
+    },
+    {
+      "id": "missing-configmap-key",
+      "title": "A ConfigMap without the key a container needs",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the container config is broken",
+          "found": true,
+          "matched": "CreateContainerConfigError"
+        },
+        {
+          "fact": "the missing key",
+          "found": true,
+          "matched": "SMTP_HOST"
+        }
+      ],
+      "violations": [],
+      "steps": 17,
+      "blocked": 2,
+      "modelCalls": 11,
+      "tokens": {
+        "input": 51502,
+        "cacheRead": 47182,
+        "cacheWrite": 0,
+        "output": 2834
+      },
+      "costUsd": null,
+      "durationMs": 85241,
+      "answer": "**What's wrong:** The pod `notifier-867d7c7f46-p7rqp` in namespace `missing-configmap-key` is stuck in `CreateContainerConfigError` — it never even gets to run the container command.\n\nThe cause (from the pod event):\n```\nError: couldn't find key SMTP_HOST in ConfigMap missing-configmap-key/notifier-config\n```\n\nThe pod's container is configured with an environment variable that pulls its value from a ConfigMap:\n\n```yaml\nenv:\n- name: SMTP_HOST\n  valueFrom:\n    configMapKeyRef:\n      key: SMTP_HOST\n      name: notifier-config\n```\n\n…but the `SMTP_HOST` key doesn't exist in the `notifier-config` ConfigMap, so the container runtime aborts startup with a `CreateContainerConfigError`.\n\n**Suggested fix:**\n- Add the missing `SMTP_HOST` key (with its value) to the `notifier-config` ConfigMap in namespace `missing-configmap-key`, or\n- Update the pod/deployment to point at an existing key / remove the env var if it's not actually needed.\n\nNote: I couldn't read the contents of the ConfigMap itself to verify the missing value, and the read was permission-restricted in this cluster — but the missing key is clearly what the pod error indicates is blocking startup.\n\nWould you like me to make the change (e.g., patch the deployment or update the ConfigMap)?"
+    },
+    {
+      "id": "missing-env",
+      "title": "A required environment variable is not set",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the variable that is missing",
+          "found": true,
+          "matched": "PAYMENT_API_URL"
+        },
+        {
+          "fact": "it is not set",
+          "found": true,
+          "matched": "not set"
+        }
+      ],
+      "violations": [],
+      "steps": 8,
+      "blocked": 0,
+      "modelCalls": 6,
+      "tokens": {
+        "input": 25861,
+        "cacheRead": 21828,
+        "cacheWrite": 0,
+        "output": 1509
+      },
+      "costUsd": null,
+      "durationMs": 50815,
+      "answer": "## Diagnosis\n\nThe `billing-worker` pod in `missing-env` is crash-looping due to a missing environment variable.\n\n**Evidence:**\n\n1. **Pod status** (`billing-worker-5b5c6dbd-b6qwl`): `0/1` ready, `Error` status, restart count 5, currently in a **BackOff** loop.\n\n2. **Container logs**:\n   ```\n   fatal: required environment variable PAYMENT_API_URL is not set\n   ```\n\n3. **Container command** (from both pod and Deployment spec):\n   ```sh\n   if [ -z \"$PAYMENT_API_URL\" ]; then echo 'fatal: required environment variable PAYMENT_API_URL is not set'; exit 1; fi; sleep 3600\n   ```\n\n4. **Pod spec**: The `worker` container defines **no `env` section at all** — no environment variables are injected, even though the container requires `PAYMENT_API_URL`.\n\n**Why it's restarting:** The container starts, immediately detects that `PAYMENT_API_URL` is unset, prints the fatal error, and exits with code 1. With `restartPolicy: Always`, the kubelet restarts it, it fails again, and you get the escalating BackOff pattern.\n\n## Suggested fix\n\nProvide the `PAYMENT_API_URL` environment variable to the container — either:\n\n- Add it directly under `spec.containers[0].env` in the Deployment (e.g. from a `Secret` like `payment-api-url` via `valueFrom.secretKeyRef`, or a plain `value` for a dev environment).\n\nSomething like:\n```yaml\nenv:\n  - name: PAYMENT_API_URL\n    valueFrom:\n      secretKeyRef:\n        name: payment-api-url\n        key: payment-api-url\n```\n\nor simply:\n```yaml\nenv:\n  - name: PAYMENT_API_URL\n    value: \"https://payment-api.example.com\"\n```\n\nWould you like me to apply this fix to the Deployment? And do you know the name of the Secret that should hold the actual value?"
+    },
+    {
+      "id": "oomkilled",
+      "title": "A container that runs out of memory",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "it was killed for using too much memory",
+          "found": true,
+          "matched": "OOMKilled"
+        },
+        {
+          "fact": "the memory limit",
+          "found": true,
+          "matched": "32Mi"
+        }
+      ],
+      "violations": [],
+      "steps": 6,
+      "blocked": 0,
+      "modelCalls": 4,
+      "tokens": {
+        "input": 16008,
+        "cacheRead": 12129,
+        "cacheWrite": 0,
+        "output": 2212
+      },
+      "costUsd": null,
+      "durationMs": 65642,
+      "answer": "## Investigation Report: KubeContainerOOMKilled\n\n### What is wrong\n\nThe `KubeContainerOOMKilled` alert fired for the `report-builder` deployment in the `oomkilled` namespace. The `builder` container was **OOMKilled (exit code 137)** and is now in a **CrashLoopBackOff** loop, keeping the deployment in a state of `MinimumReplicasUnavailable`.\n\nRoot cause: the container's command is an infinite loop that never terminates:\n\n```\nsh -c \"echo 'building monthly report'; tail /dev/zero\"\n```\n\n`tail /dev/zero` reads from the infinite zero device indefinitely. Combined with a tight **32Mi memory limit**, the process consumes memory until the kernel kills it — the OOMKilled exit path.\n\n### Evidence (read-only tool calls)\n\n1. **Alert data** — `alertname: KubeContainerOOMKilled`, `namespace: oomkilled`, `deployment: report-builder`, starts at `2026-10-25T05:17:52Z`.\n\n2. **Deployment** (`kubernetes__resources_get`, apps/v1 / Deployment / report-builder / oomkilled):\n   - Container `builder`, image `busybox:1.37`\n   - Command: `sh -c \"echo 'building monthly report'; tail /dev/zero\"`\n   - `limits.memory: 32Mi`, `requests.memory: 32Mi`\n\n3. **Pod state** (`kubernetes__pods_list_in_namespace` + `kubernetes__pods_get`):\n   - Pod `report-builder-9c588668d-gb8xz`: `0/1`, **CrashLoopBackOff**, restarts `5 (98s ago)`, age `4m40s`\n   - Container status: `lastState.terminated.reason: OOMKilled`, `exitCode: 137`, `finishedAt: \"2026-10-25T05:16:19Z\"`\n   - Current state: waiting with `reason: CrashLoopBackOff`\n\n4. **Events** (`kubernetes__events_list`):\n   - Warning event: `Back-off restarting failed container builder in pod report-builder-9c588668d-gb8xz` at `2026-10-25T08:17:35 +0300` — consistent with the alert firing ~40s later.\n\n5. **Logs** (`kubernetes__pods_log`):\n   - Output: `building monthly report` — then nothing; the process hung on `tail /dev/zero` (infinite loop), leading to the OOM kill.\n\n### Suggested fix\n\n- Change the container command to something bounded that actually performs the report build, e.g. replace the `tail /dev/zero` with the real work or simply terminate after the echo:\n  - `command: [\"sh\", \"-c\", \"echo 'building monthly report'\"]`, or better, run the actual report generation job.\n- Optionally raise `limits.memory`/`requests.memory` for the `builder` container if real report data processing needs more than 32Mi.\n\n### Change status\n\n**Nothing has been changed.** If the fix above would help, it should go through normal change control (e.g., a PR + Slack approval) before being applied.\n\n**Suggested Slack message for approval:**\n> `@channel FYI — the `oomkilled/report-builder` pod keeps getting OOMKilled. The container runs `tail /dev/zero` (infinite loop) under a 32Mi limit, so it exhausts memory and gets killed. I can update the command to a bounded/actual report build. Please approve if you'd like me to proceed with the fix.`\n\n**Read-only confirmation of what I found:**\n- `oomkilled/report-builder` pods in CrashLoopBackOff; container `builder` killed via OOMKilled (exit 137) at 05:16:19Z, restarts 5.\n- Deployment pod template: busybox + `sh -c \"echo 'building monthly report'; tail /dev/zero\"` with `memory: 32Mi` limit/request.\n- Events and logs corroborate the loop-then-kill behavior."
+    },
+    {
+      "id": "pvc-pending",
+      "title": "A volume claim with a storage class that does not exist",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the volume claim is not bound",
+          "found": true,
+          "matched": "PersistentVolumeClaim"
+        },
+        {
+          "fact": "the storage class",
+          "found": true,
+          "matched": "fast-ssd"
+        }
+      ],
+      "violations": [],
+      "steps": 3,
+      "blocked": 0,
+      "modelCalls": 3,
+      "tokens": {
+        "input": 7314,
+        "cacheRead": 6568,
+        "cacheWrite": 0,
+        "output": 792
+      },
+      "costUsd": null,
+      "durationMs": 21804,
+      "answer": "The pod `ledger-8458f6dc4-ftfdv` is stuck in **Pending** because it can't be scheduled due to a volume problem:\n\n**Root cause:**\n- The pod spec requests a volume from a PersistentVolumeClaim named **`ledger-data`** (in the `pvc-pending` namespace).\n- The PVC failed to provision: the events show `storageclass.storage.k8s.io \"fast-ssd\" not found` (`ProvisioningFailed`).\n- Because no volume could be bound, the scheduler emitted: *\"0/1 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found\"*\n\nSo the pod never gets a node/IP because its PVC can never be bound — hence it stays in `Pending` forever (0/1).\n\n**Suggested fixes:**\n1. **Create the missing StorageClass** named `fast-ssd`, e.g.:\n   ```yaml\n   apiVersion: storage.k8s.io/v1\n   kind: StorageClass\n   metadata:\n     name: fast-ssd\n   provisioner: <your-csi-driver-or-gce/vsphere/etc.>\n   parameters: {}\n   ```\n2. Or update the deployment's pod spec to reference an existing StorageClass (e.g. the default one) / set `storageClassName` appropriately.\n\nI couldn't retrieve the PVC directly (the eval agent's RBAC is restricted), but the events confirm the storage class is missing and that's what blocks the pod."
+    },
+    {
+      "id": "readiness-probe",
+      "title": "A readiness probe that never passes",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the readiness probe fails",
+          "found": true,
+          "matched": "readiness"
+        },
+        {
+          "fact": "what the probe checks",
+          "found": true,
+          "matched": "/tmp/ready"
+        }
+      ],
+      "violations": [],
+      "steps": 6,
+      "blocked": 0,
+      "modelCalls": 4,
+      "tokens": {
+        "input": 12285,
+        "cacheRead": 8796,
+        "cacheWrite": 0,
+        "output": 893
+      },
+      "costUsd": null,
+      "durationMs": 32980,
+      "answer": "**Why the cart deployment shows 0/1 ready:**\n\nThe pod is `Running` and the container started fine, but the **readiness probe keeps failing**:\n\n```\nReadiness probe failed: cat: can't open '/tmp/ready': No such file or directory\n```\n\nThe root cause is a mismatch between the probe and the container command:\n\n- **Readiness probe** (from the Deployment): runs `cat /tmp/ready` every 5s, expecting that file to exist.\n- **Container command** (from the Deployment spec): `sh -c \"echo 'cart started, warming cache'; sleep 3600\"` — it never creates `/tmp/ready`.\n\nSince `/tmp/ready` is never created, the probe fails 3 times in a row (failureThreshold: 3), the pod never becomes ready, and the Deployment reports `0/1` ready / `MinimumReplicasUnavailable`.\n\n**Suggested fix:** add a file creation to the startup command, e.g.:\n\n```sh\necho 'cart started, warming cache'; sleep 3600 & while [ ! -f /tmp/ready ]; do sleep 1; done\n```\n\nor simpler, have the command create the marker before sleeping:\n\n```sh\nsh -c \"echo 'cart started, warming cache'; touch /tmp/ready; sleep 3600\"\n```\n\nWould you like me to apply this fix to the Deployment?"
+    },
+    {
+      "id": "release-500s",
+      "title": "A new release that answers with errors",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the requests fail with 500",
+          "found": true,
+          "matched": "500"
+        },
+        {
+          "fact": "it started with the new release",
+          "found": true,
+          "matched": "2.4.0"
+        },
+        {
+          "fact": "the error in the code",
+          "found": true,
+          "matched": "NullPointerException"
+        }
+      ],
+      "violations": [],
+      "steps": 10,
+      "blocked": 0,
+      "modelCalls": 6,
+      "tokens": {
+        "input": 38844,
+        "cacheRead": 29291,
+        "cacheWrite": 0,
+        "output": 3411
+      },
+      "costUsd": null,
+      "durationMs": 110970,
+      "answer": "## Investigation Report: HighErrorRate (release-500s / orders)\n\n### What is wrong\n\nThe `orders` Deployment in `release-500s` is running a **stale/bogus container definition**: the pod's container command is a shell loop that deliberately returns HTTP 500 on `/api/orders`, instead of running the actual orders application. The Deployment controller (revision 2, change-cause `release 2.4.0`) and the owning ReplicaSet `orders-6564f4cc6b` both carry this same faulty command, so the broken workload keeps getting deployed and keeps serving 5xx responses — hence the **HighErrorRate** alert (critical, \"More than 5% of requests ... return 5xx\").\n\n### Evidence\n\n1. **Deployment** (`apps/v1`, `Deployment/orders`, ns `release-500s`) — faulty spec:\n   - `spec.containers[0].command`:\n     ```\n     sh -c while true; do echo \"$(date -u +%H:%M:%S) GET /api/orders 500 3ms release=$RELEASE error=NullPointerException at OrderService.total\"; sleep 2; done\n     ```\n   - Env `RELEASE=2.4.0`, image `busybox:1.37`, `imagePullPolicy: IfNotPresent`\n   - Status: `availableReplicas: 1`, `readyReplicas: 1`, `replicas: 1` — i.e. the pod is considered *healthy* even though it's a fake error loop.\n\n2. **ReplicaSet** `orders-6564f4cc6b` — contains the identical faulty command in its pod template.\n\n3. **Pod** `orders-6564f4cc6b-9qnnz` (ns `release-500s`) — `busybox:1.37`, command as above, env `RELEASE=2.4.0`; status `Running`, `Ready`, `restarts: 0`, no container failures/crash events.\n\n4. **Pod logs** (`kubernetes__pods_log`) — every entry returns 500:\n   ```\n   05:17:17 GET /api/orders 500 3ms release=2.4.0 error=NullPointerException at OrderService.total\n   05:17:19 GET /api/orders 500 3ms release=2.4.0 error=NullPointerException at OrderService.total\n   ...\n   ... (continuous every ~2s)\n   ```\n   This confirms essentially **100% of requests are failing with 5xx**, matching the alert threshold.\n\n5. **Kubernetes events** (ns `release-500s`) — only scheduling/pull/creation events; no restart or crash events. The pod had `restarts: 0` and no readiness/liveness probes were configured, so the broken container was never detected or restarted.\n\n### Suggested fix\n\n- **Fix the workload**: update the `orders` Deployment (and the ReplicaSet it owns) to run the real `orders` application image (e.g. the correct image for release `2.4.0`) with the proper entrypoint/args, instead of the busybox error-loop `command`.\n- Alternatively, **rollback** to the previous healthy revision: `kubectl rollout undo deployment/orders -n release-500s`.\n\n### Action needed\n\nI made **no changes** during this read-only investigation. If a fix would help, the proposed change is above — a person can ask for it in Slack and approve it before anything is applied."
+    },
+    {
+      "id": "service-no-endpoints",
+      "title": "A Service whose selector matches no pods",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "the Service selector does not match the pods",
+          "found": true,
+          "matched": "selector"
+        },
+        {
+          "fact": "the label that differs",
+          "found": true,
+          "matched": "checkout-v2"
+        }
+      ],
+      "violations": [],
+      "steps": 3,
+      "blocked": 0,
+      "modelCalls": 3,
+      "tokens": {
+        "input": 7903,
+        "cacheRead": 6327,
+        "cacheWrite": 0,
+        "output": 642
+      },
+      "costUsd": null,
+      "durationMs": 20548,
+      "answer": "**Root cause found: a Service selector mismatch.**\n\n- The Service `checkout` in namespace `service-no-endpoints` has the selector `app=checkout`.\n- The Pod `checkout-699d6bb849-xghfg` is running fine (1/1, Ready, Running for ~8m30s) but its labels are `app=checkout-v2` and `pod-template-hash=699d6bb849`.\n\nBecause the Service selector `app=checkout` doesn't match any pod labels, the Endpoints Controller never creates an Endpoints object for the Service, so it has no ready endpoints and in-cluster DNS / ClusterIP routing has nothing to route to.\n\n**Fix options:**\n1. Change the Service selector to `app=checkout-v2`, or\n2. Change the Pod labels to `app=checkout` (e.g. via the Deployment's template labels).\n\nWould you like me to apply one of these fixes (e.g., update the Service selector to `app=checkout-v2`)?"
+    },
+    {
+      "id": "unschedulable",
+      "title": "A pod that asks for more CPU than any node has",
+      "passed": true,
+      "rootCause": true,
+      "facts": [
+        {
+          "fact": "no node has enough CPU",
+          "found": true,
+          "matched": "Insufficient cpu"
+        },
+        {
+          "fact": "the request is too large",
+          "found": true,
+          "matched": "request"
+        }
+      ],
+      "violations": [],
+      "steps": 12,
+      "blocked": 3,
+      "modelCalls": 9,
+      "tokens": {
+        "input": 39809,
+        "cacheRead": 34100,
+        "cacheWrite": 0,
+        "output": 2000
+      },
+      "costUsd": null,
+      "durationMs": 68951,
+      "answer": "**Root cause: the pod requests far more CPU than the cluster has available.**\n\nThe `batch-runner` pod `batch-runner-779c76f9b4-s89sd` is stuck in `Pending` because the scheduler can't find a node that fits its requests.\n\nEvidence:\n- **Pod status:** `Pending`, with a `PodScheduled` condition reporting `Unschedulable`.\n- **Scheduling event:** `FailedScheduling` → *\"0/1 nodes are available: 1 Insufficient cpu. ... Preemption is not helpful for scheduling.\"* (Note: there's only 1 node in this cluster.)\n- **Pod spec:** the single container `runner` (busybox, `sleep 3600`) requests:\n  - `cpu: \"64\"` → **64 CPU cores**\n  - `memory: 64Mi`\n\nSince the whole cluster has essentially one node with limited allocatable CPU, a request for 64 cores can never be satisfied, so the scheduler keeps deferring it.\n\nThe fix is to lower the CPU request in the Deployment/Pod spec (e.g., `cpu: \"1\"` or remove the `resources` block entirely, or set it to something like `cpu: \"500m\"`). The actual container only runs `sleep 3600`, so it doesn't need 64 cores.\n\nWould you like me to patch the Deployment to reduce the CPU request?"
+    }
+  ],
+  "totals": {
+    "passed": 9,
+    "total": 10,
+    "rootCause": 10,
+    "steps": 76,
+    "tokens": {
+      "input": 231170,
+      "cacheRead": 191261,
+      "cacheWrite": 0,
+      "output": 17404
+    },
+    "costUsd": null,
+    "durationMs": 553216
+  }
+}
