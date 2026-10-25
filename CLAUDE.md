@@ -55,6 +55,7 @@ pnpm --filter @kodra-agent/agent cli init --config ../../examples/kubernetes.yam
 pnpm mcp:fetch                                # download pinned MCP server binaries (SHA-256 verified) to .cache/mcp
 pnpm test:kind                                # kind cluster + crashloop, real Kubernetes MCP server (needs Docker, kind, kubectl)
 pnpm test:kind --demo                         # same cluster, interactive chat with a real model (ANTHROPIC_API_KEY, KODRA_DEMO_MODEL)
+pnpm eval --provider <p> --model <id>         # the ten scenarios on kind, read-only, report in evals/reports (docs/evals.md)
 pnpm demo:slack                               # same cluster + a local Alertmanager, kodra-agent run against your Slack test channel
 pnpm --filter @kodra-agent/agent cli run --config <file>   # the service: Slack, alert monitoring, /healthz and /readyz
 pnpm --filter @kodra-agent/agent cli onboard <repo|dir> --config <file>   # report on a repo, then ship it with the report
@@ -81,6 +82,7 @@ pnpm --filter @kodra-agent/agent cli check --config <file>   # run the read-only
   - `checks.md`: scheduled checks and the digest
   - `ship.md`: ship, onboard, onboard from the console
   - `packaging.md`: versions and releases, EKS tokens, CI pinning, Windows audit paths
+  - `evals.md`: scenarios, `pnpm eval`, deterministic checks and reports, `kodra-agent demo`
 
 ## Repo map
 
@@ -92,6 +94,7 @@ packages/schema       kodra-agent.yaml schema, types, secret-reference parser
 packages/connectors   connector manifests (src/<id>/manifest.ts, models.ts, coming-soon.ts), registry, parseAgentConfig
 schema                generated JSON Schema for kodra-agent.yaml (committed)
 examples              example kodra-agent.yaml files (validated by tests); examples/ship has one sample app per ship stack
+evals                 failure scenarios (evals/scenarios, also in the image for `demo`) and committed eval reports (evals/reports)
 packages/templates    configurator draft, validation, bundle generation, and ship-flow templates (src/ship)
 charts/kodra-agent    Helm chart (takes the bundle's values.yaml as is)
 docker                agent Dockerfile; docker/mcp holds the lockfiles for preinstalled MCP servers

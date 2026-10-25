@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oomkilled
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: report-builder
+  namespace: oomkilled
+  labels: { app: report-builder }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: report-builder }
+  template:
+    metadata:
+      labels: { app: report-builder }
+    spec:
+      containers:
+        - name: builder
+          image: busybox:1.37
+          # tail buffers /dev/zero looking for a newline, so memory grows until the limit.
+          command: ['sh', '-c', "echo 'building monthly report'; tail /dev/zero"]
+          resources:
+            requests: { memory: 32Mi, cpu: 10m }
+            limits: { memory: 32Mi }

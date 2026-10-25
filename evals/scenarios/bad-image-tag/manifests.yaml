@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bad-image-tag
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-api
+  namespace: bad-image-tag
+  labels: { app: search-api }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: search-api }
+  template:
+    metadata:
+      labels: { app: search-api }
+    spec:
+      containers:
+        - name: api
+          image: busybox:1.99.99-does-not-exist
+          command: ['sh', '-c', 'sleep 3600']

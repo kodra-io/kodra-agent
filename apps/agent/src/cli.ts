@@ -4,6 +4,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { auditVerify } from './commands/audit.ts';
 import { chat } from './commands/chat.ts';
 import { check } from './commands/check.ts';
+import { demo } from './commands/demo.ts';
 import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
 import { run } from './commands/run.ts';
@@ -22,6 +23,7 @@ const COMMANDS = [
   ['ship <repo|dir>', 'Add a Dockerfile, CI, and Helm chart, verify them, and open a PR'],
   ['onboard <repo|dir>', 'Report what a repo needs and its risks, then ship it with that report'],
   ['audit verify', "Check that the audit log's records were not edited, deleted, or reordered"],
+  ['demo', 'Find three broken workloads on a throwaway kind cluster, with your model key'],
 ] as const;
 
 export function helpText(): string {
@@ -54,6 +56,11 @@ export function helpText(): string {
     '',
     'chat options:',
     '  --message <text>               Ask one question, print the answer, and exit',
+    '',
+    'demo options (needs the Docker socket):',
+    '  --provider <name> --model <id> The model to use (else spec.model from --config)',
+    '  --set <key=value>              A model setting, like baseUrl=http://ollama:11434',
+    '  --cleanup                      Delete the demo cluster',
   ].join('\n');
 }
 
@@ -64,6 +71,10 @@ const OPTIONS = {
   'non-interactive': { type: 'boolean' },
   'dry-run': { type: 'boolean' },
   'reset-console-password': { type: 'boolean' },
+  provider: { type: 'string' },
+  model: { type: 'string' },
+  set: { type: 'string', multiple: true },
+  cleanup: { type: 'boolean' },
   json: { type: 'boolean' },
   post: { type: 'boolean' },
   message: { type: 'string' },
@@ -122,6 +133,22 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
       return chat({ configPath: config, message: values.message }, ctx);
     case 'run':
       return run({ configPath: config }, ctx);
+    case 'demo':
+      return demo(
+        {
+          configPath: config,
+          provider: values.provider,
+          model: values.model,
+          fields: Object.fromEntries(
+            (values.set ?? []).map((kv) => {
+              const i = kv.indexOf('=');
+              return i < 0 ? [kv, ''] : [kv.slice(0, i), kv.slice(i + 1)];
+            }),
+          ),
+          cleanup: values.cleanup ?? false,
+        },
+        ctx,
+      );
     case 'check':
       return check(
         { configPath: config, post: values.post ?? false, json: values.json ?? false },

@@ -1,0 +1,14 @@
+id: service-no-endpoints
+title: A Service whose selector matches no pods
+trigger:
+  question: Requests to the checkout Service in namespace service-no-endpoints fail and it has no endpoints, but its pods are running. Why?
+ready:
+  - state: running
+expect:
+  - fact: the Service selector does not match the pods
+    any: ['selector']
+  - fact: the label that differs
+    any: ['checkout-v2', 'app: ?checkout\b', 'app=checkout\b', 'label']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '

@@ -87,9 +87,15 @@ describe('compose bundle', () => {
     });
   });
 
-  it('mounts the Docker socket only on the one-shot builder, only for build access', () => {
+  it('mounts the Docker socket only on one-shot services: the builder (build access) and the demo', () => {
     const readOnly = generateBundle(withConnector(composeDraft(), 'docker'));
-    expect(file(readOnly, 'docker-compose.yml')).not.toContain('docker.sock');
+    const readOnlyServices = (
+      parse(file(readOnly, 'docker-compose.yml')) as {
+        services: Record<string, Record<string, unknown>>;
+      }
+    ).services;
+    expect(Object.keys(readOnlyServices)).toEqual(['kodra-agent', 'kodra-demo']);
+    expect(JSON.stringify(readOnlyServices['kodra-agent'])).not.toContain('docker.sock');
 
     const build = generateBundle(
       withConnector(composeDraft(), 'docker', { access: 'read-write-approved' }),
@@ -115,7 +121,7 @@ describe('compose bundle', () => {
     expect(builder?.['cap_drop']).toEqual(['ALL']);
     expect(builder?.['image']).toBe(agent?.['image']);
     expect(builder?.['volumes']).toEqual(expect.arrayContaining(agent?.['volumes'] as string[]));
-    expect(file(readOnly, 'docker-compose.yml')).not.toContain('group_add');
+    expect(readOnlyServices['kodra-agent']?.['group_add']).toBeUndefined();
     expect(file(readOnly, 'docker-compose.yml')).not.toContain('kodra-builder');
     const readme = file(build, 'README.md');
     expect(readme).toContain('## Docker socket warning');
@@ -229,6 +235,26 @@ describe('kubernetes bundle', () => {
     const steps = JSON.stringify(getConnector('kubernetes'));
     expect(steps).toContain('--verb=get,update --resource=deployments/scale');
     expect(steps).not.toContain('--verb=patch');
+  });
+
+  // L3: the demo is one-shot (a profile), read-only, with this bundle's model and config.
+  it('has a one-shot kodra-demo service that runs the demo', () => {
+    const services = (
+      parse(file(generateBundle(composeDraft()), 'docker-compose.yml')) as {
+        services: Record<string, Record<string, unknown>>;
+      }
+    ).services;
+    const demo = services['kodra-demo'];
+    expect(demo?.['profiles']).toEqual(['demo']);
+    expect(demo?.['command']).toEqual(['demo']);
+    expect(demo?.['restart']).toBeUndefined();
+    expect(demo?.['read_only']).toBe(true);
+    expect(demo?.['cap_drop']).toEqual(['ALL']);
+    expect(demo?.['volumes']).toEqual([
+      './:/etc/kodra-agent:ro',
+      '/var/run/docker.sock:/var/run/docker.sock',
+    ]);
+    expect(demo?.['image']).toBe(services['kodra-agent']?.['image']);
   });
 
   it('never mounts the Docker socket, even with Docker build access', () => {

@@ -1,0 +1,14 @@
+id: missing-env
+title: A required environment variable is not set
+trigger:
+  question: The billing-worker deployment in namespace missing-env keeps restarting. Why?
+ready:
+  - state: restarted
+expect:
+  - fact: the variable that is missing
+    any: ['PAYMENT_API_URL']
+  - fact: it is not set
+    any: ['not set', 'missing', 'unset', 'undefined', 'empty', 'not defined', 'not provided']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '

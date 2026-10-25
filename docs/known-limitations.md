@@ -27,7 +27,12 @@ do about it. The threat model is in [docs/security/threat-model.md](security/thr
   environment's model. Use a separate Prometheus connector, or none, for pinned environments.
 - **Masked values cannot be revealed.** An approver sees `[email:7f3a]`, not the address.
 - **The Docker socket is close to root on that machine.** With Docker build access on
-  Compose, `kodra-builder` mounts it while a build runs. Use a machine meant for builds.
+  Compose, `kodra-builder` mounts it while a build runs, and `kodra-demo` mounts it while the
+  demo runs (kind needs it). Use a machine meant for builds, and run the demo where you would
+  run kind yourself.
+- **The evaluation checks are patterns, not judgment.** A scenario passes when the answer
+  contains its root-cause facts and none of its must-nots. An odd phrasing can miss a right
+  answer, or a lucky one can pass. Read the answers in the report (docs/evals.md).
 - **Any process in the agent's pod can read its ServiceAccount token.** With write access the
   token can only scale deployments in the agent's namespaces (get and update on
   `deployments/scale`, nothing else), so it cannot change a pod template, but it can scale

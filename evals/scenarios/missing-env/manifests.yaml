@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: missing-env
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-worker
+  namespace: missing-env
+  labels: { app: billing-worker }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: billing-worker }
+  template:
+    metadata:
+      labels: { app: billing-worker }
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.37
+          command:
+            [
+              'sh',
+              '-c',
+              'if [ -z "$PAYMENT_API_URL" ]; then echo ''fatal: required environment variable PAYMENT_API_URL is not set''; exit 1; fi; sleep 3600',
+            ]
