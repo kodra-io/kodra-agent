@@ -6,7 +6,7 @@
 
 FROM ghcr.io/astral-sh/uv:0.12.21 AS uv
 FROM docker:29.8.2-cli AS docker-cli
-FROM alpine/helm:4.3.0 AS helm
+FROM alpine/helm:4.3.1 AS helm
 
 # Production dependencies of the agent and its workspace packages, from the lockfile.
 FROM node:24.21.0-trixie-slim AS build
