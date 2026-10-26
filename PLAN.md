@@ -120,16 +120,16 @@ Done when three outside teams have used the agent for two weeks. The gate then o
 
 ## Status
 
-| Step                                        | Status                      | PR  |
-| ------------------------------------------- | --------------------------- | --- |
-| L0 Reset                                    | Done                        | #82 |
-| L1 Launch narrower                          | Done                        | #83 |
-| L2 Close the red flags                      | Done                        | #84 |
-| L3 Proof: scenarios, evals, and the demo    | In review (hosted run open) | #85 |
-| L4 Publish and release v0.4.0               | Not started                 |     |
-| L5 Partner zero: Kodra.io                   | Not started                 |     |
-| L6 Design partners                          | Not started                 |     |
-| Gate open: Omar picks the next roadmap item | Not started                 |     |
+| Step                                        | Status                                    | PR  |
+| ------------------------------------------- | ----------------------------------------- | --- |
+| L0 Reset                                    | Done                                      | #82 |
+| L1 Launch narrower                          | Done                                      | #87 |
+| L2 Close the red flags                      | Done                                      | #84 |
+| L3 Proof: scenarios, evals, and the demo    | Merged; the hosted run is still open      | #85 |
+| L4 Publish and release v0.4.0               | In progress: deploy and hallway test next | #86 |
+| L5 Partner zero: Kodra.io                   | Not started                               |     |
+| L6 Design partners                          | Not started                               |     |
+| Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules
 

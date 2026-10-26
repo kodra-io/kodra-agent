@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 /*
- * Kodra.io design system tokens, light and dark. Utilities read the variables, so a theme
+ * Kodra.io design system tokens, light and dark, following the Kodra Build site (SPEC section 7). Utilities read the variables, so a theme
  * switch is one attribute on <html>: data-theme="dark" or "light"; without it, the system
  * setting decides. One action color (primary); state colors always come with a word.
  */
@@ -13,9 +13,9 @@
   --k-muted: #f3f4f6;
   --k-line: #e5e7eb;
   --k-line-strong: #d1d5db;
-  --k-ink: #1a202c;
+  --k-ink: #172554;
   /* text-secondary: 6.8:1 and up on every surface. */
-  --k-ink-secondary: #4a5568;
+  --k-ink-secondary: #4b5563;
   --k-primary: #2563eb;
   --k-primary-deep: #1d4ed8;
   --k-primary-tint: #eff6ff;

@@ -251,7 +251,7 @@ function ConnectorCard({
     <article
       aria-labelledby={headingId}
       data-connector={manifest.id}
-      className={`flex flex-col gap-4 rounded-lg border p-4 ${
+      className={`flex flex-col gap-4 rounded-xl border p-4 ${
         enabled ? 'border-primary bg-white' : 'border-line bg-white'
       } ${comingSoon ? 'border-dashed bg-surface' : ''}`}
     >
@@ -276,7 +276,7 @@ function ConnectorCard({
       {cardError ? (
         <p
           role="alert"
-          className="rounded-md border border-red-700 bg-red-50 px-3 py-2 text-sm text-red-800"
+          className="rounded-lg border border-red-700 bg-red-50 px-3 py-2 text-sm text-red-800"
         >
           {cardError}
         </p>
@@ -440,7 +440,7 @@ function EntriesEditor(props: {
       {entries.length < field.max ? (
         <button
           type="button"
-          className="self-start rounded-md border border-line px-3 py-2 text-sm hover:bg-primary-tint"
+          className="self-start rounded-lg border border-line px-3 py-2 text-sm hover:bg-primary-tint"
           onClick={() => {
             dispatch({ type: 'entryAdd', id, key: field.key });
           }}
@@ -549,7 +549,7 @@ function EntryCard(props: {
   return (
     <div
       data-entry={props.index}
-      className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4"
+      className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-4"
     >
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-48 flex-1">
@@ -571,7 +571,7 @@ function EntryCard(props: {
         </div>
         <button
           type="button"
-          className="rounded-md border border-line bg-white px-3 py-2 text-sm hover:bg-primary-tint"
+          className="rounded-lg border border-line bg-white px-3 py-2 text-sm hover:bg-primary-tint"
           onClick={props.onRemove}
         >
           {t('entries.remove', { name: name || t('entries.new') })}
@@ -580,7 +580,7 @@ function EntryCard(props: {
       {main.map(render)}
       {more.length > 0 ? (
         <details
-          className="rounded-lg border border-line bg-white p-3"
+          className="rounded-xl border border-line bg-white p-3"
           open={more.some((f) => f.kind !== 'secret' && (entry[f.key] ?? '') !== '')}
         >
           <summary className="cursor-pointer font-medium">{t('entries.more')}</summary>
@@ -620,7 +620,7 @@ export function ConnectorsStep(props: StepProps) {
       {preview.length > 0 ? (
         <details
           data-testid="more-connectors"
-          className="rounded-lg border border-line bg-white p-4"
+          className="rounded-xl border border-line bg-white p-4"
           open={moreOpen}
           onToggle={(e) => {
             setMoreOpen(e.currentTarget.open);
@@ -892,7 +892,7 @@ export function ReviewStep(
             {issues.map((issue, i) => (
               <li
                 key={`${issue.field}-${issue.code}-${String(i)}`}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-700 bg-red-50 px-3 py-2 text-sm text-red-800"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-700 bg-red-50 px-3 py-2 text-sm text-red-800"
               >
                 <span>{issueText(issue)}</span>
                 {issue.step !== 'review' ? (
@@ -932,7 +932,7 @@ export function DownloadStep(props: {
           disabled={props.blocked || props.busy}
           aria-describedby={props.blocked ? 'download-blocked' : undefined}
           onClick={props.onDownload}
-          className="self-start rounded-md bg-primary px-5 py-3 font-bold text-white hover:bg-primary-deep disabled:cursor-not-allowed disabled:bg-ink-secondary"
+          className="self-start rounded-lg bg-primary px-5 py-3 font-bold text-white hover:bg-primary-deep disabled:cursor-not-allowed disabled:bg-ink-secondary"
         >
           {props.busy ? t('download.working') : t('download.button', { file: props.zipName })}
         </button>
@@ -949,7 +949,7 @@ export function DownloadStep(props: {
             <li key={cmd} className="flex flex-wrap items-center gap-2">
               <code
                 tabIndex={0}
-                className="min-w-0 flex-1 overflow-x-auto rounded-md bg-ink px-3 py-2 font-mono text-sm whitespace-pre text-white"
+                className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-ink px-3 py-2 font-mono text-sm whitespace-pre text-white"
               >
                 {cmd}
               </code>

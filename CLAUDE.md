@@ -48,6 +48,7 @@ pnpm typecheck                                # root + every package
 pnpm test                                     # Vitest, all projects
 pnpm test:e2e                                 # Playwright on the production build (first run: pnpm --filter @kodra-agent/configurator exec playwright install chromium)
 pnpm build                                    # configurator -> apps/configurator/dist
+pnpm check:deploy <https://site>              # check a deployed configurator: redirect, headers, CSP, no outside requests, bundle (docs/configurator-deploy.md)
 pnpm schema:export                            # regenerate schema/kodra-agent.schema.json (a test fails if stale)
 pnpm --filter @kodra-agent/agent cli --help   # run the CLI from source
 pnpm --filter @kodra-agent/agent cli doctor --config ../../examples/ollama-local.yaml
@@ -67,7 +68,7 @@ pnpm --filter @kodra-agent/agent cli check --config <file>   # run the read-only
 - Relative imports use the `.ts`/`.tsx` extension, so Node can run the source directly
   (`erasableSyntaxOnly`: no enums, namespaces, or parameter properties).
 - The configurator CSP (`default-src 'none'`, `connect-src 'none'`) is injected at build only; e2e runs against `vite preview` so it is enforced. Every e2e test fails on any off-origin request or console error.
-- Brand text-secondary `#6B7785` fails WCAG AA on surface/tint, so the UI uses `#5F6B78`.
+- The configurator and the console follow the Kodra Build site (SPEC section 7). Check the contrast of any new color pair against WCAG AA; the e2e axe tests fail on a violation.
 - Agent output goes through `Context.term`/`Context.log`, which redact. Never write to `process.stdout`/`console` directly, and register every secret with the `Redactor` as soon as it is read. `src/canary.test.ts` fails if any secret reaches output, logs, or the audit log.
 - Before working on a subsystem, read its notes in `docs/dev/`:
   - `connectors.md`: MCP servers, manifest features, probe endpoints, Jenkins
@@ -108,5 +109,5 @@ docs                  user docs, connector docs, security model (docs/security),
 - Branches: `feature/…`, `fix/…`, `chore/…` with PRs into `main`. Releases are cut from tags. No `develop` branch.
 - Every module with logic has unit tests. Security behavior (redaction, policy engine, approvals, secret handling) has explicit tests.
 - User-facing copy is English only (Arabic was dropped in October 2026). UI copy lives in `locales/en.json`; manifest copy is plain strings.
-- Configurator brand tokens: primary `#3250A0`, primary-deep `#26407F`, primary-tint `#EEF1F8`, text `#172554`, text-secondary `#6B7785`, background `#FAFBFC`, border `#E4E8EE`. One accent color only. Headings in Arial. Fonts self-hosted, no third-party requests.
+- Brand (Kodra Build, build.kodra.io): the Kodra.io logo beside the product name; primary `#2563EB` (blue-600), primary-deep `#1D4ED8`, primary-tint `#EFF6FF`, text `#172554` (blue-950), text-secondary `#4B5563` (gray-600), background `#F9FAFB`, border `#E5E7EB`. One accent color only. The system font stack for everything, self-hosted assets only, no third-party requests.
 - Copy rules: plain language, no em dashes, no fabricated stats, logos, or testimonials.

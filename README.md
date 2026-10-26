@@ -14,6 +14,33 @@ chart in a pull request) is available as a preview.
 > **Status: early release (v0.3.10).** Ready to try with design partners. The product is
 > described in [SPEC.md](SPEC.md), and what comes next in [PLAN.md](PLAN.md).
 
+## Get started
+
+You need Docker, a model key (or a local model through Ollama), and access to what the agent
+should read, like a kubeconfig or a GitHub token.
+
+1. **Create your agent** at [build.kodra.io/agent](https://build.kodra.io/agent): pick who it
+   is for, the model, and the connectors. The page never asks for a key. Download the bundle
+   and unzip it.
+2. **Set it up.** In the bundle folder (on Linux, first run the line in the bundle README that
+   sets `KODRA_AGENT_USER`):
+
+   ```sh
+   docker compose run --rm kodra-agent init
+   ```
+
+   `init` asks for each key with hidden input, checks it with a read-only call, and writes
+   `.env` (owner-only). It also asks you to choose the console admin password.
+
+3. **Start it:** `docker compose up -d`.
+4. **Ask it something.** Open the console at http://localhost:8081, sign in as `admin` with
+   the password you chose, and ask in **Chat**, for example "what is failing in my
+   namespaces?". With Slack set up, mention the app in its channel instead.
+
+On Kubernetes, the bundle's README has the steps (`init --target kubernetes`, then
+`helm install`). `docker compose run --rm kodra-agent doctor` checks every connector and says
+how to fix what fails.
+
 ## What's stable
 
 | Status  | What                                                                                   |

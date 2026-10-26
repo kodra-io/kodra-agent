@@ -62,7 +62,7 @@ export function EnvironmentsStep({ draft, dispatch, errorFor, touch }: StepProps
           <fieldset
             key={i}
             data-environment={i}
-            className="flex min-w-0 flex-col gap-4 rounded-lg border border-line p-4"
+            className="flex min-w-0 flex-col gap-4 rounded-xl border border-line p-4"
           >
             <legend className="px-1 font-bold">
               {env.name.trim() || t('environments.untitled', { n: i + 1 })}
@@ -143,7 +143,7 @@ export function EnvironmentsStep({ draft, dispatch, errorFor, touch }: StepProps
             <div>
               <button
                 type="button"
-                className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-primary-tint"
+                className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-primary-tint"
                 onClick={() => {
                   dispatch({ type: 'environmentRemove', index: i });
                 }}
@@ -170,7 +170,7 @@ function AddEnvironment({ draft, dispatch }: { draft: AgentDraft; dispatch: Disp
       {first ? (
         <button
           type="button"
-          className="rounded-md bg-primary px-4 py-2 font-medium text-white hover:bg-primary-deep"
+          className="rounded-lg bg-primary px-4 py-2 font-medium text-white hover:bg-primary-deep"
           onClick={() => {
             dispatch({ type: 'environmentAdd', production: true });
           }}
@@ -180,7 +180,7 @@ function AddEnvironment({ draft, dispatch }: { draft: AgentDraft; dispatch: Disp
       ) : null}
       <button
         type="button"
-        className="rounded-md border border-line px-4 py-2 hover:bg-primary-tint"
+        className="rounded-lg border border-line px-4 py-2 hover:bg-primary-tint"
         onClick={() => {
           dispatch({ type: 'environmentAdd', production: false });
         }}
@@ -227,7 +227,7 @@ export function ApprovalRulesSummary({
         <div>
           <button
             type="button"
-            className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-primary-tint"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-primary-tint"
             onClick={onAddEnvironments}
           >
             {t('review.addEnvironments')}

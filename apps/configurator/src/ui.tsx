@@ -122,7 +122,7 @@ export function TextField(props: TextFieldProps) {
           props.onChange(e.target.value);
         }}
         onBlur={props.onBlur}
-        className={`rounded-md border bg-white px-3 py-2 text-ink placeholder:text-ink-secondary/70 ${
+        className={`rounded-lg border bg-white px-3 py-2 text-ink placeholder:text-ink-secondary/70 ${
           props.error ? 'border-red-700' : 'border-line'
         }`}
       />
@@ -172,7 +172,7 @@ export function SelectField(props: {
         onChange={(e) => {
           props.onChange(e.target.value);
         }}
-        className={`rounded-md border bg-white px-3 py-2 text-ink ${
+        className={`rounded-lg border bg-white px-3 py-2 text-ink ${
           props.error ? 'border-red-700' : 'border-line'
         }`}
       >
@@ -215,7 +215,7 @@ export function RadioCards<T extends string>(props: {
         {props.options.map((option) => (
           <label
             key={option.value}
-            className={`flex cursor-pointer gap-3 rounded-lg border p-4 has-[:checked]:border-primary has-[:checked]:bg-primary-tint has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary ${
+            className={`flex cursor-pointer gap-3 rounded-xl border p-4 has-[:checked]:border-primary has-[:checked]:bg-primary-tint has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary ${
               option.disabled ? 'cursor-not-allowed opacity-60' : 'border-line bg-white'
             }`}
           >
@@ -297,7 +297,7 @@ export function CopyButton({ text, label }: { text: string | (() => string); lab
   return (
     <button
       type="button"
-      className="rounded-md border border-line bg-white px-3 py-1 text-sm hover:bg-primary-tint"
+      className="rounded-lg border border-line bg-white px-3 py-1 text-sm hover:bg-primary-tint"
       onClick={() => {
         void navigator.clipboard.writeText(typeof text === 'function' ? text() : text).then(() => {
           setCopied(true);
