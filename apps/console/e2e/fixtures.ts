@@ -6,7 +6,9 @@ export const TOKEN = 'e2e-console-token';
 export const APPROVER_TOKEN = 'e2e-approver-token';
 /** What the mocked agent returns, once, for a new or rotated token. */
 export const NEW_TOKEN = 'e2e-new-token-shown-once';
-/** The admin's password after the forced change. */
+/** The admin's password, as `kodra-agent init` set it (there is no default). */
+export const INIT_PASSWORD = 'e2e-init-password-long';
+/** The admin's password after a change in the console. */
 export const ADMIN_PASSWORD = 'e2e-admin-password-long';
 
 /** A hostile string from a tool or alert: it must show as text and run nothing. */
@@ -930,7 +932,7 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
     }
   };
 
-  let adminPassword = 'admin';
+  let adminPassword = INIT_PASSWORD;
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -944,7 +946,7 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
               user: user.name,
               canApprove: user.canApprove,
               features: { chat: options.chat },
-              mustChangePassword: user.name === 'console:admin' && adminPassword === 'admin',
+              passwordAccount: user.name === 'console:admin',
             }
           : { signedIn: false },
       });
@@ -974,9 +976,6 @@ async function mockAgent(page: Page, seen: string[], options: AgentOptions) {
         return route.fulfill({ status: 400, json: { code: 'weak' } });
       adminPassword = body.next ?? '';
       return route.fulfill({ json: { changed: true } });
-    }
-    if (user?.name === 'console:admin' && adminPassword === 'admin') {
-      return route.fulfill({ status: 403, json: { error: 'change the admin password first' } });
     }
     if (name === 'logout') {
       user = null;

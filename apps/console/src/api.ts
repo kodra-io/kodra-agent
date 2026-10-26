@@ -154,8 +154,8 @@ export interface Session {
   user?: string;
   canApprove?: boolean;
   features?: { chat?: boolean };
-  /** Signed in as admin with the default password: it must be changed first. */
-  mustChangePassword?: boolean;
+  /** Signed in as the admin, who has a password to change. */
+  passwordAccount?: boolean;
 }
 
 export async function session(): Promise<Session> {

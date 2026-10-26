@@ -14,6 +14,7 @@ import {
   json,
   posixPath,
   tempDir,
+  TEST_ADMIN_HASH,
   testContext,
   writeConfig,
 } from '../test-helpers.ts';
@@ -141,7 +142,12 @@ describe('kodra-agent run', () => {
       let healthPort = 0;
       let metricsPort = 0;
       const t = testContext({
-        env: { ANTHROPIC_API_KEY: 'k', SLACK_BOT_TOKEN: 'xoxb-test', SLACK_APP_TOKEN: 'xapp-test' },
+        env: {
+          ANTHROPIC_API_KEY: 'k',
+          KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+          SLACK_BOT_TOKEN: 'xoxb-test',
+          SLACK_APP_TOKEN: 'xapp-test',
+        },
         modelFactory: () => model,
         launcher: fakeLauncher(),
         slackConnection: () => slack.connection(),
@@ -286,7 +292,13 @@ describe('kodra-agent run', () => {
     let healthPort = 0;
     const fake = fakeLauncher();
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: 'k', G: 'grafana-token', B: 'xoxb-1', A: 'xapp-1' },
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+        G: 'grafana-token',
+        B: 'xoxb-1',
+        A: 'xapp-1',
+      },
       modelFactory: () => scriptedModel(),
       // Grafana's server cannot start; Kubernetes's can.
       launcher: (manifest, runtime) =>
@@ -335,6 +347,7 @@ describe('kodra-agent run', () => {
       const t = testContext({
         env: {
           ANTHROPIC_API_KEY: 'k',
+          KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
           KODRA_CONSOLE_TOKEN: SHARED,
           KODRA_CONSOLE_TOKEN_OMAR: OMAR,
         },
@@ -423,7 +436,12 @@ describe('kodra-agent run', () => {
     const stop = new AbortController();
     let port = 0;
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN: SHARED, KODRA_CONSOLE_TOKEN_OMAR: OMAR },
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+        KODRA_CONSOLE_TOKEN: SHARED,
+        KODRA_CONSOLE_TOKEN_OMAR: OMAR,
+      },
       modelFactory: () => scriptedModel(),
       launcher: fakeLauncher(),
       stopSignal: stop.signal,
@@ -489,7 +507,11 @@ describe('kodra-agent run', () => {
     );
     let port = 0;
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN_OMAR: OMAR },
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+        KODRA_CONSOLE_TOKEN_OMAR: OMAR,
+      },
       modelFactory: () => scriptedModel(),
       launcher: fakeLauncher(),
       stopSignal: new AbortController().signal,
@@ -547,6 +569,7 @@ describe('kodra-agent run', () => {
     const t = testContext({
       env: {
         ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
         KODRA_CONSOLE_TOKEN: 'run-k8s-shared-token-7b6a', // gitleaks:allow
         KODRA_CONSOLE_TOKEN_OMAR: OMAR,
         KODRA_AGENT_NAMESPACE: 'ops',
@@ -622,7 +645,12 @@ describe('kodra-agent run', () => {
     const stop = new AbortController();
     let port = 0;
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN: SHARED, KODRA_CONSOLE_TOKEN_OMAR: OMAR },
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+        KODRA_CONSOLE_TOKEN: SHARED,
+        KODRA_CONSOLE_TOKEN_OMAR: OMAR,
+      },
       modelFactory: () => scriptedModel(),
       launcher: fakeLauncher(),
       stopSignal: stop.signal,
@@ -674,6 +702,48 @@ describe('kodra-agent run', () => {
     expect(await readFile(auditPath, 'utf8')).not.toContain(token);
   });
 
+  // L2: no default console password. Without one set by init, the agent does not start.
+  it('refuses to start the console without an admin password, and never accepts admin/admin', async () => {
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model:
+          '    provider: anthropic\n    name: claude-sonnet-5-5\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+      }),
+      dir,
+    );
+    let ready = false;
+    const t = testContext({
+      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN: 'run-no-password-token-4d1a' }, // gitleaks:allow
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+      onReady: () => {
+        ready = true;
+      },
+    });
+    expect(await main(['run', '--config', path], t.ctx)).toBe(1);
+    expect(ready).toBe(false);
+    expect(t.term.stderr.join('\n')).toContain(
+      'The console cannot start: the console admin has no password. Run `kodra-agent init` to set it',
+    );
+
+    // A hash that is not one is refused the same way, not ignored.
+    const broken = testContext({
+      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_ADMIN_HASH: 'admin' },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      healthPort: 0,
+      consolePort: 0,
+      consoleStaticDir: join(dir, 'no-build'),
+    });
+    expect(await main(['run', '--config', path], broken.ctx)).toBe(1);
+    expect(broken.term.stderr.join('\n')).toContain('is not a console password hash');
+  });
+
   it('serves the console: token sign-in, then status and connectors, read-only', async () => {
     const CONSOLE_TOKEN = 'run-console-token-canary-91b2'; // gitleaks:allow
     const dir = await tempDir();
@@ -689,7 +759,11 @@ describe('kodra-agent run', () => {
     const stop = new AbortController();
     let consolePort = 0;
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: 'k', KODRA_CONSOLE_TOKEN: CONSOLE_TOKEN },
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+        KODRA_CONSOLE_TOKEN: CONSOLE_TOKEN,
+      },
       modelFactory: () => scriptedModel(),
       launcher: fakeLauncher(),
       stopSignal: stop.signal,
@@ -772,6 +846,7 @@ describe('kodra-agent run', () => {
     const t = testContext({
       env: {
         ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
         B: 'xoxb-1',
         A: 'xapp-1',
         KODRA_CONSOLE_TOKEN: SHARED,
@@ -873,7 +948,12 @@ describe('kodra-agent run', () => {
     const stop = new AbortController();
     let ready = false;
     const t = testContext({
-      env: { ANTHROPIC_API_KEY: 'k', B: 'xoxb-1', A: 'xapp-1' },
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+        B: 'xoxb-1',
+        A: 'xapp-1',
+      },
       modelFactory: () => scriptedModel(),
       launcher: fakeLauncher(),
       slackConnection: () => slack.connection(),

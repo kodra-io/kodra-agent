@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -20,7 +20,10 @@ import {
  * creates the cluster and sets KODRA_KIND_KUBECONFIG. The model is scripted, so no API key
  * is needed; scripts/demo-crashloop.ts runs the same scenario with a real model.
  */
+// The agent's own service account (scripts/kind-test.ts binds it with the bundle's rbac.yaml),
+// and the cluster admin, used only to check what happened.
 const kubeconfig = process.env['KODRA_KIND_KUBECONFIG'];
+const adminKubeconfig = process.env['KODRA_KIND_ADMIN_KUBECONFIG'] ?? kubeconfig;
 const NS = 'payments';
 
 const usage = {
@@ -151,9 +154,27 @@ describe.skipIf(!kubeconfig)('kind: crashlooping pod', () => {
         return { code, out: t.output() };
       };
 
+      // 0. F9: the agent's role can scale and nothing else. It cannot patch or update the
+      // Deployment itself (its pod template), and it passes the credential reach check.
+      const can = (...args: string[]) =>
+        spawnSync(
+          'kubectl',
+          ['--kubeconfig', kubeconfig ?? '', '-n', NS, 'auth', 'can-i', ...args],
+          {
+            encoding: 'utf8',
+          },
+        ).stdout.trim();
+      expect(can('update', 'deployments', '--subresource=scale')).toBe('yes');
+      expect(can('get', 'deployments', '--subresource=scale')).toBe('yes');
+      expect(can('patch', 'deployments')).toBe('no');
+      expect(can('update', 'deployments')).toBe('no');
+      expect(can('patch', 'deployments', '--subresource=scale')).toBe('no');
+      expect(can('get', 'secrets')).toBe('no');
+
       // 1. Read-only investigation against the real cluster.
       const why = await run('why is the crashloop deployment failing?');
       expect(why.code).toBe(0);
+      expect(why.out).not.toContain('more access than the agent needs');
       expect(why.out).toContain('[read] kubernetes/pods_list_in_namespace');
       expect(why.out).toContain('[read] kubernetes/pods_log');
       expect(why.out).toContain('Its last log line: Error: cannot connect to database at db:5432');
@@ -168,7 +189,7 @@ describe.skipIf(!kubeconfig)('kind: crashlooping pod', () => {
         'kubectl',
         [
           '--kubeconfig',
-          kubeconfig ?? '',
+          adminKubeconfig ?? '',
           '-n',
           NS,
           'get',

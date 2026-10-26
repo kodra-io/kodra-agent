@@ -2,11 +2,13 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AGENT_NAMESPACE, emptyDraft, rbacYaml } from '@kodra-agent/templates';
 
 /**
  * pnpm test:kind: creates a throwaway kind cluster with a crashlooping deployment, runs
  * src/kind.e2e.test.ts against it, and deletes the cluster. The cluster's kubeconfig goes
- * to a temporary file, so the user's own kube context is never changed.
+ * to a temporary file, so the user's own kube context is never changed. The test runs as a
+ * service account bound only by the bundle's own rbac.yaml (F9), not as the cluster admin.
  */
 const KIND = process.env['KIND'] ?? 'kind';
 const CLUSTER = 'kodra-agent-e2e';
@@ -52,6 +54,56 @@ function sh(cmd: string, args: string[], input?: string): string {
 }
 
 const kubectl = (...args: string[]) => sh('kubectl', ['--kubeconfig', kubeconfig, ...args]);
+
+/** The agent's service account, with exactly the Role the Kubernetes bundle grants. */
+const AGENT = 'kind-agent';
+
+/** A kubeconfig for the agent's service account, bound by the bundle's rbac.yaml for write. */
+function narrowKubeconfig(): string {
+  const rbac = rbacYaml({
+    ...emptyDraft(),
+    name: AGENT,
+    target: 'kubernetes',
+    connectors: {
+      kubernetes: {
+        enabled: true,
+        access: 'read-write-approved',
+        config: { namespaces: 'payments' },
+        optionalSecrets: [],
+      },
+    },
+  });
+  if (!rbac) throw new Error('the bundle made no rbac.yaml');
+  kubectl('create', 'namespace', AGENT_NAMESPACE);
+  kubectl('-n', AGENT_NAMESPACE, 'create', 'serviceaccount', AGENT);
+  writeFileSync(join(dir, 'rbac.yaml'), rbac);
+  kubectl('apply', '-f', join(dir, 'rbac.yaml'));
+  const token = kubectl('-n', AGENT_NAMESPACE, 'create', 'token', AGENT, '--duration=2h').trim();
+  const view = (path: string) =>
+    kubectl('config', 'view', '--minify', '--raw', '-o', `jsonpath={${path}}`);
+  const path = join(dir, 'agent-kubeconfig');
+  writeFileSync(
+    path,
+    `apiVersion: v1
+kind: Config
+clusters:
+  - name: kind
+    cluster:
+      server: ${view('.clusters[0].cluster.server')}
+      certificate-authority-data: ${view('.clusters[0].cluster.certificate-authority-data')}
+users:
+  - name: ${AGENT}
+    user:
+      token: ${token}
+contexts:
+  - name: ${AGENT}
+    context: {cluster: kind, user: ${AGENT}}
+current-context: ${AGENT}
+`,
+    { mode: 0o600 },
+  );
+  return path;
+}
 
 /** POSIX form of a local path, as kodra-agent.yaml requires (drive letter dropped on Windows). */
 const posix = (p: string) => (process.platform === 'win32' ? p.slice(2).replaceAll('\\', '/') : p);
@@ -142,6 +194,9 @@ spec:
       approvers: ['${process.env['KODRA_DEMO_APPROVER'] ?? ''}']
   audit:
     path: ${posix(join(dir, 'audit.jsonl'))}
+  # The demo is about Slack and chat; the console would need a password from init first.
+  console:
+    enabled: false
 `,
   );
   console.log('Watch your Slack channel: the test alert is investigated within a few seconds.');
@@ -198,6 +253,9 @@ spec:
       approvers: ['U0DEMO']
   audit:
     path: ${posix(join(dir, 'audit.jsonl'))}
+  # The demo is about Slack and chat; the console would need a password from init first.
+  console:
+    enabled: false
 `,
   );
   console.log('Try: "why is the crashloop deployment in payments failing?"');
@@ -251,7 +309,11 @@ try {
   } else {
     const result = spawnSync('pnpm', ['exec', 'vitest', 'run', 'src/kind.e2e.test.ts'], {
       stdio: 'inherit',
-      env: { ...process.env, KODRA_KIND_KUBECONFIG: kubeconfig },
+      env: {
+        ...process.env,
+        KODRA_KIND_KUBECONFIG: narrowKubeconfig(),
+        KODRA_KIND_ADMIN_KUBECONFIG: kubeconfig,
+      },
       shell: process.platform === 'win32',
     });
     code = result.status ?? 1;

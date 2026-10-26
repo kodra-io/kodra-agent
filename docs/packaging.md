@@ -57,7 +57,8 @@ helm install my-agent oci://ghcr.io/kodra-io/charts/kodra-agent --version 0.3.10
 - Restricted pod security: non-root, read-only root filesystem with an `emptyDir` for `/tmp`,
   no privilege escalation, all capabilities dropped, `RuntimeDefault` seccomp.
 - `rbac.create` (off by default) creates the same namespace-scoped Role and RoleBinding as the
-  bundle's `rbac.yaml`; `rbac.write` adds patch on deployments.
+  bundle's `rbac.yaml`; `rbac.write` adds get and update on `deployments/scale` only, so the
+  agent can scale but never change a pod template.
 - `console.editSettings` (on by default) lets console approvers change settings: an empty
   `<release>-settings` ConfigMap the agent writes to (Helm never sets its data), mounted
   optionally, and a Role in the release namespace that allows get and patch on that

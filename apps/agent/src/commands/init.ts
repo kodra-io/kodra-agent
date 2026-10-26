@@ -11,6 +11,12 @@ import {
 } from '@kodra-agent/schema';
 import { stringify } from 'yaml';
 import { components, loadConfig, secretLabel, type Component, type SecretUse } from '../config.ts';
+import {
+  ADMIN_HASH_ENV,
+  adminPasswordHash,
+  MIN_PASSWORD_LENGTH,
+  passwordProblem,
+} from '../console/admin.ts';
 import { CONSOLE_TOKEN_ENV, newConsoleToken } from '../console/token.ts';
 import { AGENT_NAMESPACE, type Context } from '../context.ts';
 import { parseEnvFile, renderEnvFile, writePrivateFile } from '../env-file.ts';
@@ -24,6 +30,8 @@ export interface InitOptions {
   namespace?: string | undefined;
   nonInteractive: boolean;
   dryRun: boolean;
+  /** Ask for a new console admin password even if .env already has one. */
+  resetConsolePassword?: boolean;
 }
 
 type Collected = Map<SecretUse, string>;
@@ -112,6 +120,30 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
   }
   if (names.failure) failures.push(names.failure);
 
+  // The console admin's password (L2: there is no default). Only its hash is stored.
+  let adminHash: string | null = null;
+  if (config.spec.console.enabled) {
+    const keep = target === 'compose' && existing.get(ADMIN_HASH_ENV) && !opts.resetConsolePassword;
+    if (!keep) {
+      try {
+        const result = await consolePassword(opts, ctx);
+        if ('failure' in result && opts.nonInteractive) failures.push(result.failure);
+        else if ('failure' in result) {
+          // The console cannot start without it, so nothing is written either.
+          ctx.term.err(result.failure);
+          ctx.term.err('Nothing was written.');
+          return 1;
+        } else adminHash = await adminPasswordHash(result.password);
+      } catch (error) {
+        if (error instanceof Abort) {
+          ctx.term.err('Stopped. Nothing was written.');
+          return 1;
+        }
+        throw error;
+      }
+    }
+  }
+
   if (opts.nonInteractive && failures.length > 0) {
     for (const f of failures) ctx.term.err(f);
     ctx.term.err('Nothing was written.');
@@ -125,9 +157,54 @@ export async function init(opts: InitOptions, ctx: Context): Promise<number> {
   }
 
   return target === 'compose'
-    ? writeCompose(collected, envPath, existingText, dir, config, ctx)
-    : writeKubernetes(config, collected, opts.namespace ?? AGENT_NAMESPACE, ctx);
+    ? writeCompose(collected, envPath, existingText, dir, config, adminHash, ctx)
+    : writeKubernetes(config, collected, opts.namespace ?? AGENT_NAMESPACE, adminHash, ctx);
 }
+
+/** The console admin password: from the environment, or asked twice, hidden. Never stored. */
+async function consolePassword(
+  opts: InitOptions,
+  ctx: Context,
+): Promise<{ password: string } | { failure: string }> {
+  if (opts.nonInteractive) {
+    const password = ctx.env[ADMIN_PASSWORD_ENV] ?? '';
+    if (password) ctx.redactor.add(password);
+    if (!password) return { failure: `Missing console admin password (${ADMIN_PASSWORD_ENV}).` };
+    const problem = passwordProblem(password, '');
+    return problem
+      ? { failure: `The console admin password (${ADMIN_PASSWORD_ENV}): ${problem}` }
+      : { password };
+  }
+  if (!ctx.prompter) {
+    return {
+      failure:
+        'No terminal to ask for the console admin password. Run `kodra-agent init` in a terminal, or set ' +
+        `${ADMIN_PASSWORD_ENV} and use --non-interactive.`,
+    };
+  }
+  ctx.term.out(
+    `Choose the console admin password (at least ${String(MIN_PASSWORD_LENGTH)} characters). You sign in as admin with it; only a hash is stored.`,
+  );
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const password = await ctx.prompter.secret('Console admin password:');
+    if (password) ctx.redactor.add(password);
+    const problem = passwordProblem(password, '');
+    if (problem) {
+      ctx.term.err(problem);
+      continue;
+    }
+    const again = await ctx.prompter.secret('The same password again:');
+    if (again !== password) {
+      ctx.term.err('The two passwords do not match.');
+      continue;
+    }
+    return { password };
+  }
+  throw new Abort();
+}
+
+/** Read by `init --non-interactive` only; never written anywhere. */
+const ADMIN_PASSWORD_ENV = 'KODRA_CONSOLE_ADMIN_PASSWORD';
 
 interface NamesResult {
   /** The config with ids in place of names, to write once everything else succeeded. */
@@ -419,9 +496,14 @@ async function writeCompose(
   existingText: string | null,
   dir: string,
   config: AgentConfig,
+  adminHash: string | null,
   ctx: Context,
 ): Promise<number> {
   const envValues = new Map<string, string>();
+  if (adminHash) {
+    envValues.set(ADMIN_HASH_ENV, adminHash);
+    ctx.term.out(`Set the console admin password: its hash is in .env (${ADMIN_HASH_ENV}).`);
+  }
   for (const [use, value] of collected) {
     if (use.ref.scheme === 'env') envValues.set(use.ref.name, value);
   }
@@ -462,9 +544,11 @@ async function writeKubernetes(
   config: AgentConfig,
   collected: Collected,
   namespace: string,
+  adminHash: string | null,
   ctx: Context,
 ): Promise<number> {
   const data: Record<string, string> = {};
+  if (adminHash) data[ADMIN_HASH_ENV] = adminHash;
   for (const [use, value] of collected) {
     data[use.ref.scheme === 'env' ? use.ref.name : use.spec.key] = value;
   }
@@ -507,6 +591,10 @@ export function dryRunManifest(
   const stringData: Record<string, string> = {};
   const envNames: string[] = [];
   const files: string[] = [];
+  if (config.spec.console.enabled) {
+    stringData[ADMIN_HASH_ENV] =
+      '<the console admin password hash: kodra-agent init --target kubernetes asks for the password and writes it>';
+  }
   for (const { env, who } of consoleTokens(config)) {
     stringData[env] =
       env === CONSOLE_TOKEN_ENV

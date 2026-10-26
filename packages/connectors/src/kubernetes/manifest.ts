@@ -108,7 +108,7 @@ export default defineManifest({
         'read-only': [readRbac],
         'read-write-approved': [
           readRbac,
-          'patch on deployments and deployments/scale in the listed namespaces',
+          'get and update on deployments/scale in the listed namespaces (scaling only, never the pod template)',
         ],
       },
       probe: 'kubernetes.list-pods',

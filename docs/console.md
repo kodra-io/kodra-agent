@@ -34,14 +34,21 @@ account (`admin`) and sign-in tokens, not full user accounts yet.
 
 ## Who can do what
 
-**The admin.** Sign in with the username `admin` and the password `admin`. The console then
-asks for a new password (at least 12 characters) and allows nothing else until it is set.
+**The admin.** Sign in with the username `admin` and the password you chose when you ran
+`kodra-agent init`. There is no default password: `init` asks for one (at least 12
+characters, typed twice, hidden) and stores only its scrypt hash, as
+`KODRA_CONSOLE_ADMIN_HASH` in `.env` on Compose or in the agent's Secret on Kubernetes. With
+`--non-interactive`, `init` reads the password from `KODRA_CONSOLE_ADMIN_PASSWORD` instead.
+If the console is on and no password is set, the agent does not start, and `doctor` shows
+an `admin password` row that fails.
+
 The admin signs in as `console:admin`: they can view every page and chat, and approve where
-`console:admin` is listed as an approver. Only a scrypt hash of the password is kept, in
-`console-users.json` next to the audit log (owner-only). Changing it signs out the admin's
-other sessions and is audited (`settings`, never the password). To reset a forgotten
-password, stop the agent, delete that file, and start it again: `admin`/`admin` works once
-more. A broken file stops the agent instead of falling back to the default.
+`console:admin` is listed as an approver. The key button next to **Sign out** changes the
+password. A changed password is kept as a hash in `console-users.json` next to the audit
+log (owner-only), signs out the admin's other sessions, and is audited (`settings`, never
+the password). The later of the two hashes wins. To reset a forgotten password, run
+`kodra-agent init --reset-console-password` and restart the agent. A broken hash or file
+stops the agent instead of being skipped.
 
 There are also two kinds of sign-in token (**Sign in with a token instead**):
 

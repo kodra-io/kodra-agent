@@ -150,6 +150,12 @@ describe('the console in the README', () => {
     const readme = file(composeDraft(), 'README.md');
     expect(readme).toContain('an Overview of your systems and what needs attention, a Dashboard,');
     expect(readme).toContain('Settings for the model, connectors, and secrets.');
-    expect(readme).toContain('Sign in as `admin` with the password `admin`.');
+    expect(readme).toContain(
+      'Sign in as `admin` with the password `kodra-agent init` asked you for',
+    );
+    // L2: no default password anywhere in the bundle.
+    for (const name of ['README.md', 'docker-compose.yml']) {
+      expect(file(composeDraft(), name)).not.toMatch(/password `?admin`?\b|admin\/admin/);
+    }
   });
 });
