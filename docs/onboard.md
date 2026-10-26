@@ -4,6 +4,8 @@
 seen: work out what the app is and what it needs, find the risks, write down the questions
 for the team, and then containerize and package it.
 
+**Status:** preview. Onboarding hands off to the [ship flow](ship.md), which is in preview: it works but is less tested, and may change. The console marks the Repos page as preview.
+
 ```sh
 kodra-agent onboard acme/payments-api    # a configured GitHub repo or GitLab project
 kodra-agent onboard ./payments-api       # a local folder: files are written, no PR

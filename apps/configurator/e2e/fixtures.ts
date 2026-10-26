@@ -49,6 +49,11 @@ export function connectorCard(page: Page, id: string) {
   return page.locator(`article[data-connector="${id}"]`);
 }
 
+/** Preview connectors (Jenkins, Databases, Docker) wait under "More connectors". */
+export async function openMoreConnectors(page: Page) {
+  await page.getByText('More connectors', { exact: true }).click();
+}
+
 export async function enableConnector(page: Page, id: string, name: string) {
   await connectorCard(page, id)
     .getByRole('switch', { name: `Enable ${name}` })

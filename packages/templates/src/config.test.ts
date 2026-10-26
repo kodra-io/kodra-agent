@@ -72,6 +72,18 @@ describe('validateDraft', () => {
     ]);
   });
 
+  it('starts with every connector off, preview ones included', () => {
+    expect(emptyDraft().connectors).toEqual({});
+  });
+
+  it('accepts a preview connector the user turned on, and its config loads', () => {
+    const draft = withConnector(composeDraft(), 'docker');
+    expect(validateDraft(draft)).toEqual([]);
+    const result = parseAgentConfig(configYaml(draft));
+    expect(result.ok ? [] : result.issues).toEqual([]);
+    if (result.ok) expect(result.config.spec.connectors['docker']?.enabled).toBe(true);
+  });
+
   it('blocks a coming-soon connector that came in through a crafted draft', () => {
     const draft = composeDraft();
     draft.connectors['teams'] = {

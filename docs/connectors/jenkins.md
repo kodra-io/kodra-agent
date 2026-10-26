@@ -2,6 +2,7 @@
 
 **Server:** [`lanbaoshen/mcp-jenkins`](https://github.com/lanbaoshen/mcp-jenkins) 3.5.0 (PyPI `mcp-jenkins`)
 **Decided:** 2026-10-17
+**Status:** preview. It works but is less tested than the stable connectors, and may change. It is off by default and listed under "More connectors" in the configurator and the console.
 
 ## Why this server
 

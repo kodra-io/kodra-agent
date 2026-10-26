@@ -3,6 +3,7 @@
 **Server:** none outside the agent. A built-in MCP server (`runtime: builtin`, module
 `databases`) runs inside the agent process, connected to the host over an in-memory link.
 **Decided:** 2026-10-21
+**Status:** preview. It works but is less tested than the stable connectors, and may change. It is off by default and listed under "More connectors" in the configurator and the console.
 
 Watches the databases you list, wherever they run: a standalone server, a cloud database
 (Amazon RDS or Aurora, Azure Database, Cloud SQL), or one in Kubernetes. MariaDB, MySQL, and

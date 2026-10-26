@@ -629,7 +629,27 @@ function ConnectorList({
   const { t } = useI18n();
   const enabled = (c: ConnectorSettings) => patch.connectors?.[c.id]?.enabled ?? c.enabled;
   const on = view.connectors.filter(enabled);
-  const off = view.connectors.filter((c) => !enabled(c));
+  const off = view.connectors.filter((c) => !enabled(c) && c.status !== 'preview');
+  const morePreview = view.connectors.filter((c) => !enabled(c) && c.status === 'preview');
+  const addButton = (c: ConnectorSettings) => (
+    <li key={c.id}>
+      <button
+        type="button"
+        disabled={c.status === 'coming-soon'}
+        className="flex h-full w-full flex-col gap-1 rounded-xl border border-dashed border-line-strong bg-raised p-3.5 text-start hover:border-primary disabled:opacity-60"
+        onClick={() => {
+          onOpen(c.id);
+        }}
+      >
+        <span className="flex items-center gap-2 font-semibold">
+          {c.name} {c.status === 'preview' && <Badge tone="plain">{t('settings.preview')}</Badge>}
+        </span>
+        <span className="text-[13px] text-ink-secondary">
+          {c.status === 'coming-soon' ? t('settings.comingSoon') : c.description}
+        </span>
+      </button>
+    </li>
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -645,7 +665,12 @@ function ConnectorList({
               <li key={c.id}>
                 <article className="flex h-full flex-col gap-2.5 rounded-xl border border-line bg-raised p-4 shadow-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-semibold">{c.name}</h3>
+                    <h3 className="flex items-center gap-2 font-semibold">
+                      {c.name}{' '}
+                      {c.status === 'preview' && (
+                        <Badge tone="plain">{t('settings.preview')}</Badge>
+                      )}
+                    </h3>
                     {state ? (
                       <Badge tone={state.available ? 'ok' : 'bad'}>
                         {t(state.available ? 'settings.ready' : 'overview.unavailable')}
@@ -684,24 +709,17 @@ function ConnectorList({
           {t('settings.add')}
         </h2>
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
-          {off.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                disabled={c.status === 'coming-soon'}
-                className="flex h-full w-full flex-col gap-1 rounded-xl border border-dashed border-line-strong bg-raised p-3.5 text-start hover:border-primary disabled:opacity-60"
-                onClick={() => {
-                  onOpen(c.id);
-                }}
-              >
-                <span className="font-semibold">{c.name}</span>
-                <span className="text-[13px] text-ink-secondary">
-                  {c.status === 'coming-soon' ? t('settings.comingSoon') : c.description}
-                </span>
-              </button>
-            </li>
-          ))}
+          {off.map(addButton)}
         </ul>
+        {morePreview.length > 0 && (
+          <details className="mt-4 rounded-xl border border-line bg-raised p-4">
+            <summary className="cursor-pointer font-semibold">{t('settings.more')}</summary>
+            <p className="mt-2 text-[13px] text-ink-secondary">{t('settings.moreIntro')}</p>
+            <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+              {morePreview.map(addButton)}
+            </ul>
+          </details>
+        )}
       </section>
     </div>
   );
@@ -767,7 +785,9 @@ function ConnectorEditor({
         <span aria-hidden="true">›</span> <span aria-current="page">{c.name}</span>
       </nav>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-bold">{c.name}</h2>
+        <h2 className="flex items-center gap-2 text-2xl font-bold">
+          {c.name} {c.status === 'preview' && <Badge tone="plain">{t('settings.preview')}</Badge>}
+        </h2>
         <div className="flex flex-wrap items-center gap-3">
           {c.enabled && (
             <button type="button" className={secondary} disabled={testing} onClick={test}>
