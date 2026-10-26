@@ -1,0 +1,15 @@
+id: missing-configmap-key
+title: A ConfigMap without the key a container needs
+trigger:
+  question: The notifier deployment in namespace missing-configmap-key does not start. What is wrong?
+ready:
+  - state: waiting
+    reason: CreateContainerConfigError
+expect:
+  - fact: the container config is broken
+    any: ['CreateContainerConfigError', 'config ?map']
+  - fact: the missing key
+    any: ['SMTP_HOST']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '

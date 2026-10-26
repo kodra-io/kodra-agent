@@ -7,8 +7,10 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -439,6 +441,148 @@ function shipInContainer(): void {
     'ship: built, started, and checked the app from kodra-builder; kodra-agent has no socket',
   );
   spawnSync('docker', ['compose', 'down', '-v'], { cwd: dir, stdio: 'inherit' });
+}
+
+/**
+ * `kodra-agent demo` from the image, end to end (L3): the one-shot container gets the Docker
+ * socket, creates its own kind cluster, joins kind's network, and investigates three broken
+ * workloads with a scripted stand-in for the model (Ollama's OpenAI-compatible API). Then
+ * `demo --cleanup` must leave no cluster and no containers behind.
+ */
+const DEMO_FINDINGS: Record<string, string> = {
+  'missing-env': 'The worker exits at start because PAYMENT_API_URL is not set.',
+  oomkilled: 'The container was OOMKilled: it reached its 32Mi memory limit.',
+  'bad-image-tag': 'The pod is in ImagePullBackOff: the tag 1.99.99-does-not-exist does not exist.',
+};
+
+function demoModel(): Promise<{ port: number; calls: number[]; close: () => void }> {
+  const calls: number[] = [];
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    let body = '';
+    req.on('data', (c: Buffer) => (body += c.toString('utf8')));
+    req.on('end', () => {
+      if (req.method !== 'POST' || !req.url?.endsWith('/chat/completions')) {
+        res.writeHead(404).end();
+        return;
+      }
+      const request = JSON.parse(body) as { messages: { role: string }[] };
+      calls.push(1);
+      const text = JSON.stringify(request.messages);
+      const id = Object.keys(DEMO_FINDINGS).find((k) => text.includes(k)) ?? 'unknown';
+      const looked = request.messages.some((m) => m.role === 'tool');
+      const message = looked
+        ? { role: 'assistant', content: DEMO_FINDINGS[id] ?? 'I do not know.' }
+        : {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: `call-${id}`,
+                type: 'function',
+                function: {
+                  name: 'kubernetes__pods_list_in_namespace',
+                  arguments: JSON.stringify({ namespace: id }),
+                },
+              },
+            ],
+          };
+      res.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          id: 'stub',
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model: 'demo-stub',
+          choices: [{ index: 0, message, finish_reason: looked ? 'stop' : 'tool_calls' }],
+          usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+        }),
+      );
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '0.0.0.0', () => {
+      const address = server.address();
+      resolve({
+        port: typeof address === 'object' && address ? address.port : 0,
+        calls,
+        close: () => server.close(),
+      });
+    });
+  });
+}
+
+/** Runs the image without blocking, so the stand-in model can answer while it runs. */
+function runImage(args: string[]): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    let out = '';
+    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (c: Buffer) => (out += c.toString('utf8')));
+    child.stderr.on('data', (c: Buffer) => (out += c.toString('utf8')));
+    child.on('close', (code) => {
+      resolve({ code: code ?? 1, out });
+    });
+  });
+}
+
+async function demoInImage(): Promise<void> {
+  console.log('\n== kodra-agent demo in the image, with a scripted model');
+  const model = await demoModel();
+  // The socket's group, so the image's non-root user can use it (as the bundle README says).
+  const gid = String(statSync('/var/run/docker.sock').gid);
+  const base = [
+    'run',
+    '--rm',
+    '--add-host',
+    'host.docker.internal:host-gateway',
+    '-v',
+    '/var/run/docker.sock:/var/run/docker.sock',
+    '--group-add',
+    gid,
+    IMAGE,
+  ];
+  let failed: Error | null = null;
+  try {
+    const demo = await runImage([
+      ...base,
+      'demo',
+      '--provider',
+      'ollama',
+      '--model',
+      'demo-stub',
+      '--set',
+      `baseUrl=http://host.docker.internal:${String(model.port)}`,
+    ]);
+    if (demo.code !== 0) throw new Error(`demo exited ${String(demo.code)}:\n${demo.out}`);
+    for (const finding of Object.values(DEMO_FINDINGS)) {
+      if (!demo.out.includes(finding))
+        throw new Error(`the demo did not print: ${finding}\n${demo.out}`);
+    }
+    if (!demo.out.includes('Found the root cause in 3 of 3.')) {
+      throw new Error(`the demo did not find all three:\n${demo.out}`);
+    }
+    if (model.calls.length < 6)
+      throw new Error('the demo did not ask the model about each workload');
+    console.log('demo: found all three root causes, read-only, from inside the image');
+  } catch (error) {
+    failed = error instanceof Error ? error : new Error(String(error));
+  }
+  model.close();
+  const cleanup = await runImage([...base, 'demo', '--cleanup']);
+  if (cleanup.code !== 0 || !cleanup.out.includes('Deleted the kind cluster kodra-agent-demo')) {
+    throw new Error(`demo --cleanup failed:\n${cleanup.out}`);
+  }
+  if (failed) throw failed;
+  if (sh(KIND, ['get', 'clusters']).split(/\s+/).includes('kodra-agent-demo')) {
+    throw new Error('demo --cleanup left the kind cluster');
+  }
+  const left = sh('docker', [
+    'ps',
+    '-a',
+    '-q',
+    '--filter',
+    'label=io.x-k8s.kind.cluster=kodra-agent-demo',
+  ]);
+  if (left.trim() !== '') throw new Error('demo --cleanup left containers behind');
+  console.log('demo --cleanup: no cluster and no containers left');
 }
 
 async function kind(): Promise<void> {
@@ -947,6 +1091,7 @@ try {
   await compose();
   shipInContainer();
   if (!process.argv.includes('--no-kind')) await kind();
+  if (!process.argv.includes('--no-demo')) await demoInImage();
   console.log('\nAll package checks passed.');
 } catch (error) {
   console.error(

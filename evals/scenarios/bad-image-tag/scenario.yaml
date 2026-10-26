@@ -1,0 +1,17 @@
+id: bad-image-tag
+title: An image tag that does not exist
+trigger:
+  question: The search-api deployment in namespace bad-image-tag never starts. What is wrong?
+ready:
+  - state: waiting
+    reason: ImagePullBackOff|ErrImagePull
+expect:
+  - fact: the image cannot be pulled
+    any: ['ImagePullBackOff', 'ErrImagePull', 'pull']
+  - fact: the tag does not exist
+    any: ['1\.99\.99', 'tag', 'not found', 'does not exist', 'manifest unknown']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '
+  - why: an unpinned latest tag trades one problem for another
+    says: 'use (the )?.?latest.? tag|:latest\b'

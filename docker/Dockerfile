@@ -20,6 +20,8 @@ COPY packages/templates/package.json packages/templates/
 RUN pnpm install --prod --frozen-lockfile --filter "@kodra-agent/agent..."
 COPY packages packages
 COPY apps/agent apps/agent
+# The failure scenarios `kodra-agent demo` runs (evals/scenarios).
+COPY evals/scenarios evals/scenarios
 COPY docker/mcp docker/mcp
 
 # The read-only web console (apps/console), built to static files the agent serves.
@@ -41,6 +43,8 @@ RUN apt-get update \
 COPY --from=uv /uv /usr/local/bin/uv
 ENV KODRA_MCP_DIR=/opt/kodra-mcp UV_PYTHON_DOWNLOADS=never
 RUN node apps/agent/scripts/install-mcp.ts
+# kind, for `kodra-agent demo` only (a throwaway cluster through the Docker socket).
+RUN node apps/agent/scripts/install-kind.ts
 
 FROM node:24.21.0-trixie-slim
 RUN apt-get update \
@@ -64,6 +68,7 @@ COPY --from=helm /usr/bin/helm /usr/local/bin/helm
 # `aws eks get-token` only, for EKS kubeconfigs (not the AWS CLI).
 COPY --chmod=755 docker/aws /usr/local/bin/aws
 COPY --from=mcp /opt/kodra-mcp /opt/kodra-mcp
+COPY --from=mcp /opt/kodra-kind/kind /usr/local/bin/kind
 COPY --from=build /app /app
 COPY --from=console /app/apps/console/dist /app/apps/console/dist
 # Caches go to /tmp, so the root filesystem can be read-only.

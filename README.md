@@ -25,6 +25,22 @@ chart in a pull request) is available as a preview.
 Preview means it works but is less tested, and may change. Preview connectors are off by
 default and listed under "More connectors" in the configurator and the console.
 
+## Try it on a throwaway cluster
+
+`kodra-agent demo` needs only Docker and a model key. It creates a throwaway kind cluster with
+three broken workloads, investigates each one read-only, and prints what it found:
+
+```sh
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock   -e ANTHROPIC_API_KEY ghcr.io/kodra-io/kodra-agent:<version>   demo --provider anthropic --model <model-id>
+```
+
+Remove the cluster afterwards with the same command and `demo --cleanup`. A local model works
+too (`--provider ollama --model <id> --set baseUrl=http://<host>:11434`). The same scenarios,
+ten in all, make up the evaluation suite: see [docs/evals.md](docs/evals.md). The first
+report (2026-10-25, `flint:latest` through Ollama, read-only): the right root cause in 10 of
+10 scenarios, 9 of 10 passed in full
+([report](evals/reports/2026-10-25-ollama-flint-latest.md)).
+
 ## Principles
 
 - **Your keys stay with you.** The configurator never asks for secrets. The agent keeps them

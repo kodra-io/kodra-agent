@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: readiness-probe
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart
+  namespace: readiness-probe
+  labels: { app: cart }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: cart }
+  template:
+    metadata:
+      labels: { app: cart }
+    spec:
+      containers:
+        - name: cart
+          image: busybox:1.37
+          command: ['sh', '-c', "echo 'cart started, warming cache'; sleep 3600"]
+          readinessProbe:
+            exec:
+              command: ['cat', '/tmp/ready']
+            periodSeconds: 5

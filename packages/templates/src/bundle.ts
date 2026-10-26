@@ -240,6 +240,22 @@ ${volumes.join('\n')}
     group_add: ["\${KODRA_DOCKER_GID:-0}"]
 ${hardening}`
     : '';
+  // The demo (L3): a throwaway kind cluster with three broken workloads, read-only, with
+  // this bundle's model. One-shot and started by hand, like the builder.
+  const demo = `
+  # Three broken workloads on a throwaway kind cluster, investigated read-only with your
+  # model. It never runs on its own; remove its cluster with \`demo --cleanup\`:
+  #   docker compose run --rm kodra-demo
+  kodra-demo:
+${common}    profiles: ["demo"]
+    command: ["demo"]
+    volumes:
+      - ./:/etc/kodra-agent:ro
+      # WARNING: the Docker socket gives near-root control of this machine. kind needs it to
+      # create the demo cluster; only this one-shot service mounts it.
+      - ${q('/var/run/docker.sock:/var/run/docker.sock')}
+    group_add: ["\${KODRA_DOCKER_GID:-0}"]
+${hardening}`;
   return `# Docker Compose for ${agentName(draft)} (Kodra AI Agent ${AGENT_VERSION}).
 services:
   kodra-agent:
@@ -253,7 +269,7 @@ ${
 }    volumes:
 ${volumes.join('\n')}
 ${hardening}    restart: unless-stopped
-${builder}
+${builder}${demo}
 volumes:
   kodra-agent-data: {}
 `;
@@ -616,6 +632,22 @@ function readme(draft: AgentDraft): string {
       '',
       '```sh',
       'docker compose run --rm kodra-builder ship <owner/repo>',
+      '```',
+    );
+  }
+  if (draft.target === 'compose') {
+    lines.push(
+      '',
+      '## Try it on a throwaway cluster',
+      '',
+      'The demo creates a kind cluster with three broken workloads (a missing environment',
+      'variable, a container out of memory, an image tag that does not exist), asks the agent',
+      'about each one read-only with the model in `kodra-agent.yaml`, and prints what it found.',
+      'It needs the Docker socket, like the builder, and stops when it is done.',
+      '',
+      '```sh',
+      'docker compose run --rm kodra-demo',
+      'docker compose run --rm kodra-demo demo --cleanup   # delete the demo cluster',
       '```',
     );
   }

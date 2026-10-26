@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pvc-pending
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ledger-data
+  namespace: pvc-pending
+spec:
+  storageClassName: fast-ssd
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 1Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger
+  namespace: pvc-pending
+  labels: { app: ledger }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ledger }
+  template:
+    metadata:
+      labels: { app: ledger }
+    spec:
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: ledger-data }
+      containers:
+        - name: ledger
+          image: busybox:1.37
+          command: ['sh', '-c', 'sleep 3600']
+          volumeMounts:
+            - { name: data, mountPath: /data }

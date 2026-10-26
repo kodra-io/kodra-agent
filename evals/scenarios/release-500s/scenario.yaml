@@ -1,0 +1,25 @@
+id: release-500s
+title: A new release that answers with errors
+trigger:
+  alert:
+    labels:
+      alertname: HighErrorRate
+      severity: critical
+      namespace: release-500s
+      deployment: orders
+    annotations:
+      summary: More than 5% of requests to release-500s/orders return 5xx
+update: true
+ready:
+  - state: running
+expect:
+  - fact: the requests fail with 500
+    any: ['\b500\b', '5xx', 'internal server error']
+  - fact: it started with the new release
+    any:
+      ['2\.4\.0', 'new release', 'new version', 'latest rollout', 'recent rollout', 'new revision']
+  - fact: the error in the code
+    any: ['NullPointerException', 'OrderService']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '

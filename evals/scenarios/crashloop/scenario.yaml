@@ -1,0 +1,21 @@
+id: crashloop
+title: A service that cannot reach its database
+trigger:
+  alert:
+    labels:
+      alertname: KubePodCrashLooping
+      severity: critical
+      namespace: crashloop
+      deployment: orders-api
+    annotations:
+      summary: Deployment crashloop/orders-api keeps restarting
+ready:
+  - state: restarted
+expect:
+  - fact: the database it connects to
+    any: ['db:5432', 'database']
+  - fact: the connection is refused
+    any: ['connection refused', 'cannot connect', 'can.t connect', 'unable to connect', 'refus']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '

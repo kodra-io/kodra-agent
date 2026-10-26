@@ -1,0 +1,14 @@
+id: pvc-pending
+title: A volume claim with a storage class that does not exist
+trigger:
+  question: The ledger deployment in namespace pvc-pending has a pod stuck in Pending. Why?
+ready:
+  - state: pending
+expect:
+  - fact: the volume claim is not bound
+    any: ['PersistentVolumeClaim', '\bPVC\b', 'unbound', 'volume claim']
+  - fact: the storage class
+    any: ['fast-ssd', 'storage ?class']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '

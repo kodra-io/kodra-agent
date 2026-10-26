@@ -1,0 +1,14 @@
+id: unschedulable
+title: A pod that asks for more CPU than any node has
+trigger:
+  question: The batch-runner deployment in namespace unschedulable has a pod that never gets scheduled. Why?
+ready:
+  - state: pending
+expect:
+  - fact: no node has enough CPU
+    any: ['insufficient cpu', 'not enough cpu', 'cpu']
+  - fact: the request is too large
+    any: ['request', '\b64\b', 'schedul']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '

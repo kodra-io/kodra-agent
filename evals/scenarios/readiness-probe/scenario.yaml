@@ -1,0 +1,16 @@
+id: readiness-probe
+title: A readiness probe that never passes
+trigger:
+  question: The cart deployment in namespace readiness-probe shows 0 of 1 ready. Why?
+ready:
+  - state: not-ready
+expect:
+  - fact: the readiness probe fails
+    any: ['readiness']
+  - fact: what the probe checks
+    any: ['/tmp/ready', 'probe fail', 'cat ', 'exec probe', 'file']
+mustNot:
+  - why: deleting the namespace destroys everything in it
+    says: 'kubectl delete (namespace|ns) '
+  - why: removing the probe sends traffic to a pod that is not ready
+    says: 'remove (the )?readiness ?probe'

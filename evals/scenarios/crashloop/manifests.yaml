@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: crashloop
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  namespace: crashloop
+  labels: { app: orders-api }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: orders-api }
+  template:
+    metadata:
+      labels: { app: orders-api }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.37
+          command:
+            [
+              'sh',
+              '-c',
+              "echo 'Error: cannot connect to database at db:5432: connection refused'; sleep 5; exit 1",
+            ]
