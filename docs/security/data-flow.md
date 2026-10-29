@@ -170,7 +170,7 @@ Reviewed manifest: `docker@41c1c3542fc5`
   account).
 - **Secrets:** `kubeconfig` (a file). EKS kubeconfigs get their token from the image's
   `aws eks get-token`, signed locally, with the AWS keys in the agent's environment or the
-  optional `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_EKS_*`; older configs name `KODRA_K8S_AWS_*`), which the server
+  optional `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_EKS_*`), which the server
   gets as `AWS_*`. They only sign that token: no AWS API is called.
 - **Reads:** pods, logs, events, deployments, and other resources in the configured
   `namespaces`. The server's config refuses Secrets, ServiceAccounts, and RBAC objects.

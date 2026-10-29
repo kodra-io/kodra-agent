@@ -146,8 +146,7 @@ export default defineManifest({
     // Only for Amazon EKS kubeconfigs that run `aws eks get-token` (the image has its own `aws`
     // for that); any other cluster needs the kubeconfig alone. Their own variables (the AWS
     // connector has AWS_*); the server gets them as AWS_*, over any AWS_* it inherits from the
-    // agent's environment. Configs made before 0.3.13 name KODRA_K8S_AWS_*, which still works:
-    // a config names its variables itself.
+    // agent's environment.
     {
       key: 'awsAccessKeyId',
       envVar: 'KODRA_EKS_ACCESS_KEY_ID',

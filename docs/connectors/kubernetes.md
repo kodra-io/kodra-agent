@@ -79,8 +79,7 @@ and this MCP server use it.
   inherited ones, and to `aws eks get-token` when the console tests the kubeconfig. Their
   steps make an IAM user with an EKS access entry limited to `AmazonEKSViewPolicy` on the
   connector's namespaces. The configurator offers the pair as one "Amazon EKS sign-in" choice;
-  any other cluster needs only the kubeconfig. Configs made before 0.3.13 name
-  `KODRA_K8S_AWS_*`, which keeps working: a config names its own variables.
+  any other cluster needs only the kubeconfig.
 - **Or no AWS keys at all:** the console's steps for a kubeconfig make a service account with
   a read-only Role per namespace and a kubeconfig with its token, which EKS accepts like any
   cluster.

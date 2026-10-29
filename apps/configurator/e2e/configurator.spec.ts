@@ -300,7 +300,6 @@ test('Kubernetes asks only for a kubeconfig; the EKS keys are one optional choic
   const eks = card.getByRole('checkbox', { name: /Include Amazon EKS sign-in \(optional\)/ });
   await expect(eks).not.toBeChecked();
   await expect(card.getByText('KODRA_EKS_ACCESS_KEY_ID')).toHaveCount(0);
-  await expect(card.getByText(/KODRA_K8S_AWS/)).toHaveCount(0);
   await eks.check();
   await expect(eks).toBeChecked();
   await page.getByRole('button', { name: 'Next' }).click();
