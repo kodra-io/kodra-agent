@@ -57,6 +57,19 @@ const kubectl = (...args: string[]) => sh('kubectl', ['--kubeconfig', kubeconfig
 
 /** The agent's service account, with exactly the Role the Kubernetes bundle grants. */
 const AGENT = 'kind-agent';
+/** The sandbox namespace (B2), and an image for its test deploy, loaded into kind. */
+const SANDBOX = 'previews';
+const SANDBOX_IMAGE = 'kodra-sandbox-echo:kind-test';
+// A web server on 8080 as a non-root user, under a read-only root filesystem (as the chart sets).
+const SANDBOX_DOCKERFILE = `FROM busybox:1.37
+USER 65534:65534
+CMD ["httpd", "-f", "-p", "8080", "-h", "/tmp"]
+`;
+
+function loadSandboxImage(): void {
+  sh('docker', ['build', '-q', '-t', SANDBOX_IMAGE, '-'], SANDBOX_DOCKERFILE);
+  sh(KIND, ['load', 'docker-image', SANDBOX_IMAGE, '--name', CLUSTER]);
+}
 
 /** A kubeconfig for the agent's service account, bound by the bundle's rbac.yaml for write. */
 function narrowKubeconfig(): string {
@@ -68,7 +81,7 @@ function narrowKubeconfig(): string {
       kubernetes: {
         enabled: true,
         access: 'read-write-approved',
-        config: { namespaces: 'payments' },
+        config: { namespaces: 'payments', sandbox: SANDBOX },
         optionalSecrets: [],
       },
     },
@@ -307,12 +320,15 @@ try {
   } else if (process.argv.includes('--demo')) {
     code = demo();
   } else {
+    loadSandboxImage();
     const result = spawnSync('pnpm', ['exec', 'vitest', 'run', 'src/kind.e2e.test.ts'], {
       stdio: 'inherit',
       env: {
         ...process.env,
         KODRA_KIND_KUBECONFIG: narrowKubeconfig(),
         KODRA_KIND_ADMIN_KUBECONFIG: kubeconfig,
+        KODRA_KIND_SANDBOX: SANDBOX,
+        KODRA_KIND_SANDBOX_IMAGE: SANDBOX_IMAGE,
       },
       shell: process.platform === 'win32',
     });

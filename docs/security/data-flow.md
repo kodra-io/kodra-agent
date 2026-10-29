@@ -177,10 +177,18 @@ Reviewed manifest: `docker@3b37b8682456` (preview)
 - **Writes, after approval:** scaling deployments in those namespaces, never the agent's own
   objects. The write role grants only get and update on `deployments/scale` (L2). Creating, changing, deleting, and exec are classified destructive: blocked unless
   `destructiveActions: require-approval`.
+- **Sandbox tests, after approval (B2):** with `sandbox` set and read-write-approved access,
+  the agent runs Helm (with the same kubeconfig, as `KUBECONFIG` in a 0600 temp file, and
+  the AWS keys as `AWS_*`) to install a branch's CI image with its chart in that one
+  namespace, calls it through the API server's service proxy, and uninstalls it. Helm keeps
+  its records in ConfigMaps, so the sandbox Role has no access to Secrets. Secrets the code
+  reads get placeholder values; real test values come from a `<app>-sandbox-env` Secret the
+  team makes, which the agent never reads. Only names, the image, and pass or fail go to
+  the audit log and Slack. Nothing is sent to the model. See [sandbox](../sandbox.md).
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@d51e73a10ea6`
+Reviewed manifest: `kubernetes@fa07386cf4f1`
 
 ### Prometheus
 

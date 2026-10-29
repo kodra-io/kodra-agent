@@ -8,6 +8,7 @@ import { demo } from './commands/demo.ts';
 import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
 import { run } from './commands/run.ts';
+import { sandbox } from './commands/sandbox.ts';
 import { ship } from './commands/ship.ts';
 import { configPath } from './config.ts';
 import type { Context } from './context.ts';
@@ -22,6 +23,8 @@ const COMMANDS = [
   ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
   ['ship <repo|dir>', 'Add a Dockerfile, CI, and Helm chart, verify them, and open a PR'],
   ['onboard <repo|dir>', 'Report what a repo needs and its risks, then ship it with that report'],
+  ['sandbox deploy <repo>', 'Test a branch in the sandbox namespace, then destroy it'],
+  ['sandbox list|destroy|sweep', 'Show the sandbox tests that are up, or remove them'],
   ['audit verify', "Check that the audit log's records were not edited, deleted, or reordered"],
   ['demo', 'Find three broken workloads on a throwaway kind cluster, with your model key'],
 ] as const;
@@ -54,6 +57,11 @@ export function helpText(): string {
     'check options:',
     '  --post                         Post the digest to Slack and save it as the latest',
     '',
+    'sandbox deploy options:',
+    '  --branch <name>                The branch to test (default: the default branch)',
+    '  --tag <tag>                    The image tag (default: the one CI pushes for the commit)',
+    '  --keep <30m|2h>                Keep it up after the test, 24h at most (default: destroy)',
+    '',
     'chat options:',
     '  --message <text>               Ask one question, print the answer, and exit',
     '',
@@ -79,6 +87,8 @@ const OPTIONS = {
   post: { type: 'boolean' },
   message: { type: 'string' },
   branch: { type: 'string' },
+  tag: { type: 'string' },
+  keep: { type: 'string' },
   'max-fixes': { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
@@ -160,6 +170,19 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
         return 2;
       }
       return auditVerify({ configPath: config, json: values.json ?? false }, ctx);
+    case 'sandbox':
+      return sandbox(
+        {
+          configPath: config,
+          action: positionals[1],
+          arg: positionals[2],
+          branch: values.branch,
+          tag: values.tag,
+          keep: values.keep,
+          json: values.json ?? false,
+        },
+        ctx,
+      );
     case 'ship':
     case 'onboard': {
       const target = positionals[1];

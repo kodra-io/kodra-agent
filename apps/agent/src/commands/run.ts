@@ -31,6 +31,7 @@ import { People } from '../console/people.ts';
 import { PolicyGate } from '../console/policy-gate.ts';
 import { consoleApi } from '../console/routes.ts';
 import { SettingsStore } from '../console/settings.ts';
+import { sandboxSetup, sandboxSweep } from '../sandbox/sandbox.ts';
 import { SessionRegistry, startConsoleServer, type ConsoleAccount } from '../console/server.ts';
 import { CONSOLE_TOKEN_ENV } from '../console/token.ts';
 import type { Context } from '../context.ts';
@@ -53,6 +54,8 @@ const refuseAll: ApprovalChannel = {
 };
 
 const DEFAULT_HEALTH_PORT = 8080;
+/** How often `run` removes sandbox tests that are past their time (B2). */
+const SWEEP_MS = 5 * 60_000;
 /** The exit code for "restart me": settings changed (EX_TEMPFAIL). */
 export const RESTART_EXIT_CODE = 75;
 
@@ -150,6 +153,9 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   let approvals: SlackApprovals | null = null;
   let conversations: SlackConversations | null = null;
   let timer: NodeJS.Timeout | undefined;
+  let sweepTimer: NodeJS.Timeout | undefined;
+  let sweeping: Promise<void> = Promise.resolve();
+  let sweepBusy = false;
   let monitor: AlertMonitor | null = null;
   let checks: CheckRunner | null = null;
   try {
@@ -286,6 +292,30 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
       ...(ctx.checksNow ? { now: ctx.checksNow } : {}),
     });
     if (checks.schedules.length > 0) checks.start();
+
+    // Sandbox tests (B2): destroy what is past its time, at startup and every few minutes.
+    if (sandboxSetup(runtime).ok) {
+      const sweep = () => {
+        if (sweepBusy) return;
+        sweepBusy = true;
+        sweeping = sandboxSweep(ctx, runtime)
+          .then((r) => {
+            if (r.destroyed.length > 0)
+              ctx.term.out(`Sandbox: destroyed ${r.destroyed.join(', ')}.`);
+            for (const p of r.problems) ctx.log.warn('sandbox sweep', { problem: p });
+          })
+          .catch((error: unknown) => {
+            ctx.log.warn('sandbox sweep', {
+              problem: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => {
+            sweepBusy = false;
+          });
+      };
+      sweep();
+      sweepTimer = setInterval(sweep, SWEEP_MS);
+    }
 
     if (consoleOn) {
       const token = runtime.env[CONSOLE_TOKEN_ENV];
@@ -459,6 +489,8 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
   } finally {
     ready = false;
     clearInterval(timer);
+    clearInterval(sweepTimer);
+    await sweeping;
     checks?.stop();
     await approvals?.cancelAll();
     consoleApprovals.cancelAll();

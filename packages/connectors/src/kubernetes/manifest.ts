@@ -89,6 +89,26 @@ export default defineManifest({
       patternHint: 'use namespace/name, like prod/mariadb',
       example: ['payments/postgres'],
     },
+    {
+      kind: 'string',
+      key: 'sandbox',
+      required: false,
+      description:
+        'A namespace where the agent may test-deploy a pull request after one approval, then delete it. Leave empty to turn this off. It must not be one of the namespaces above. Keep only test settings in it: anything deployed there can read its Secrets.',
+      pattern: PATTERNS.k8sNamespace,
+      patternHint: 'use a Kubernetes namespace name: lowercase letters, digits, and hyphens',
+      example: 'sandbox',
+    },
+    {
+      kind: 'string',
+      key: 'sandboxPullSecret',
+      required: false,
+      description:
+        'An image pull Secret in the sandbox namespace, when the pull request images are in a private registry.',
+      pattern: PATTERNS.k8sNamespace,
+      patternHint: 'use the name of a Secret in the sandbox namespace',
+      example: 'ghcr',
+    },
   ],
   secrets: [
     {

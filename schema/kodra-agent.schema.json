@@ -406,6 +406,18 @@
                         "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\\/[a-z0-9]([-.a-z0-9]{0,251}[a-z0-9])?$"
                       },
                       "description": "Database workloads to watch on the console Overview, as namespace/name (a StatefulSet or Deployment). The namespace must be in the list above. For databases outside the cluster, or to check the database itself, use the Databases connector."
+                    },
+                    "sandbox": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$",
+                      "description": "A namespace where the agent may test-deploy a pull request after one approval, then delete it. Leave empty to turn this off. It must not be one of the namespaces above. Keep only test settings in it: anything deployed there can read its Secrets."
+                    },
+                    "sandboxPullSecret": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$",
+                      "description": "An image pull Secret in the sandbox namespace, when the pull request images are in a private registry."
                     }
                   },
                   "required": [

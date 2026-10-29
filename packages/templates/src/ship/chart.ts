@@ -32,6 +32,12 @@ function envValues(n: string, env: ChartOptions['env'], portEnv: string | null):
     );
   }
   lines.push(`envFromSecret: ""${secrets.length > 0 ? ` # for example ${n}-env` : ''}`);
+  lines.push(
+    '',
+    '# More sources of environment variables, after envFromSecret (a later one wins a clash).',
+    '# The sandbox test deploy uses it for its placeholders and an optional test Secret.',
+    'extraEnvFrom: []',
+  );
   return lines.join('\n');
 }
 
@@ -176,10 +182,15 @@ ${
             {{- toYaml . | nindent 12 }}
           {{- end }}`
 }
-          {{- with .Values.envFromSecret }}
+          {{- if or .Values.envFromSecret .Values.extraEnvFrom }}
           envFrom:
+            {{- with .Values.envFromSecret }}
             - secretRef:
                 name: {{ . }}
+            {{- end }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           startupProbe:
             {{- toYaml .Values.startupProbe | nindent 12 }}

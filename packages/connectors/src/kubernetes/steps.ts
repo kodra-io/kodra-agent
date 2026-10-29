@@ -1,4 +1,5 @@
 import type { SetupStep } from '@kodra-agent/schema';
+import { sandboxRulesYaml } from './sandbox.ts';
 
 /**
  * How to make the agent's kubeconfig (M28): a service account of its own, a read-only Role in
@@ -17,6 +18,14 @@ type: kubernetes.io/service-account-token`;
 const READ =
   '--verb=get,list,watch --resource=pods,pods/log,events,deployments,replicasets,services';
 
+// The sandbox Role (B2): the same rules as the bundle and the chart.
+const SANDBOX_ROLE = `apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kodra-agent-sandbox
+rules:
+${sandboxRulesYaml(2)}`;
+
 const unix = {
   account: `kubectl create namespace kodra-agent
 kubectl create serviceaccount kodra-agent -n kodra-agent
@@ -31,6 +40,11 @@ done`,
   kubectl create role kodra-agent-scale -n "$ns" --verb=get,update --resource=deployments/scale
   kubectl create rolebinding kodra-agent-scale -n "$ns" --role=kodra-agent-scale --serviceaccount=kodra-agent:kodra-agent
 done`,
+  sandbox: `kubectl create namespace {{sandbox}}
+kubectl apply -n {{sandbox}} -f - <<'EOF'
+${SANDBOX_ROLE}
+EOF
+kubectl create rolebinding kodra-agent-sandbox -n {{sandbox}} --role=kodra-agent-sandbox --serviceaccount=kodra-agent:kodra-agent`,
   kubeconfig: `SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 --decode > kodra-ca.crt
 TOKEN=$(kubectl get secret kodra-agent-token -n kodra-agent -o jsonpath='{.data.token}' | base64 --decode)
@@ -55,6 +69,11 @@ ${TOKEN_SECRET}
   kubectl create role kodra-agent-scale -n $ns --verb=get,update --resource=deployments/scale
   kubectl create rolebinding kodra-agent-scale -n $ns --role=kodra-agent-scale --serviceaccount=kodra-agent:kodra-agent
 }`,
+  sandbox: `kubectl create namespace {{sandbox}}
+@'
+${SANDBOX_ROLE}
+'@ | kubectl apply -n {{sandbox}} -f -
+kubectl create rolebinding kodra-agent-sandbox -n {{sandbox}} --role=kodra-agent-sandbox --serviceaccount=kodra-agent:kodra-agent`,
   kubeconfig: `$server = kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
 $ca = kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}'
 [IO.File]::WriteAllBytes("$PWD\\kodra-ca.crt", [Convert]::FromBase64String($ca))
@@ -84,6 +103,10 @@ export const KUBECONFIG_STEPS: SetupStep[] = [
   {
     text: 'Only for write access: also let it scale deployments there.',
     run: both('scale'),
+  },
+  {
+    text: 'Only with a sandbox namespace ({{sandbox}}): let it deploy test releases there and delete them, and nothing else. Never Secrets. Keep only test settings in that namespace.',
+    run: both('sandbox'),
   },
   {
     text: 'Write a kubeconfig that signs in as that account. It works on EKS, AKS, and GKE too, without cloud keys.',

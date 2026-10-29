@@ -161,21 +161,27 @@ export function consoleApi(
   if (onboard) {
     // Onboarding (M30a): anyone signed in sees the repos and reports; starting a job clones
     // with the forge token and posts to Slack, so it is for approvers.
-    routes['onboard'] = () => ({ repos: onboard.repos(), jobs: onboard.list() });
+    routes['onboard'] = async () => ({
+      repos: onboard.repos(),
+      jobs: onboard.list(),
+      sandbox: await onboard.sandbox(),
+    });
     routes['onboard/job'] = ({ query }) =>
       onboard.get(query.get('id') ?? '') ?? new NotFound('no such onboarding');
     const startJob =
-      (kind: 'analyze' | 'pr'): ActionRoute =>
+      (kind: 'analyze' | 'pr' | 'sandbox'): ActionRoute =>
       ({ user, body }) => {
         if (!user.canApprove) {
           return { status: 403, body: { error: 'only a console approver can onboard a repo' } };
         }
         const branch = typeof body['branch'] === 'string' && body['branch'] ? body['branch'] : null;
+        const keep = body['keepMinutes'];
         const started = onboard.start(
           kind,
           typeof body['repo'] === 'string' ? body['repo'] : '',
           branch,
           user.name,
+          typeof keep === 'number' ? keep * 60_000 : 0,
         );
         return 'job' in started
           ? { status: 200, body: { id: started.job.id } }
@@ -183,6 +189,21 @@ export function consoleApi(
       };
     actions['onboard/analyze'] = startJob('analyze');
     actions['onboard/pr'] = startJob('pr');
+    // Sandbox tests (B2): the deploy waits for an approval; destroying is the agent's own
+    // test only, so it needs no approval, but it is for approvers too.
+    actions['onboard/sandbox'] = startJob('sandbox');
+    actions['sandbox/destroy'] = async ({ user, body }) => {
+      if (!user.canApprove) {
+        return { status: 403, body: { error: 'only a console approver can destroy a test' } };
+      }
+      const done = await onboard.destroy(
+        typeof body['id'] === 'string' ? body['id'] : '',
+        user.name,
+      );
+      return done.ok
+        ? { status: 200, body: { ok: true } }
+        : { status: 400, body: { error: done.reason } };
+    };
   }
 
   if (chat) {

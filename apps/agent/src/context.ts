@@ -9,6 +9,7 @@ import type { KubernetesFactory } from './kubernetes.ts';
 import type { HostOptions } from './mcp/host.ts';
 import type { ProbeContext } from './probes.ts';
 import type { Exec } from './ship/exec.ts';
+import type { SandboxClusterFactory } from './sandbox/cluster.ts';
 import type { SlackConnection } from './slack/api.ts';
 import type { Redactor } from './redactor.ts';
 
@@ -64,6 +65,10 @@ export interface Context {
   selfContainer?: string | null;
   /** The agent's access to its own ConfigMap, Secret, and Deployment (tests pass a fake). */
   selfKubernetes?: () => SelfKubernetes;
+  /** The sandbox's Kubernetes calls besides Helm (tests pass a fake). */
+  sandboxCluster?: SandboxClusterFactory;
+  /** How long a sandbox test watches the pods for restarts (default 20 seconds). */
+  sandboxStableMs?: number;
 }
 
 export const AGENT_NAMESPACE = 'kodra-agent';
