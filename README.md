@@ -11,7 +11,7 @@ You pick what it can read on a static web page, download a small bundle, and run
 own environment with your own model key. Shipping code (a Dockerfile, a pipeline, and a Helm
 chart in a pull request) is available as a preview.
 
-> **Status: early release (v0.3.11).** Ready to try with design partners. The product is
+> **Status: early release (v0.3.12).** Ready to try with design partners. The product is
 > described in [SPEC.md](SPEC.md), and what comes next in [PLAN.md](PLAN.md).
 
 ## Get started
@@ -120,16 +120,16 @@ Actions), and comes with an SPDX SBOM, build provenance, and `SHA256SUMS`.
 
 ```sh
 # The image and the chart were built by this repository's release workflow.
-cosign verify ghcr.io/kodra-io/kodra-agent:0.3.11 \
+cosign verify ghcr.io/kodra-io/kodra-agent:0.3.12 \
   --certificate-identity-regexp '^https://github.com/kodra-io/kodra-agent/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-cosign verify ghcr.io/kodra-io/charts/kodra-agent:0.3.11 \
+cosign verify ghcr.io/kodra-io/charts/kodra-agent:0.3.12 \
   --certificate-identity-regexp '^https://github.com/kodra-io/kodra-agent/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # The SBOM attached to the image, and the files on the GitHub release.
-docker buildx imagetools inspect ghcr.io/kodra-io/kodra-agent:0.3.11 --format '{{ json .SBOM }}'
-gh release download v0.3.11 --repo kodra-io/kodra-agent
+docker buildx imagetools inspect ghcr.io/kodra-io/kodra-agent:0.3.12 --format '{{ json .SBOM }}'
+gh release download v0.3.12 --repo kodra-io/kodra-agent
 sha256sum -c SHA256SUMS
 ```
 
