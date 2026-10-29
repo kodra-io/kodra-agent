@@ -162,7 +162,7 @@ anything outside the sandbox or a release it did not create.
 | L5 Partner zero: Kodra.io                   | Not started                               |     |
 | L6 Design partners                          | Not started                               |     |
 | B1 The pipeline that fits                   | Done                                      | #91 |
-| B2 Test in a sandbox, then destroy          | In review                                 |     |
+| B2 Test in a sandbox, then destroy          | Done                                      | #92 |
 | Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules
