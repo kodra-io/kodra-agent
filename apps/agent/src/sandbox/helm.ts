@@ -7,15 +7,6 @@ import type { Exec, ExecResult } from '../ship/exec.ts';
 /** The Kubernetes connector's credentials, as resolved from its secrets. */
 export interface ClusterCredentials {
   kubeconfig?: string | undefined;
-  awsAccessKeyId?: string | undefined;
-  awsSecretAccessKey?: string | undefined;
-}
-
-/** The environment an EKS kubeconfig's `aws eks get-token` needs; empty for any other. */
-export function awsEnv(c: ClusterCredentials): Record<string, string> {
-  return c.awsAccessKeyId && c.awsSecretAccessKey
-    ? { AWS_ACCESS_KEY_ID: c.awsAccessKeyId, AWS_SECRET_ACCESS_KEY: c.awsSecretAccessKey }
-    : {};
 }
 
 export interface Helm {
@@ -25,9 +16,9 @@ export interface Helm {
 }
 
 /**
- * Helm for the sandbox (B2): the connector's kubeconfig in a 0600 temp file, its EKS keys as
- * AWS_* variables (never arguments), and release records in ConfigMaps so the agent never
- * needs Secrets. Output comes back redacted.
+ * Helm for the sandbox (B2): the connector's kubeconfig in a 0600 temp file (never an
+ * argument), and release records in ConfigMaps so the agent never needs Secrets. Output comes
+ * back redacted.
  */
 export async function sandboxHelm(opts: {
   exec: Exec;
@@ -38,7 +29,6 @@ export async function sandboxHelm(opts: {
   const dir = await mkdtemp(join(tmpdir(), 'kodra-sandbox-'));
   const env: Record<string, string> = {
     ...opts.networkEnv,
-    ...awsEnv(opts.credentials),
     HELM_DRIVER: 'configmap',
     // Helm's caches and repo config stay out of the user's home.
     HELM_CACHE_HOME: join(dir, 'cache'),

@@ -77,18 +77,3 @@ describe('setup steps', () => {
     expect(manifestSchema.safeParse(manifest).success).toBe(false);
   });
 });
-
-describe('secret groups', () => {
-  it('groups optional secrets only', () => {
-    const manifest = structuredClone(fixtures.source) as unknown as Record<string, unknown> & {
-      secrets: Record<string, unknown>[];
-    };
-    const secret = manifest.secrets[0];
-    if (!secret) throw new Error('fixture has no secret');
-    secret['group'] = { key: 'eks', label: 'EKS sign-in', description: 'Only for EKS.' };
-    const result = manifestSchema.safeParse(manifest);
-    expect(JSON.stringify(result.error?.issues)).toContain('only optional secrets can be grouped');
-    secret['required'] = false;
-    expect(manifestSchema.safeParse(manifest).success).toBe(true);
-  });
-});

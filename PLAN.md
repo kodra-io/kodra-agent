@@ -155,8 +155,8 @@ anything outside the sandbox or a release it did not create.
   `starter`, `team`, and `strict`.
 - **Ollama address examples** for the same machine (`host.docker.internal`), Compose, and
   Kubernetes; the Compose bundle maps `host.docker.internal` on Linux.
-- **Kubernetes works with any cluster:** the AWS keys become one optional "Amazon EKS sign-in"
-  choice, named `KODRA_EKS_*`.
+- **Kubernetes works with any cluster:** it takes a kubeconfig and nothing else. The AWS keys
+  are gone; an EKS kubeconfig uses a service account token, or the agent's own AWS variables.
 - **Docker, Jenkins, and Databases** are regular connectors, out of "More connectors".
 
 Done when the configurator e2e tests cover each of these.

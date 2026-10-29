@@ -291,20 +291,17 @@ test('Docker, Jenkins, and Databases are regular connectors in their categories,
   );
 });
 
-test('Kubernetes asks only for a kubeconfig; the EKS keys are one optional choice', async ({
-  page,
-}) => {
+test('Kubernetes asks for a kubeconfig and nothing else, on any cluster', async ({ page }) => {
   await fillBasics(page);
   await enableConnector(page, 'kubernetes', 'Kubernetes');
   const card = connectorCard(page, 'kubernetes');
-  const eks = card.getByRole('checkbox', { name: /Include Amazon EKS sign-in \(optional\)/ });
-  await expect(eks).not.toBeChecked();
-  await expect(card.getByText('KODRA_EKS_ACCESS_KEY_ID')).toHaveCount(0);
-  await eks.check();
-  await expect(eks).toBeChecked();
-  await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByTestId('preview')).toContainText('${env:KODRA_EKS_ACCESS_KEY_ID}');
-  await expect(page.getByTestId('preview')).toContainText('${env:KODRA_EKS_SECRET_ACCESS_KEY}');
+  await expect(card.getByText(/Kubeconfig for the cluster/)).toBeVisible();
+  await expect(card.getByRole('checkbox')).toHaveCount(0);
+  await expect(card.getByText(/AWS|EKS sign-in/)).toHaveCount(0);
+  await expect(page.getByTestId('preview')).toContainText(
+    'kubeconfig: ${file:/secrets/kubeconfig}',
+  );
+  await expect(page.getByTestId('preview')).not.toContainText(/aws/i);
 });
 
 test('the Ollama address shows how to reach Ollama on the same machine', async ({ page }) => {

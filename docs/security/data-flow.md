@@ -169,9 +169,8 @@ Reviewed manifest: `docker@41c1c3542fc5`
 - **Sends to:** your cluster's API server, from the kubeconfig (or the in-cluster service
   account).
 - **Secrets:** `kubeconfig` (a file). EKS kubeconfigs get their token from the image's
-  `aws eks get-token`, signed locally, with the AWS keys in the agent's environment or the
-  optional `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_EKS_*`), which the server
-  gets as `AWS_*`. They only sign that token: no AWS API is called.
+  `aws eks get-token`, signed locally, with the AWS keys in the agent's environment. They
+  only sign that token: no AWS API is called.
 - **Reads:** pods, logs, events, deployments, and other resources in the configured
   `namespaces`. The server's config refuses Secrets, ServiceAccounts, and RBAC objects.
 - **Writes, after approval:** scaling deployments in those namespaces, never the agent's own
@@ -188,7 +187,7 @@ Reviewed manifest: `docker@41c1c3542fc5`
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@0c9292cf39de`
+Reviewed manifest: `kubernetes@af7bb317d853`
 
 ### Prometheus
 

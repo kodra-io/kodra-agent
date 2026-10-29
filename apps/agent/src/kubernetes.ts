@@ -26,31 +26,16 @@ export interface AccessCheck {
 }
 
 /**
- * Builds a client from a kubeconfig's contents, or from the default locations. `execEnv` goes
- * to the kubeconfig's exec plugin (an EKS kubeconfig's `aws eks get-token` gets its keys).
+ * Builds a client from a kubeconfig's contents, or from the default locations. An exec plugin
+ * (like an EKS kubeconfig's `aws eks get-token`) gets the agent's own environment.
  */
-export type KubernetesFactory = (
-  kubeconfig?: string,
-  execEnv?: Readonly<Record<string, string>>,
-) => KubernetesClient;
+export type KubernetesFactory = (kubeconfig?: string) => KubernetesClient;
 
-export const realKubernetes: KubernetesFactory = (kubeconfig, execEnv) => {
+export const realKubernetes: KubernetesFactory = (kubeconfig) => {
   const kc = new KubeConfig();
   if (kubeconfig) kc.loadFromString(kubeconfig);
   else kc.loadFromDefault();
   if (!kc.getCurrentCluster()) throw new Error('no current cluster in the kubeconfig');
-  const extra = Object.entries(execEnv ?? {}).map(([name, value]) => ({ name, value }));
-  if (extra.length > 0) {
-    kc.loadFromOptions({
-      clusters: kc.clusters,
-      contexts: kc.contexts,
-      currentContext: kc.currentContext,
-      users: kc.users.map((u) => {
-        const exec = u.exec as { env?: { name: string; value: string }[] } | undefined;
-        return exec ? { ...u, exec: { ...exec, env: [...(exec.env ?? []), ...extra] } } : u;
-      }),
-    });
-  }
   const api = kc.makeApiClient(CoreV1Api);
   const auth = kc.makeApiClient(AuthorizationV1Api);
   return {

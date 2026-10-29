@@ -1,17 +1,9 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
 import { PATTERNS } from '../shared.ts';
-import { EKS_KEY_STEPS, KUBECONFIG_STEPS } from './steps.ts';
+import { KUBECONFIG_STEPS } from './steps.ts';
 
 const readSummary =
   'Reads pods, logs, events, deployments, and services in the listed namespaces only. Never reads Secrets.';
-
-/** The two EKS keys are one choice in the configurator: any other cluster needs neither. */
-const EKS_GROUP = {
-  key: 'eks',
-  label: 'Amazon EKS sign-in',
-  description:
-    'Only for an Amazon EKS cluster whose kubeconfig signs in with aws eks get-token. Any other cluster needs only the kubeconfig.',
-};
 
 const readRbac =
   'get, list, watch on pods, pods/log, events, deployments, replicasets, services in the listed namespaces';
@@ -142,37 +134,6 @@ export default defineManifest({
       probe: 'kubernetes.list-pods',
       format: 'kubeconfig',
       steps: KUBECONFIG_STEPS,
-    },
-    // Only for Amazon EKS kubeconfigs that run `aws eks get-token` (the image has its own `aws`
-    // for that); any other cluster needs the kubeconfig alone. Their own variables (the AWS
-    // connector has AWS_*); the server gets them as AWS_*, over any AWS_* it inherits from the
-    // agent's environment.
-    {
-      key: 'awsAccessKeyId',
-      envVar: 'KODRA_EKS_ACCESS_KEY_ID',
-      defaultRef: 'env',
-      required: false,
-      group: EKS_GROUP,
-      description:
-        'EKS sign-in access key id, only for an Amazon EKS kubeconfig that signs in with aws eks get-token.',
-      howToCreate:
-        'Create an IAM user for the agent and map it to a view-only access policy in the cluster.',
-      minimumScopes: { always: ['an EKS access entry with AmazonEKSViewPolicy on the namespaces'] },
-      probe: 'kubernetes.list-pods',
-      steps: EKS_KEY_STEPS,
-    },
-    {
-      key: 'awsSecretAccessKey',
-      envVar: 'KODRA_EKS_SECRET_ACCESS_KEY',
-      defaultRef: 'env',
-      required: false,
-      group: EKS_GROUP,
-      description:
-        'EKS sign-in secret key, only for an Amazon EKS kubeconfig that signs in with aws eks get-token.',
-      howToCreate: 'The secret key of the same IAM user.',
-      minimumScopes: { always: ['an EKS access entry with AmazonEKSViewPolicy on the namespaces'] },
-      probe: 'kubernetes.list-pods',
-      steps: EKS_KEY_STEPS,
     },
   ],
   healthProbe: 'kubernetes.list-pods',
@@ -312,10 +273,7 @@ export default defineManifest({
         args: ['--kubeconfig', { secretFile: 'kubeconfig' }, '--cluster-provider', 'kubeconfig'],
       },
     ],
-    env: {
-      AWS_ACCESS_KEY_ID: { secret: 'awsAccessKeyId' },
-      AWS_SECRET_ACCESS_KEY: { secret: 'awsSecretAccessKey' },
-    },
+    env: {},
     inheritEnv: [
       'KUBERNETES_SERVICE_HOST',
       'KUBERNETES_SERVICE_PORT',

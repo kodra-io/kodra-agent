@@ -478,41 +478,6 @@ describe('Kubernetes', () => {
     });
   });
 
-  it("gives an EKS kubeconfig's exec plugin the connector's AWS keys, once both are there", async () => {
-    const k8s = fakeKubernetes();
-    const comp = byId(componentsFor(ollama('http://o:1'), k8sYaml), 'kubernetes');
-    // Saving the first key, before the second or the kubeconfig: tested later, with them.
-    expect(
-      await runProbe(
-        'kubernetes.list-pods',
-        ctxFor(
-          comp,
-          { awsAccessKeyId: 'AKIAEXAMPLE' },
-          { kubernetes: k8s, only: 'awsAccessKeyId' },
-        ),
-      ),
-    ).toEqual({
-      status: 'skip',
-      message: 'tested once the kubeconfig and both AWS keys are saved',
-    });
-    expect(k8s.calls).toEqual([]);
-    const all = {
-      kubeconfig: 'kc',
-      awsAccessKeyId: 'AKIAEXAMPLE',
-      awsSecretAccessKey: 'secret-key-1',
-    };
-    expect(
-      await runProbe(
-        'kubernetes.list-pods',
-        ctxFor(comp, all, { kubernetes: k8s, only: 'awsSecretAccessKey' }),
-      ),
-    ).toMatchObject({ status: 'pass' });
-    expect(k8s.calls[0]?.execEnv).toEqual({
-      AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
-      AWS_SECRET_ACCESS_KEY: 'secret-key-1',
-    });
-  });
-
   it('explains a 403 as missing RBAC', async () => {
     const k8s = fakeKubernetes({
       listPods: () => Promise.reject(Object.assign(new Error('forbidden'), { code: 403 })),
