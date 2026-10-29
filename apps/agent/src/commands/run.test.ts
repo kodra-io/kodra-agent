@@ -328,6 +328,66 @@ describe('kodra-agent run', () => {
     expect(await running).toBe(0);
   });
 
+  it('keeps running without Slack when it cannot post to the channel, and says why', async () => {
+    const dir = await tempDir();
+    const path = await writeConfig(
+      configYaml({
+        auditPath: posixPath(join(dir, 'audit.jsonl')),
+        model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+        connectors: [
+          '    kubernetes:',
+          '      enabled: true',
+          '      config: {namespaces: [payments]}',
+          '    slack:',
+          '      enabled: true',
+          "      config: {channel: '#ops'}",
+          "      secrets: {botToken: '${env:B}', appToken: '${env:A}'}",
+        ].join('\n'),
+      }),
+      dir,
+    );
+    const slack = fakeSlack();
+    // What @slack/web-api throws when the bot cannot see the channel.
+    slack.api.postMessage = () =>
+      Promise.reject(
+        Object.assign(new Error('An API error occurred: channel_not_found'), {
+          code: 'slack_webapi_platform_error',
+          data: { ok: false, error: 'channel_not_found' },
+        }),
+      );
+    const stop = new AbortController();
+    let healthPort = 0;
+    const t = testContext({
+      env: {
+        ANTHROPIC_API_KEY: 'k',
+        KODRA_CONSOLE_ADMIN_HASH: TEST_ADMIN_HASH,
+        B: 'xoxb-1',
+        A: 'xapp-1',
+      },
+      modelFactory: () => scriptedModel(),
+      launcher: fakeLauncher(),
+      slackConnection: () => slack.connection(),
+      stopSignal: stop.signal,
+      healthPort: 0,
+      onReady: (info) => {
+        healthPort = info.healthPort;
+      },
+    });
+    const running = main(['run', '--config', path], t.ctx);
+    await until(() => (healthPort ? true : undefined));
+
+    const readyz = await fetch(`http://127.0.0.1:${String(healthPort)}/readyz`);
+    expect(readyz.status).toBe(200);
+    expect(await readyz.text()).toBe('ready; not available: Slack');
+    expect(t.term.stderr.join('\n')).toContain(
+      'Slack cannot post to #ops: the channel name is wrong, or the app is not in it.',
+    );
+    expect(slack.stopped).toBe(true);
+
+    stop.abort();
+    expect(await running).toBe(0);
+  });
+
   it('pauses from the console (anyone), resumes (approvers only), and keeps it over a restart', async () => {
     const SHARED = 'run-pause-shared-token-77ac'; // gitleaks:allow
     const OMAR = 'run-pause-omar-token-19fe'; // gitleaks:allow

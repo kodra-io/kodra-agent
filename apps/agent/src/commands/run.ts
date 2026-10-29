@@ -175,36 +175,47 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
           `Approver ${entry} is a name, not a Slack user id, so it cannot approve. Run \`kodra-agent init\` to look it up.`,
         );
       }
-      const hello = await api.postMessage({
-        channel: String(slackInput.component.settings['channel']),
-        text: ctx.redactor.redact(helloText(runtime)),
-      });
-      channelId = hello.channel;
-      approvals = new SlackApprovals({
-        api,
-        audit: runtime.audit,
-        redactor: ctx.redactor,
-      });
-      conversations = new SlackConversations({
-        api,
-        approvals,
-        redactor: ctx.redactor,
-        channelId,
-        approverIds: approvers.ids,
-        deps,
-        alsoAsk: consoleChannels,
-        gate,
-      });
-      const conv = conversations;
-      const appr = approvals;
-      await slack.start({
-        onMention: (m) => conv.onMention(m),
-        onDirectMessage: (m) => conv.onDirectMessage(m),
-        onSubmission: (s) => appr.handleSubmission(s),
-        onAction: async (a) => {
-          await appr.handleAction(a);
-        },
-      });
+      const channelSetting = String(slackInput.component.settings['channel']);
+      const hello = await api
+        .postMessage({ channel: channelSetting, text: ctx.redactor.redact(helloText(runtime)) })
+        .catch((error: unknown) => {
+          ctx.term.err(slackStartError(error, channelSetting));
+          return null;
+        });
+      if (!hello) {
+        // Keep running without Slack, so the console stays up to fix the settings.
+        await slack.stop().catch(() => undefined);
+        slack = null;
+        api = null;
+        unavailable = [...unavailable, 'Slack'];
+      } else {
+        channelId = hello.channel;
+        approvals = new SlackApprovals({
+          api,
+          audit: runtime.audit,
+          redactor: ctx.redactor,
+        });
+        conversations = new SlackConversations({
+          api,
+          approvals,
+          redactor: ctx.redactor,
+          channelId,
+          approverIds: approvers.ids,
+          deps,
+          alsoAsk: consoleChannels,
+          gate,
+        });
+        const conv = conversations;
+        const appr = approvals;
+        await slack.start({
+          onMention: (m) => conv.onMention(m),
+          onDirectMessage: (m) => conv.onDirectMessage(m),
+          onSubmission: (s) => appr.handleSubmission(s),
+          onAction: async (a) => {
+            await appr.handleAction(a);
+          },
+        });
+      }
     }
 
     const post = async (text: string) => {
@@ -479,6 +490,29 @@ function helloText(runtime: Runtime): string {
     ...describeConnectors(runtime).map((l) => `• ${l}`),
     `I ask an approver before any change. ${destructive} Mention me to ask a question.`,
   ].join('\n');
+}
+
+/** Why the first Slack post failed, with what to do about it. */
+export function slackStartError(error: unknown, channel: string): string {
+  const data = (error as { data?: { error?: unknown } } | null)?.data;
+  const code = typeof data?.error === 'string' ? data.error : '';
+  const fix = 'Fix it in the console or kodra-agent.yaml, then restart. Running without Slack.';
+  switch (code) {
+    case 'channel_not_found':
+    case 'not_in_channel':
+      return `Slack cannot post to ${channel}: the channel name is wrong, or the app is not in it. Invite the app to the channel (/invite @your-app) or check the name. ${fix}`;
+    case 'is_archived':
+      return `Slack cannot post to ${channel}: the channel is archived. ${fix}`;
+    case 'invalid_auth':
+    case 'not_authed':
+    case 'token_revoked':
+    case 'account_inactive':
+      return `Slack rejected the bot token (${code}). Copy the Bot User OAuth Token (xoxb-) again from the app's OAuth & Permissions page. ${fix}`;
+    case 'missing_scope':
+      return `The Slack app is missing a scope it needs (chat:write). Add it, reinstall the app, and copy the new bot token. ${fix}`;
+    default:
+      return `Slack failed: ${code || (error instanceof Error ? error.message : String(error))}. ${fix}`;
+  }
 }
 
 /** GET /metrics in the Prometheus text format; nothing else. */
