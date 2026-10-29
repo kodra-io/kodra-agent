@@ -215,6 +215,19 @@
                         "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$"
                       },
                       "description": "Repositories the agent may use."
+                    },
+                    "pipeline": {
+                      "default": "auto",
+                      "description": "The pipeline ship and onboard add: auto calls the reusable workflow most of the repos above already use, or adds a standalone one; shared or standalone forces one.",
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(auto|shared|standalone)$"
+                    },
+                    "pipelineTemplate": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[\\w.-]+\\/[\\w.-]+\\/\\.github\\/workflows\\/[\\w./-]+\\.ya?ml@[\\w./-]+$",
+                      "description": "The shared workflow to call, when the repos above do not show it yet. Pin it to a tag or commit."
                     }
                   },
                   "required": [
@@ -278,6 +291,19 @@
                         "pattern": "^[A-Za-z0-9._-]+(\\/[A-Za-z0-9._-]+)+$"
                       },
                       "description": "Projects the agent may use."
+                    },
+                    "pipeline": {
+                      "default": "auto",
+                      "description": "The pipeline ship and onboard add: auto includes the template most of the projects above already use, or adds a standalone one; shared or standalone forces one.",
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(auto|shared|standalone)$"
+                    },
+                    "pipelineTemplate": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[\\w.-]+(\\/[\\w.-]+)+:[\\w./,-]+@[\\w./-]+$",
+                      "description": "The shared template to include, when the projects above do not show it yet. Pin it to a tag or commit."
                     }
                   },
                   "required": [

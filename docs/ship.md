@@ -40,9 +40,11 @@ To read the repo and report on it first, run `kodra-agent onboard` instead: see
    - `Dockerfile`: multi-stage, base images pinned to exact versions (distroless by digest),
      and a numeric non-root user.
    - `.dockerignore`: keeps `.git`, dependencies, build output, and `.env` files out of the image.
-   - CI matching the source: GitHub Actions (builds on PRs, pushes to GHCR from the default
-     branch, lints the chart; actions and Helm pinned) or GitLab CI (Docker-in-Docker, the
-     project registry).
+   - CI matching the source, in the style the team already uses (see [Pipeline style](#pipeline-style)):
+     a standalone GitHub Actions workflow or `.gitlab-ci.yml` that runs the tests, builds the
+     image, pushes `pr-<sha>` from pull requests and `<sha>` plus the chart's `appVersion` from
+     the default branch, and lints the chart (actions, images, and Helm pinned); or a thin
+     caller of the team's shared pipeline.
    - `charts/<name>`: deployment, service, startup, liveness, and readiness probes, resource
      requests and a memory limit, `runAsNonRoot`, a read-only root filesystem with a writable
      `/tmp`, no privilege escalation, all capabilities dropped, and no service account token.
@@ -65,6 +67,39 @@ To read the repo and report on it first, run `kodra-agent onboard` instead: see
 
 Without a terminal there is nobody to approve, so nothing is pushed. Every step is in the
 audit log: the approval request and decision, the push, the PR call, and any model call.
+
+## Pipeline style
+
+Many teams build every service with one shared pipeline: a GitHub reusable workflow, or a
+GitLab template included from a central project. The agent fits in instead of adding a
+pipeline of its own:
+
+1. **The repo already has CI:** it is kept.
+2. **`pipeline: standalone`** on the GitHub or GitLab connector: a standalone pipeline.
+3. **`pipelineTemplate`** names the shared pipeline:
+   `owner/repo/.github/workflows/build.yml@v1` on GitHub, `group/project:ci/build.yml@v1` on
+   GitLab (several files: `a.yml,b.yml`). Pin it to a tag or commit.
+4. **Otherwise (`pipeline: auto`, the default),** the agent reads the CI files of the other
+   repos configured on the connector. When most of them call the same shared workflow or
+   include the same template, this repo calls it too, at the ref they use. If not, it gets a
+   standalone pipeline.
+
+A caller copies how the other repos call the template (triggers, permissions, `secrets:
+inherit`, stages) and fills in each input or variable:
+
+- **Values the agent knows** from the detection: image, chart path, Java version, port, service
+  name, test command, health path.
+- **Values every other repo sets the same way**, or the same apart from the repo's own name
+  (`sonar-project: acme_payments` becomes `acme_orders`).
+- **Anything else is left empty and listed in the pull request** to set before merging: values
+  that differ between the repos, and inputs the template requires that nobody sets. A value
+  that looks like a credential is never copied.
+
+When the template's repo is configured on the connector (or named in `pipelineTemplate`), the
+agent reads it too: GitHub `workflow_call` inputs and required secrets, GitLab `spec:inputs`,
+or, without them, the variables a GitLab template reads. Inputs it does not declare are not
+passed. Nothing read here is run or sent to the model. The agent does not run the shared
+pipeline: the pull request's CI does.
 
 ## Limits for now
 

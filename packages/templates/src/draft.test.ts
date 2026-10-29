@@ -59,7 +59,11 @@ describe('URL hash', () => {
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;
     expect(Object.keys(decoded.draft.connectors)).not.toContain('made-up');
-    expect(decoded.draft.connectors['github']?.config).toEqual({ repos: 'acme/payments-api' });
+    expect(decoded.draft.connectors['github']?.config).toEqual({
+      repos: 'acme/payments-api',
+      pipeline: 'auto',
+      pipelineTemplate: '',
+    });
     expect(decoded.draft.connectors['github']?.optionalSecrets).toEqual([]);
     expect(decoded.draft.model.fields).toEqual({ baseUrl: '' });
   });

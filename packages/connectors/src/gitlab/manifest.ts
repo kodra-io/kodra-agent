@@ -1,5 +1,5 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
-import { PATTERNS } from '../shared.ts';
+import { PATTERNS, pipelineFields } from '../shared.ts';
 import { GITLAB_DENY_PATTERN, GITLAB_HIDDEN, GITLAB_SERVER } from './server.ts';
 
 const readSummary = 'Reads code, issues, and merge requests in the listed projects.';
@@ -77,6 +77,7 @@ export default defineManifest({
       patternHint: 'use group/project, like acme/payments-api',
       example: ['acme/payments-api'],
     },
+    ...pipelineFields('gitlab'),
   ],
   secrets: [
     {

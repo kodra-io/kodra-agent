@@ -64,6 +64,27 @@ async function bareRemote(
   return bare;
 }
 
+/** A bare repo holding only `files`: another configured repo, for the pipeline choice (B1). */
+async function bareFrom(dir: string, files: Record<string, string>): Promise<string> {
+  const seed = join(dir, 'seed');
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(dirname(join(seed, path)), { recursive: true });
+    await writeFile(join(seed, path), content);
+  }
+  for (const args of [
+    ['init', '-q', '-b', 'main'],
+    ['add', '.'],
+    ['commit', '-q', '-m', 'init'],
+    // Shared templates are pinned to a tag.
+    ['tag', 'v2'],
+  ]) {
+    expect((await git(args, seed)).code).toBe(0);
+  }
+  const bare = join(dir, 'remote.git');
+  expect((await git(['clone', '-q', '--bare', seed, bare])).code).toBe(0);
+  return bare;
+}
+
 interface FakeTools {
   calls: { command: string; args: readonly string[]; opts: ExecOptions | undefined }[];
   /** Fails the next `docker build` calls with this log. */
@@ -148,10 +169,18 @@ async function setup(
     extra?: Record<string, string>;
     /** Configure Slack (a fake connection). */
     slack?: boolean;
+    /** Other configured repos, by owner/repo, with their files. */
+    others?: Record<string, Record<string, string>>;
+    /** Extra GitHub connector settings, as YAML flow entries. */
+    githubConfig?: string;
   } = {},
 ) {
   const dir = await tempDir();
   const bare = await bareRemote(dir, opts.sample ?? 'node', opts.extra);
+  const remotes: Record<string, string> = {};
+  for (const [n, [repo, files]] of Object.entries(opts.others ?? {}).entries()) {
+    remotes[repo] = await bareFrom(join(dir, `other-${String(n)}`), files);
+  }
   const slack = fakeSlack();
   const github = await fakeServer({
     '/repos/acme/node-api': (_q, s) => {
@@ -169,7 +198,7 @@ async function setup(
         '    github:',
         '      enabled: true',
         `      access: ${opts.access ?? 'read-write-approved'}`,
-        '      config: {repos: [acme/node-api]}',
+        `      config: {repos: [${['acme/node-api', ...Object.keys(opts.others ?? {})].join(', ')}]${opts.githubConfig ? `, ${opts.githubConfig}` : ''}}`,
         "      secrets: {token: '${env:GITHUB_TOKEN}'}",
         ...(opts.slack
           ? [
@@ -199,7 +228,7 @@ async function setup(
     modelFactory: () => m,
     prompter,
     exec,
-    gitRemote: () => bare,
+    gitRemote: (_provider, repo) => remotes[repo] ?? bare,
     shipSmokeTimeoutMs: opts.exec ? 120_000 : 5000,
     selfContainer: opts.selfContainer ?? null,
     // In a container the app is reached by its container name; send that to the fake app.
@@ -312,6 +341,80 @@ describe('kodra-agent ship', () => {
       const everything = [s.t.output(), await readFile(s.auditPath, 'utf8')].join('\n');
       expect(everything).not.toContain(TOKEN);
       expect(everything).not.toContain(Buffer.from(`x-access-token:${TOKEN}`).toString('base64'));
+    },
+  );
+
+  it(
+    'calls the shared workflow the other repos use, read from them with the same token',
+    { timeout: 60_000 },
+    async () => {
+      const caller = (service: string) =>
+        [
+          'name: Build',
+          'on: [push, pull_request]',
+          'jobs:',
+          '  build:',
+          '    uses: acme/platform/.github/workflows/build.yml@v2',
+          '    secrets: inherit',
+          '    with:',
+          `      image: ghcr.io/acme/${service}`,
+          `      sonar-project: acme_${service}`,
+          '      team: payments-team',
+          '',
+        ].join('\n');
+      const s = await setup({
+        others: {
+          'acme/payments': { '.github/workflows/build.yml': caller('payments') },
+          'acme/users': { '.github/workflows/build.yml': caller('users') },
+          'acme/platform': {
+            '.github/workflows/build.yml': [
+              'on:',
+              '  workflow_call:',
+              '    inputs:',
+              '      image: { type: string, required: true }',
+              '      sonar-project: { type: string, required: true }',
+              '      team: { type: string, required: true }',
+              '      region: { type: string, required: true, description: "AWS region to push to" }',
+              'jobs:',
+              '  build: { runs-on: ubuntu-latest, steps: [{ run: echo build }] }',
+              '',
+            ].join('\n'),
+          },
+        },
+      });
+      expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+      expect(s.t.output()).toContain(
+        'Pipeline: calls the shared acme/platform/.github/workflows/build.yml@v2.',
+      );
+      expect(s.t.output()).toContain('Set before merging: region (AWS region to push to)');
+
+      const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
+      const head = pr?.args['head'] ?? '';
+      const files = await s.remoteFiles(head);
+      expect(files).toContain('.github/workflows/build.yml');
+      expect(files).not.toContain('.github/workflows/container.yml');
+      const workflow = (
+        await git(['--git-dir', s.bare, 'show', `${head}:.github/workflows/build.yml`])
+      ).stdout;
+      expect(workflow).toContain('uses: acme/platform/.github/workflows/build.yml@v2');
+      expect(workflow).toContain('image: "ghcr.io/acme/node-api"');
+      expect(workflow).toContain('sonar-project: "acme_node-api"');
+      expect(workflow).toContain('team: "payments-team"');
+      expect(workflow).toContain('region: "" # Set this before merging');
+      expect(pr?.args['body']).toContain('- `region`: AWS region to push to.');
+
+      // Only the CI files were fetched, with the token as a header like the clone.
+      const fetches = s.exec.calls.filter((c) => c.command === 'git' && c.args[0] === 'fetch');
+      expect(fetches.length).toBe(4);
+      for (const f of fetches) {
+        expect(f.args).toContain('--filter=blob:none');
+        expect(f.opts?.env?.['GIT_CONFIG_VALUE_0']).toMatch(/^Authorization: Basic /);
+      }
+      expect(await s.audit()).toContainEqual(
+        expect.objectContaining({
+          detail: 'pipeline: read the CI of 3 other repos and the shared template',
+        }),
+      );
     },
   );
 

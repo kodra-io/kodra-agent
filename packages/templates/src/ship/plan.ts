@@ -3,6 +3,7 @@ import { type CiTest, githubWorkflow, gitlabCi } from './ci.ts';
 import type { Detection } from './detect.ts';
 import { dockerfile, dockerignore } from './dockerfile.ts';
 import { IMAGES, mirrorImage, pinnedImages } from './images.ts';
+import { choosePipeline, type ChooseInput, type PipelineChoice } from './pipeline.ts';
 
 /** Generated files with every pinned base image pulled through its mirror. */
 function withMirrors(text: string, mirrors: Readonly<Record<string, string>>): string {
@@ -28,6 +29,8 @@ export interface PlanOptions {
   mirrors?: Readonly<Record<string, string>>;
   /** Environment variables the code reads, for the chart (names only, from `onboard`). */
   env?: { settings: readonly string[]; secrets: readonly string[] };
+  /** B1: what decides between a standalone pipeline and the team's shared one. */
+  pipeline?: Pick<ChooseInput, 'mode' | 'template' | 'others' | 'spec' | 'secretPatterns'>;
 }
 
 export interface ShipFile {
@@ -44,6 +47,8 @@ export interface ShipPlan {
   chartDir: string;
   image: string;
   generatedDockerfile: boolean;
+  /** The pipeline style chosen, when CI was generated. */
+  pipeline?: PipelineChoice;
 }
 
 /** Where CI pushes the image. Registries need lowercase names. */
@@ -123,7 +128,27 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
   const test = ciTest(d);
   const ci = { image, chartDir, defaultBranch: o.defaultBranch, test };
   const runs = test ? `runs the tests (\`${test.run}\`), ` : '';
-  if (o.provider === 'github') {
+  const hasCi =
+    o.provider === 'github' ? d.existing.githubCi : o.provider === 'gitlab' && d.existing.gitlabCi;
+  const pipeline =
+    o.provider && !hasCi && o.pipeline
+      ? choosePipeline({
+          ...o.pipeline,
+          provider: o.provider,
+          repo: o.repo,
+          defaultBranch: o.defaultBranch,
+          detection: d,
+          image,
+          chartDir,
+        })
+      : undefined;
+  if (pipeline?.mode === 'shared') {
+    files.push({
+      path: pipeline.path,
+      content: pipeline.content,
+      reason: `Calls the shared pipeline \`${pipeline.template}\`: ${pipeline.reason}`,
+    });
+  } else if (o.provider === 'github') {
     if (d.existing.githubCi) kept.push('CI: a workflow already builds a container.');
     else
       files.push({
@@ -147,7 +172,25 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
     chartDir,
     image,
     generatedDockerfile: !d.existing.dockerfile,
+    ...(pipeline ? { pipeline } : {}),
   };
+}
+
+/** Why this pipeline style, and what to set before merging. */
+function pipelineSection(p: PipelineChoice): string[] {
+  if (p.mode === 'standalone') return ['## Pipeline', `A standalone pipeline. ${p.reason}`];
+  return [
+    '## Pipeline',
+    `This repo calls the shared pipeline \`${p.template}\`. ${p.reason}`,
+    'The agent did not run the shared pipeline: check that it passes on this pull request.',
+    ...(p.todo.length > 0
+      ? [
+          '',
+          'Set these before merging (marked in the file):',
+          ...p.todo.map((t) => `- \`${t.name}\`: ${t.why}.`),
+        ]
+      : []),
+  ];
 }
 
 export interface PrBodyInput {
@@ -191,6 +234,7 @@ export function shipPrBody(i: PrBodyInput): string {
       ([reason, paths]) => `- ${paths.map((p) => `\`${p}\``).join(', ')}: ${reason}`,
     ),
     ...(i.plan.kept.length > 0 ? ['', '## Left as is', ...i.plan.kept.map((k) => `- ${k}`)] : []),
+    ...(i.plan.pipeline ? ['', ...pipelineSection(i.plan.pipeline)] : []),
     '',
     '## How it was verified',
     ...i.verification.map((v) => `- ${v}`),

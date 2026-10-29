@@ -116,6 +116,38 @@ Done when there are two weeks of notes and every wrong diagnosis is in the eval 
 
 Done when three outside teams have used the agent for two weeks. The gate then opens.
 
+### Added before the gate opens
+
+Omar approved these two steps on 29 October 2026, ahead of the gate, after onboarding a test
+service showed what was missing. Bug fixes from the same review shipped first (#90).
+
+#### B1: The pipeline that fits
+
+- **Standalone or shared.** A repo with CI keeps it. Otherwise the connector's `pipeline`
+  (`auto`, `shared`, `standalone`) and `pipelineTemplate` decide; on `auto`, the agent reads
+  the other configured repos' CI and calls the shared workflow or template most of them use.
+- **Fills in the caller** from the detection and from values the other repos agree on. The
+  rest is listed in the pull request. Credentials are never copied.
+- **Reads the template** when its repo is configured or named: its inputs and required secrets.
+
+Done when ship and onboard write a working caller for a GitHub reusable workflow and a GitLab
+`include: project`, with tests on real git repos.
+
+#### B2: Test in a sandbox, then destroy
+
+- **One `sandbox` namespace** (configurable, not named after Kodra) where the agent may create
+  and delete workloads, and nothing outside it. Helm keeps its records in ConfigMaps, so the
+  agent never needs Secrets.
+- **One approval** deploys the pull request's `pr-<sha>` image with its chart as release
+  `kt-<id>`, smoke-tests it, reports, and uninstalls it (or keeps it up to 24 hours).
+- **Destroys only its own releases:** recorded and labeled by the agent. Expired ones are swept
+  on startup and with the daily checks.
+- **Test settings:** placeholders for each secret, overridden by an optional
+  `<app>-sandbox-env` Secret the team creates and the agent never reads.
+
+Done when a kind test deploys, checks, and destroys a release, and shows the agent cannot touch
+anything outside the sandbox or a release it did not create.
+
 ---
 
 ## Status
@@ -129,6 +161,8 @@ Done when three outside teams have used the agent for two weeks. The gate then o
 | L4 Publish and release v0.4.0               | In progress: deploy and hallway test next | #86 |
 | L5 Partner zero: Kodra.io                   | Not started                               |     |
 | L6 Design partners                          | Not started                               |     |
+| B1 The pipeline that fits                   | Done                                      |     |
+| B2 Test in a sandbox, then destroy          | Not started                               |     |
 | Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules
