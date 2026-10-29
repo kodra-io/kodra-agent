@@ -4,3 +4,4 @@ export * from './detect.ts';
 export * from './dockerfile.ts';
 export * from './images.ts';
 export * from './plan.ts';
+export * from './pipeline.ts';

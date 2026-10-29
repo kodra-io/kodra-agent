@@ -86,10 +86,15 @@ Reviewed manifest: `ollama@85a89abebe6d`
 - **Sends to:** `https://api.github.com`, over HTTPS.
 - **Secrets:** `token` (a fine-grained personal access token), in the server's environment.
 - **Reads:** files, commits, branches, issues, and pull requests in the configured `repos`.
+- **Ship and onboard (B1):** to choose the pipeline, read only the `.github/workflows` files of
+  the other configured `repos` (a shallow, blob-less `git fetch` with the same token as a
+  header), and the shared workflow named in `pipelineTemplate` or held in a configured repo.
+  Parsed as YAML only: never run and never sent to the model. A value that looks like a
+  credential is never copied into the new pull request.
 - **Writes, after approval:** branches, files, and pull requests in those repos, never on the
   default branch.
 
-Reviewed manifest: `github@66bd29d566f3`
+Reviewed manifest: `github@8947bf98adbb`
 
 ### GitHub Actions
 
@@ -109,10 +114,15 @@ Reviewed manifest: `github-actions@98ad5a079546`
 - **Sends to:** your GitLab at `url` (`https://gitlab.com` by default), over HTTPS.
 - **Secrets:** `token` (a personal, project, or group access token).
 - **Reads:** files, commits, branches, issues, and merge requests in the configured `projects`.
+- **Ship and onboard (B1):** to choose the pipeline, read only the `.gitlab-ci.yml` of the other
+  configured `projects` (a shallow, blob-less `git fetch` with the same token as a header), and
+  the shared template named in `pipelineTemplate` or held in a configured project. Parsed as
+  YAML only: never run and never sent to the model. A value that looks like a credential is
+  never copied into the new merge request.
 - **Writes, after approval:** branches, files, and merge requests in those projects, never on
   the default branch.
 
-Reviewed manifest: `gitlab@fb866f116c55`
+Reviewed manifest: `gitlab@246dfad097c4`
 
 ### GitLab CI
 

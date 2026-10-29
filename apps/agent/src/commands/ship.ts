@@ -9,6 +9,7 @@ import {
   planShip,
   shipPrBody,
   type Analysis,
+  type PlanOptions,
   type ShipFile,
   type SourceProvider,
 } from '@kodra-agent/templates';
@@ -31,6 +32,7 @@ import { startRuntime, type Runtime } from '../runtime.ts';
 import { boltSlack } from '../slack/api.ts';
 import { spawnExec } from '../ship/exec.ts';
 import { proposeDockerfileFix } from '../ship/fix.ts';
+import { pipelineInputs } from '../ship/pipeline.ts';
 import {
   buildImage,
   helmCheck,
@@ -279,6 +281,29 @@ export async function ship(
         : runtime.inputs.some((i) => i.component.id === 'gitlab')
           ? 'gitlab'
           : null);
+    // B1: a standalone pipeline, or a caller of the shared one the other repos use.
+    const hasCi = source?.provider === 'github' ? d.existing.githubCi : d.existing.gitlabCi;
+    let pipeline: PlanOptions['pipeline'];
+    if (source && !hasCi) {
+      const { provider, input } = source;
+      ctx.term.out('Reading how the other repos are built...');
+      pipeline = await pipelineInputs(git, work, {
+        provider,
+        repo: source.repo,
+        settings: input.component.settings,
+        configured: settingList(
+          input.component.settings,
+          provider === 'github' ? 'repos' : 'projects',
+        ),
+        remote: (repo) =>
+          ctx.gitRemote?.(provider, repo) ?? remoteUrl(provider, repo, source.gitlabUrl),
+      });
+      await audit(
+        runtime.audit,
+        task,
+        `pipeline: read the CI of ${String(pipeline.others.length)} other repos${pipeline.spec ? ' and the shared template' : ''}`,
+      );
+    }
     const plan = planShip(d, {
       provider: ciProvider,
       repo: source?.repo ?? name,
@@ -286,7 +311,19 @@ export async function ship(
       ...(source?.gitlabUrl ? { gitlabUrl: source.gitlabUrl } : {}),
       mirrors: runtime.config.spec.ship.baseImageMirrors,
       ...(analysis ? { env: envNames(analysis) } : {}),
+      ...(pipeline ? { pipeline } : {}),
     });
+    if (plan.pipeline) {
+      ctx.term.out(
+        plan.pipeline.mode === 'shared'
+          ? `Pipeline: calls the shared ${plan.pipeline.template}. ${plan.pipeline.reason}`
+          : `Pipeline: standalone. ${plan.pipeline.reason}`,
+      );
+      if (plan.pipeline.mode === 'shared') {
+        for (const t of plan.pipeline.todo)
+          ctx.term.out(`  Set before merging: ${t.name} (${t.why})`);
+      }
+    }
     let reportPath: string | null = null;
     if (analysis) {
       if (await exists(join(repoDir, REPORT))) {

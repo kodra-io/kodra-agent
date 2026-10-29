@@ -1,5 +1,5 @@
 import { defineManifest, type ToolGuard } from '@kodra-agent/schema';
-import { PATTERNS } from '../shared.ts';
+import { PATTERNS, pipelineFields } from '../shared.ts';
 import { GITHUB_COMMON_ARGS, GITHUB_SERVER } from './server.ts';
 
 const readSummary = 'Reads code, issues, and pull requests in the listed repos.';
@@ -84,6 +84,7 @@ export default defineManifest({
       patternHint: 'use owner/repo, like acme/payments-api',
       example: ['acme/payments-api'],
     },
+    ...pipelineFields('github'),
   ],
   secrets: [
     {
