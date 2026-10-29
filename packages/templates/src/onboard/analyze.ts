@@ -189,7 +189,11 @@ function questionsFor(a: Omit<Analysis, 'questions'>): string[] {
   }
   const secrets = a.config.filter((v) => v.secret).map((v) => v.name);
   if (secrets.length > 0) {
-    q.push(`Where do ${list(secrets)} live today, and who can rotate them?`);
+    q.push(
+      secrets.length === 1
+        ? `Where does ${list(secrets)} live today, and who can rotate it?`
+        : `Where do ${list(secrets)} live today, and who can rotate them?`,
+    );
   }
   const settings = a.config.filter((v) => !v.secret).map((v) => v.name);
   if (settings.length > 0) q.push(`What values do ${list(settings)} take in each environment?`);

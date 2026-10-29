@@ -29,13 +29,14 @@ export function dockerfile(d: Detection): string {
               `FROM ${IMAGES.maven[java]} AS build`,
               'WORKDIR /src',
               'COPY . .',
-              "RUN mvn -B -q package -DskipTests \\\n && find target -maxdepth 1 -name '*.jar' ! -name '*-plain.jar' -exec cp {} /app.jar \\;",
+              // Tests run in CI. The cache mount keeps dependencies between local builds.
+              "RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests \\\n && find target -maxdepth 1 -name '*.jar' ! -name '*-plain.jar' -exec cp {} /app.jar \\;",
             ]
           : [
               `FROM ${IMAGES.gradle[java]} AS build`,
               'WORKDIR /src',
               'COPY . .',
-              "RUN gradle bootJar --no-daemon -q -x test \\\n && find build/libs -maxdepth 1 -name '*.jar' ! -name '*-plain.jar' -exec cp {} /app.jar \\;",
+              "RUN --mount=type=cache,target=/root/.gradle gradle bootJar --no-daemon -q -x test \\\n && find build/libs -maxdepth 1 -name '*.jar' ! -name '*-plain.jar' -exec cp {} /app.jar \\;",
             ];
       return [
         HEADER,

@@ -26,6 +26,12 @@ export interface Detection {
   port: number;
   /** An HTTP health endpoint the app is known to serve, or null (probes use TCP). */
   healthPath: string | null;
+  /** Separate liveness and readiness endpoints (Spring Boot Actuator), when the app has them. */
+  probes?: { liveness: string; readiness: string };
+  /** The command CI runs the tests with, or null when none were found. */
+  test?: string | null;
+  /** The environment variable the app reads its port from (`PORT`), so the chart can set it. */
+  portEnv?: string | null;
   java?: { version: JavaVersion };
   node?: { install: 'ci' | 'install'; build: boolean; start: string[] };
   python?: { cmd: string[] };
@@ -94,6 +100,13 @@ function findHealthPath(files: RepoFiles, paths: readonly string[]): string | nu
  */
 export function detectStack(files: RepoFiles, repoName: string): DetectResult {
   const base = { name: chartName(repoName), existing: existing(files) };
+  const result = detectBase(files, base);
+  if (!result.ok) return result;
+  const d = result.detection;
+  return { ok: true, detection: { ...d, test: testCommand(files, d), portEnv: portEnv(files) } };
+}
+
+function detectBase(files: RepoFiles, base: Base): DetectResult {
   if (has(files, 'pom.xml') || has(files, 'build.gradle') || has(files, 'build.gradle.kts')) {
     return detectSpring(files, base);
   }
@@ -107,6 +120,50 @@ export function detectStack(files: RepoFiles, repoName: string): DetectResult {
     reason:
       'No supported stack found. Supported: Spring Boot (Maven or Gradle), Node.js, Python, Go.',
   };
+}
+
+/** How CI runs the tests, in the stack's pinned build image; null when there are none to run. */
+function testCommand(files: RepoFiles, d: Detection): string | null {
+  const any = (pattern: RegExp) => files.paths.some((p) => pattern.test(p));
+  switch (d.stack) {
+    case 'spring-maven':
+      return any(/^src\/test\//) ? 'mvn -B test' : null;
+    case 'spring-gradle':
+      return any(/^src\/test\//) ? 'gradle test --no-daemon' : null;
+    case 'node': {
+      let test: unknown;
+      try {
+        test = (JSON.parse(files.read('package.json') ?? '') as PackageJson).scripts?.['test'];
+      } catch {
+        return null;
+      }
+      if (typeof test !== 'string' || test.includes('no test specified')) return null;
+      return `${d.node?.install === 'install' ? 'npm install' : 'npm ci'} && npm test`;
+    }
+    case 'go':
+      return any(/_test\.go$/) ? 'go test ./...' : null;
+    case 'python': {
+      // pytest must be pinned in the requirements: CI never installs an unpinned tool.
+      const pytest = /^pytest\b/m.test(files.read('requirements.txt') ?? '');
+      return pytest && any(/(^|\/)(test_[^/]+|[^/]+_test)\.py$/)
+        ? 'pip install --no-cache-dir -r requirements.txt && pytest'
+        : null;
+    }
+  }
+}
+
+/** `PORT` when the code or its config reads it, so the chart keeps it equal to the container port. */
+function portEnv(files: RepoFiles): string | null {
+  const reads =
+    /\$\{PORT[:}]|process\.env\.PORT\b|process\.env\[["']PORT["']\]|Getenv\("PORT"\)|environ(?:\.get\(|\[)\s*["']PORT["']|getenv\(\s*["']PORT["']/;
+  const candidates = files.paths
+    .filter(
+      (p) =>
+        /\.(java|kt|properties|ya?ml|[cm]?[jt]s|py|go)$/.test(p) &&
+        !/(^|\/)(node_modules|dist|build|target|vendor|test|tests|charts|\.github)\//.test(p),
+    )
+    .slice(0, 300);
+  return candidates.some((p) => reads.test(files.read(p) ?? '')) ? 'PORT' : null;
 }
 
 type Base = Pick<Detection, 'name' | 'existing'>;
@@ -173,6 +230,15 @@ function detectSpring(files: RepoFiles, base: Base): DetectResult {
       stack: maven ? 'spring-maven' : 'spring-gradle',
       port,
       healthPath: actuator ? '/actuator/health' : null,
+      // On Kubernetes, Actuator serves these groups; liveness leaves out external systems.
+      ...(actuator
+        ? {
+            probes: {
+              liveness: '/actuator/health/liveness',
+              readiness: '/actuator/health/readiness',
+            },
+          }
+        : {}),
       java: { version },
       notes: [`Spring Boot with ${maven ? 'Maven' : 'Gradle'}.`, ...notes],
     },

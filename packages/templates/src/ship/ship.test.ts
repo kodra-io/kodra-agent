@@ -47,6 +47,51 @@ describe('detectStack', () => {
     });
   });
 
+  it('finds separate probes, the test command, and the port variable for Spring Boot', () => {
+    const d = detect({
+      'pom.xml': POM(
+        '<dependency><artifactId>spring-boot-starter-actuator</artifactId></dependency>',
+      ),
+      'src/main/resources/application.properties': 'server.port=${PORT:8080}\n',
+      'src/test/java/AppTests.java': 'class AppTests {}',
+    });
+    expect(d).toMatchObject({
+      probes: { liveness: '/actuator/health/liveness', readiness: '/actuator/health/readiness' },
+      test: 'mvn -B test',
+      portEnv: 'PORT',
+    });
+    const bare = detect({ 'pom.xml': POM() });
+    expect(bare.probes).toBeUndefined();
+    expect(bare.test).toBeNull();
+    expect(bare.portEnv).toBeNull();
+  });
+
+  it('runs tests only when there are some, and pytest only when the requirements pin it', () => {
+    const node = (test?: string) =>
+      detect({
+        'package.json': JSON.stringify({
+          scripts: { start: 'node server.js', ...(test ? { test } : {}) },
+        }),
+        'package-lock.json': '{}',
+        'server.js': 'app.listen(process.env.PORT || 3000)',
+      });
+    expect(node('vitest run').test).toBe('npm ci && npm test');
+    expect(node('echo "Error: no test specified" && exit 1').test).toBeNull();
+    expect(node().test).toBeNull();
+    expect(node().portEnv).toBe('PORT');
+
+    const python = (requirements: string) =>
+      detect({
+        'requirements.txt': requirements,
+        'main.py': 'from fastapi import FastAPI\napp = FastAPI()\n',
+        'tests/test_main.py': 'def test_ok(): pass\n',
+      });
+    expect(python('fastapi==0.1\nuvicorn==0.2\npytest==8.4.2\n').test).toBe(
+      'pip install --no-cache-dir -r requirements.txt && pytest',
+    );
+    expect(python('fastapi==0.1\nuvicorn==0.2\n').test).toBeNull();
+  });
+
   it('detects Spring Boot with Gradle and defaults to Java 21 and port 8080', () => {
     const d = detect({
       'build.gradle.kts': 'plugins { id("org.springframework.boot") version "4.1.1" }',
@@ -208,6 +253,11 @@ describe('dockerfile', () => {
     expect(text).toContain('EXPOSE 3000');
     expect(text.match(/^FROM /gm)).toHaveLength(2);
   });
+
+  it('caches Maven and Gradle dependencies between builds', () => {
+    expect(dockerfile(stacks[1] as Detection)).toContain('--mount=type=cache,target=/root/.m2');
+    expect(dockerfile(stacks[2] as Detection)).toContain('--mount=type=cache,target=/root/.gradle');
+  });
 });
 
 describe('checkDockerfile', () => {
@@ -265,6 +315,45 @@ describe('helmChart', () => {
     expect(values['livenessProbe']).toMatchObject({ tcpSocket: { port: 'http' } });
     expect(values['podSecurityContext']).not.toHaveProperty('runAsUser');
   });
+
+  it('checks liveness without dependencies, and readiness with them', () => {
+    const files = helmChart(
+      {
+        ...NODE,
+        stack: 'spring-maven',
+        java: { version: 21 },
+        healthPath: '/actuator/health',
+        probes: { liveness: '/actuator/health/liveness', readiness: '/actuator/health/readiness' },
+      },
+      { image: 'x', generatedDockerfile: true },
+    );
+    const values = parse(files['charts/api/values.yaml'] ?? '') as Record<
+      string,
+      { httpGet?: { path: string } }
+    >;
+    expect(values['startupProbe']?.httpGet?.path).toBe('/actuator/health/liveness');
+    expect(values['livenessProbe']?.httpGet?.path).toBe('/actuator/health/liveness');
+    expect(values['readinessProbe']?.httpGet?.path).toBe('/actuator/health/readiness');
+  });
+
+  it('sets the port variable from containerPort and leaves it out of the settings to fill in', () => {
+    const files = helmChart(
+      { ...NODE, portEnv: 'PORT' },
+      {
+        image: 'x',
+        generatedDockerfile: true,
+        env: { settings: ['PORT', 'LOG_LEVEL'], secrets: ['API_KEY'] },
+      },
+    );
+    const values = files['charts/api/values.yaml'] ?? '';
+    expect(values).toContain('#  - name: LOG_LEVEL');
+    expect(values).not.toContain('name: PORT');
+    expect(files['charts/api/templates/deployment.yaml']).toContain(
+      '          env:\n            - name: PORT\n              value: {{ .Values.containerPort | quote }}',
+    );
+    const plain = helmChart(NODE, { image: 'x', generatedDockerfile: true });
+    expect(plain['charts/api/templates/deployment.yaml']).not.toContain('name: PORT');
+  });
 });
 
 describe('planShip', () => {
@@ -292,6 +381,41 @@ describe('planShip', () => {
     expect(workflow.jobs['image']?.steps[0]?.uses).toMatch(/^actions\/checkout@[a-f0-9]{40}$/);
   });
 
+  it('tests before building, then pushes pr-<sha> from PRs and <sha> and appVersion from main', () => {
+    const plan = planShip(
+      { ...NODE, test: 'npm ci && npm test' },
+      { provider: 'github', repo: 'acme/api', defaultBranch: 'main' },
+    );
+    const file = plan.files.find((f) => f.path.endsWith('container.yml'));
+    const workflow = parse(file?.content ?? '') as {
+      jobs: Record<
+        string,
+        { needs?: string; env?: Record<string, string>; steps: { run?: string; if?: string }[] }
+      >;
+    };
+    expect(workflow.jobs['test']?.steps[1]?.run).toBe(
+      'docker run --rm -v "$PWD:/src" -w /src node:24.21.0-alpine3.24 sh -c "npm ci && npm test"',
+    );
+    expect(workflow.jobs['image']?.needs).toBe('test');
+    expect(workflow.jobs['image']?.env?.['SHA']).toBe(
+      '${{ github.event.pull_request.head.sha || github.sha }}',
+    );
+    const push = workflow.jobs['image']?.steps[2];
+    expect(push?.if).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository',
+    );
+    expect(push?.run).toContain('tags="pr-$SHA"');
+    expect(push?.run).toContain(`tags="$SHA $(grep '^appVersion:' charts/api/Chart.yaml`);
+    expect(file?.reason).toContain('runs the tests (`npm ci && npm test`)');
+
+    const none = planShip(NODE, { provider: 'github', repo: 'acme/api', defaultBranch: 'main' });
+    const plain = parse(
+      none.files.find((f) => f.path.endsWith('container.yml'))?.content ?? '',
+    ) as { jobs: Record<string, { needs?: string }> };
+    expect(plain.jobs['test']).toBeUndefined();
+    expect(plain.jobs['image']?.needs).toBeUndefined();
+  });
+
   it('adds GitLab CI and the project registry for a GitLab project', () => {
     const plan = planShip(NODE, {
       provider: 'gitlab',
@@ -305,6 +429,27 @@ describe('planShip', () => {
       { script?: string[] }
     >;
     expect(ci['chart-lint']?.script).toContain('helm lint charts/api');
+  });
+
+  it('runs Go tests without cgo in GitLab CI, before the build', () => {
+    const plan = planShip(
+      { ...NODE, stack: 'go', go: { pkg: '.' }, test: 'go test ./...' },
+      { provider: 'gitlab', repo: 'grp/api', defaultBranch: 'main' },
+    );
+    const ci = parse(plan.files.find((f) => f.path === '.gitlab-ci.yml')?.content ?? '') as Record<
+      string,
+      unknown
+    >;
+    expect(ci['stages']).toEqual(['test', 'build', 'package']);
+    expect(ci['test']).toEqual({
+      stage: 'test',
+      image: 'golang:1.25.14-alpine3.24',
+      variables: { CGO_ENABLED: '0' },
+      script: ['go test ./...'],
+    });
+    const build = (ci['image-build'] as { script: string[] }).script.join('\n');
+    expect(build).toContain('tags="pr-$CI_COMMIT_SHA"');
+    expect(build).toContain('tags="$CI_COMMIT_SHA $(grep');
   });
 
   it('keeps what exists and lints an existing chart', () => {
