@@ -1,8 +1,8 @@
 import { helmChart } from './chart.ts';
-import { githubWorkflow, gitlabCi } from './ci.ts';
+import { type CiTest, githubWorkflow, gitlabCi } from './ci.ts';
 import type { Detection } from './detect.ts';
 import { dockerfile, dockerignore } from './dockerfile.ts';
-import { mirrorImage, pinnedImages } from './images.ts';
+import { IMAGES, mirrorImage, pinnedImages } from './images.ts';
 
 /** Generated files with every pinned base image pulled through its mirror. */
 function withMirrors(text: string, mirrors: Readonly<Record<string, string>>): string {
@@ -57,6 +57,25 @@ export function imageRepository(o: PlanOptions, name: string): string {
   return name;
 }
 
+/** The tests, in the same pinned image the Dockerfile builds with; null when there are none. */
+function ciTest(d: Detection): CiTest | null {
+  if (!d.test) return null;
+  const java = d.java?.version ?? 21;
+  switch (d.stack) {
+    case 'spring-maven':
+      return { image: IMAGES.maven[java], run: d.test };
+    case 'spring-gradle':
+      return { image: IMAGES.gradle[java], run: d.test };
+    case 'node':
+      return { image: IMAGES.node, run: d.test };
+    case 'python':
+      return { image: IMAGES.python, run: d.test };
+    case 'go':
+      // The Alpine image has no C compiler.
+      return { image: IMAGES.golang, run: d.test, env: { CGO_ENABLED: '0' } };
+  }
+}
+
 /** What to add to the repo: only what is missing, from tested templates. */
 export function planShip(d: Detection, o: PlanOptions): ShipPlan {
   const files: ShipFile[] = [];
@@ -101,14 +120,16 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
     }
   }
 
-  const ci = { image, chartDir, defaultBranch: o.defaultBranch };
+  const test = ciTest(d);
+  const ci = { image, chartDir, defaultBranch: o.defaultBranch, test };
+  const runs = test ? `runs the tests (\`${test.run}\`), ` : '';
   if (o.provider === 'github') {
     if (d.existing.githubCi) kept.push('CI: a workflow already builds a container.');
     else
       files.push({
         path: '.github/workflows/container.yml',
         content: githubWorkflow(ci),
-        reason: `GitHub Actions: builds the image on every PR, pushes it to ${image} from ${o.defaultBranch}, and lints the chart.`,
+        reason: `GitHub Actions: ${runs}builds the image on every PR, pushes it to ${image} (\`pr-<sha>\` from PRs, \`<sha>\` and the chart's appVersion from ${o.defaultBranch}), and lints the chart.`,
       });
   } else if (o.provider === 'gitlab') {
     if (d.existing.gitlabCi) kept.push('CI: .gitlab-ci.yml exists, so it is left alone.');
@@ -116,7 +137,7 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
       files.push({
         path: '.gitlab-ci.yml',
         content: gitlabCi(ci),
-        reason: `GitLab CI: builds the image on every pipeline, pushes it to ${image} from the default branch, and lints the chart.`,
+        reason: `GitLab CI: ${runs}builds the image on every pipeline, pushes it to ${image} (\`pr-<sha>\` from other branches, \`<sha>\` and the chart's appVersion from the default branch), and lints the chart.`,
       });
   }
   const mirrors = o.mirrors ?? {};
@@ -183,7 +204,7 @@ export function shipPrBody(i: PrBodyInput): string {
       : []),
     '',
     '## Before you deploy',
-    `- The chart pulls \`${i.plan.image}\`. CI tags images with the commit SHA: deploy with \`--set image.tag=<sha>\`.`,
+    `- The chart pulls \`${i.plan.image}\`, tagged with the chart's appVersion by default. For repeatable rollouts, deploy the commit SHA tag: \`--set image.tag=<sha>\`.`,
     ...(i.onboarding && i.onboarding.secrets.length > 0
       ? [
           `- Create a Secret holding ${i.onboarding.secrets.map((s) => `\`${s}\``).join(', ')} and set \`envFromSecret\` to its name.`,

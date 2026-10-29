@@ -503,7 +503,7 @@ describe('kodra-agent onboard', () => {
       const posted = s.slack.posted.map((p) => p.text).join('\n');
       expect(posted).toContain('*Onboarding acme/node-api*: 1 risk, 1 gap.');
       expect(posted).toContain('Committed credential (github-token) at `config.js:3`');
-      expect(posted).toContain('Where do DATABASE_URL live today');
+      expect(posted).toContain('Where does DATABASE_URL live today');
 
       const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
       expect(pr?.args['title']).toBe(
