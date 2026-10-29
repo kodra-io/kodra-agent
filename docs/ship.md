@@ -4,7 +4,7 @@
 Dockerfile, a CI pipeline, and a Helm chart, all built and checked before anyone is asked
 to approve anything.
 
-**Status:** preview. Shipping needs the Docker connector with build access, and both are in preview: they work but are less tested than the stable connectors, and may change. Docker is off by default and listed under "More connectors" in the configurator and the console.
+Shipping needs the Docker connector with build access. Docker is off until you turn it on.
 
 ```sh
 kodra-agent ship acme/payments-api              # a configured GitHub repo or GitLab project

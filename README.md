@@ -9,7 +9,7 @@ for your approval. It never changes anything on its own.
 
 You pick what it can read on a static web page, download a small bundle, and run it in your
 own environment with your own model key. Shipping code (a Dockerfile, a pipeline, and a Helm
-chart in a pull request) is available as a preview.
+chart in a pull request) waits for your approval too.
 
 > **Status: early release (v0.3.12).** Ready to try with design partners. The product is
 > described in [SPEC.md](SPEC.md), and what comes next in [PLAN.md](PLAN.md).
@@ -41,16 +41,14 @@ On Kubernetes, the bundle's README has the steps (`init --target kubernetes`, th
 `helm install`). `docker compose run --rm kodra-agent doctor` checks every connector and says
 how to fix what fails.
 
-## What's stable
+## What's available
 
-| Status  | What                                                                                   |
-| ------- | -------------------------------------------------------------------------------------- |
-| Stable  | Kubernetes, Prometheus, Grafana, GitHub, GitHub Actions, GitLab, GitLab CI, Slack, AWS |
-| Stable  | Model providers: Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Ollama                  |
-| Preview | Jenkins, Databases, Docker, and the ship and onboard flows that build with Docker      |
-
-Preview means it works but is less tested, and may change. Preview connectors are off by
-default and listed under "More connectors" in the configurator and the console.
+| What       | Available                                                                              |
+| ---------- | -------------------------------------------------------------------------------------- |
+| Connectors | Kubernetes, Prometheus, Grafana, GitHub, GitHub Actions, GitLab, GitLab CI, Slack, AWS |
+| Connectors | Jenkins, Databases, Docker                                                             |
+| Models     | Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Ollama                                   |
+| Flows      | Ship and onboard (with the Docker connector's build access), and sandbox tests         |
 
 ## Try it on a throwaway cluster
 

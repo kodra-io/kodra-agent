@@ -8,7 +8,7 @@ import { RadioCards, Section, Switch, TextField } from './ui.tsx';
 
 const PROFILES: readonly Profile[] = ['starter', 'team', 'strict'];
 
-/** "Who is this agent for?": a profile sets defaults only (PLAN-v0.2 M10). */
+/** "How should changes be approved?": a profile sets defaults only (PLAN-v0.2 M10). */
 export function ProfileStep({ draft, dispatch }: StepProps) {
   const { t } = useI18n();
   return (

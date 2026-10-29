@@ -103,9 +103,8 @@ export function ReposPage({ onSignedOut, me, go }: PageProps) {
           className="flex flex-col gap-3 rounded-xl border border-line bg-raised p-5"
         >
           <h2 id="onboard-title" className="flex items-center gap-2 text-lg font-semibold">
-            {t('repos.onboard')} <Badge tone="plain">{t('repos.preview')}</Badge>
+            {t('repos.onboard')}
           </h2>
-          <p className="text-[13px] text-ink-secondary">{t('repos.previewNote')}</p>
           <div className="flex flex-wrap gap-3">
             <label htmlFor={repoId} className="flex min-w-[240px] flex-1 flex-col gap-1 text-sm">
               <span className="font-medium">{t('repos.repo')}</span>

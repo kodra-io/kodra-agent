@@ -148,6 +148,35 @@ Done when ship and onboard write a working caller for a GitHub reusable workflow
 Done when a kind test deploys, checks, and destroys a release, and shows the agent cannot touch
 anything outside the sandbox or a release it did not create.
 
+#### B3: Configurator clean-up
+
+- **Profiles named for what they do:** "Approve your own changes", "Peer review in
+  production", and "Two approvers in production". The `kodra-agent.yaml` values stay
+  `starter`, `team`, and `strict`.
+- **Ollama address examples** for the same machine (`host.docker.internal`), Compose, and
+  Kubernetes; the Compose bundle maps `host.docker.internal` on Linux.
+- **Kubernetes works with any cluster:** the AWS keys become one optional "Amazon EKS sign-in"
+  choice, named `KODRA_EKS_*`.
+- **Docker, Jenkins, and Databases** are regular connectors, out of "More connectors".
+
+Done when the configurator e2e tests cover each of these.
+
+#### B4: The official MCP server for each connector
+
+- **AWS:** `awslabs.aws-api-mcp-server` (`call_aws`, every service) replaces the EKS and
+  CloudWatch servers. Each call's risk comes from its AWS operation: reads run, writes need
+  approval, deletes are blocked. Read-only access also sets `READ_OPERATIONS_ONLY`.
+- **Remote MCP servers:** an HTTP runtime with the token as a header, through the proxy and CA
+  settings.
+- **GitLab:** GitLab's built-in MCP server, if its tools cover merge requests and pipelines;
+  else the current server stays, with the reason in `docs/connectors/gitlab.md`.
+- **Jenkins:** the Jenkins `mcp-server` plugin.
+- GitHub, Grafana, Kubernetes, and Prometheus already use the official or the only maintained
+  server; Docker and Databases stay built in.
+
+Done when every tool of each new server is classified, the real-server CI job runs them, and
+the connector docs record each decision.
+
 ---
 
 ## Status
@@ -163,6 +192,8 @@ anything outside the sandbox or a release it did not create.
 | L6 Design partners                          | Not started                               |     |
 | B1 The pipeline that fits                   | Done                                      | #91 |
 | B2 Test in a sandbox, then destroy          | Done                                      | #92 |
+| B3 Configurator clean-up                    | In review                                 |     |
+| B4 Official MCP servers                     | Not started                               |     |
 | Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules

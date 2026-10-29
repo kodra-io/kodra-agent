@@ -29,7 +29,7 @@ describe('App', () => {
 
   it('never renders a password field on any step', () => {
     renderApp();
-    for (const step of ['Who is it for', 'Start', 'Model', 'Connectors', 'Review', 'Download']) {
+    for (const step of ['Approvals', 'Start', 'Model', 'Connectors', 'Review', 'Download']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(step) }));
       expect(document.querySelectorAll('input[type="password"]')).toHaveLength(0);
     }

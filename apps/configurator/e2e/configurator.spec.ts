@@ -2,15 +2,7 @@ import { AxeBuilder } from '@axe-core/playwright';
 import { parseAgentConfig } from '@kodra-agent/connectors';
 import JSZip from 'jszip';
 import { readFile } from 'node:fs/promises';
-import {
-  connectorCard,
-  enableConnector,
-  expect,
-  fillBasics,
-  goToStep,
-  openMoreConnectors,
-  test,
-} from './fixtures.ts';
+import { connectorCard, enableConnector, expect, fillBasics, goToStep, test } from './fixtures.ts';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('./');
@@ -79,7 +71,6 @@ test('adds databases, one through a tunnel, and the bundle names their secrets',
   page,
 }) => {
   await fillBasics(page);
-  await openMoreConnectors(page);
   await enableConnector(page, 'databases', 'Databases');
   const card = connectorCard(page, 'databases');
   await expect(card.getByText('None yet. Add them here, or later in the console.')).toBeVisible();
@@ -278,24 +269,19 @@ test('coming-soon connectors are visible but cannot be enabled', async ({ page }
   await expect(teams.getByRole('switch')).toBeDisabled();
 });
 
-test('a starter profile shows preview connectors only under More connectors, all off', async ({
+test('Docker, Jenkins, and Databases are regular connectors in their categories, all off', async ({
   page,
 }) => {
-  // fillBasics keeps the default profile, starter.
   await fillBasics(page);
-  await expect(connectorCard(page, 'kubernetes')).toBeVisible();
-  for (const id of ['jenkins', 'databases', 'docker']) {
-    await expect(connectorCard(page, id)).toHaveCount(0);
-  }
-
-  await openMoreConnectors(page);
+  await expect(page.getByText('More connectors', { exact: true })).toHaveCount(0);
   for (const [id, name] of [
     ['jenkins', 'Jenkins'],
     ['databases', 'Databases'],
     ['docker', 'Docker'],
   ] as const) {
     const card = connectorCard(page, id);
-    await expect(card.getByRole('heading', { name: `${name} Preview` })).toBeVisible();
+    await expect(card.getByRole('heading', { name, exact: true })).toBeVisible();
+    await expect(card.getByText('Preview')).toHaveCount(0);
     await expect(card.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
   }
   await enableConnector(page, 'docker', 'Docker');
@@ -303,8 +289,30 @@ test('a starter profile shows preview connectors only under More connectors, all
     'aria-checked',
     'true',
   );
-  // Stable connectors carry no badge.
-  await expect(connectorCard(page, 'kubernetes').getByText('Preview')).toHaveCount(0);
+});
+
+test('Kubernetes asks only for a kubeconfig; the EKS keys are one optional choice', async ({
+  page,
+}) => {
+  await fillBasics(page);
+  await enableConnector(page, 'kubernetes', 'Kubernetes');
+  const card = connectorCard(page, 'kubernetes');
+  const eks = card.getByRole('checkbox', { name: /Include Amazon EKS sign-in \(optional\)/ });
+  await expect(eks).not.toBeChecked();
+  await expect(card.getByText('KODRA_EKS_ACCESS_KEY_ID')).toHaveCount(0);
+  await expect(card.getByText(/KODRA_K8S_AWS/)).toHaveCount(0);
+  await eks.check();
+  await expect(eks).toBeChecked();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('preview')).toContainText('${env:KODRA_EKS_ACCESS_KEY_ID}');
+  await expect(page.getByTestId('preview')).toContainText('${env:KODRA_EKS_SECRET_ACCESS_KEY}');
+});
+
+test('the Ollama address shows how to reach Ollama on the same machine', async ({ page }) => {
+  await fillBasics(page);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByRole('radio', { name: /^Ollama/ }).check();
+  await expect(page.getByText('http://host.docker.internal:11434').first()).toBeVisible();
 });
 
 test('a shared link restores the same setup', async ({ page, context }) => {
@@ -370,7 +378,7 @@ test('a crafted link cannot enable a coming-soon connector or add fields', async
 });
 
 test('has no WCAG 2.1 AA violations on any step @mobile', async ({ page }) => {
-  for (const step of ['Who is it for', 'Start', 'Model', 'Connectors', 'Review', 'Download']) {
+  for (const step of ['Approvals', 'Start', 'Model', 'Connectors', 'Review', 'Download']) {
     await goToStep(page, new RegExp(step));
     if (step === 'Connectors') {
       await connectorCard(page, 'github').getByRole('switch').click();
@@ -390,12 +398,14 @@ test('has no WCAG 2.1 AA violations on any step @mobile', async ({ page }) => {
 test('the team profile adds environments, and rules nobody can meet block the download', async ({
   page,
 }) => {
-  await expect(page.getByRole('heading', { name: 'Who is this agent for?' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'How should changes be approved?' }),
+  ).toBeVisible();
   // Starter has no Environments step until one is added.
   await expect(
     page.getByRole('navigation').getByRole('button', { name: /Environments/ }),
   ).toHaveCount(0);
-  await page.getByRole('radio', { name: /^Team/ }).check();
+  await page.getByRole('radio', { name: /^Peer review in production/ }).check();
   await expect(
     page.getByRole('navigation').getByRole('button', { name: /Environments/ }),
   ).toBeVisible();
@@ -437,8 +447,10 @@ test('the team profile adds environments, and rules nobody can meet block the do
 });
 
 test('the profile and environments steps work at phone width @mobile', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: 'Who is this agent for?' })).toBeVisible();
-  await page.getByRole('radio', { name: /^Strict/ }).check();
+  await expect(
+    page.getByRole('heading', { name: 'How should changes be approved?' }),
+  ).toBeVisible();
+  await page.getByRole('radio', { name: /^Two approvers in production/ }).check();
   await goToStep(page, /Environments/);
   await expect(
     page.getByRole('heading', { name: 'Group namespaces and repositories into environments' }),
@@ -447,7 +459,7 @@ test('the profile and environments steps work at phone width @mobile', async ({ 
   await expect(
     page.getByText('Needs 2 different approvers. The person who asked cannot approve it.'),
   ).toBeVisible();
-  for (const step of [/Who is it for/, /Environments/]) {
+  for (const step of [/Approvals/, /Environments/]) {
     await goToStep(page, step);
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

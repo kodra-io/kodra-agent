@@ -74,11 +74,13 @@ and this MCP server use it.
 - **Credentials:** the standard AWS chain: environment variables, `~/.aws` profiles including
   SSO, web identity, and instance roles. This server inherits the `AWS_*` variables for it,
   and the values of the secret ones are registered with the redactor. The connector's
-  optional secrets `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_K8S_AWS_ACCESS_KEY_ID`,
-  `KODRA_K8S_AWS_SECRET_ACCESS_KEY`), set in the console, go to the server as `AWS_*` over the
+  optional secrets `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_EKS_ACCESS_KEY_ID`,
+  `KODRA_EKS_SECRET_ACCESS_KEY`), set in the console, go to the server as `AWS_*` over the
   inherited ones, and to `aws eks get-token` when the console tests the kubeconfig. Their
   steps make an IAM user with an EKS access entry limited to `AmazonEKSViewPolicy` on the
-  connector's namespaces.
+  connector's namespaces. The configurator offers the pair as one "Amazon EKS sign-in" choice;
+  any other cluster needs only the kubeconfig. Configs made before 0.3.13 name
+  `KODRA_K8S_AWS_*`, which keeps working: a config names its own variables.
 - **Or no AWS keys at all:** the console's steps for a kubeconfig make a service account with
   a read-only Role per namespace and a kubeconfig with its token, which EKS accepts like any
   cluster.

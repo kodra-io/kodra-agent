@@ -46,7 +46,7 @@ export default defineManifest({
   id: 'jenkins',
   displayName: 'Jenkins',
   category: 'cicd',
-  status: 'preview',
+  status: 'available',
   description:
     'Read Jenkins jobs, builds, and console logs. With write access, stop a build after approval.',
   accessLevels: ['read-only', 'read-write-approved'],

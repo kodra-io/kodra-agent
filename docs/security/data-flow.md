@@ -75,7 +75,7 @@ Reviewed manifest: `bedrock@d78644cb7f87`
 - **Data:** the model input above. Nothing leaves your network unless your Ollama server does
   so itself. The strict profile example pins production to a local model this way.
 
-Reviewed manifest: `ollama@85a89abebe6d`
+Reviewed manifest: `ollama@3fb5b050c773`
 
 ## Connectors
 
@@ -150,7 +150,7 @@ Reviewed manifest: `gitlab-ci@8d810c0836c0`
 - **Console dashboard:** the listed jobs and their last result, read with the same read tool
   and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `jenkins@02f38d4402ca` (preview)
+Reviewed manifest: `jenkins@9d1eb40f4075`
 
 ### Docker
 
@@ -161,7 +161,7 @@ Reviewed manifest: `jenkins@02f38d4402ca` (preview)
 - **Writes, after approval:** builds and runs the image `ship` creates, then removes it. With
   Compose, only the one-shot `kodra-builder` service mounts the socket.
 
-Reviewed manifest: `docker@3b37b8682456` (preview)
+Reviewed manifest: `docker@41c1c3542fc5`
 
 ### Kubernetes
 
@@ -170,7 +170,7 @@ Reviewed manifest: `docker@3b37b8682456` (preview)
   account).
 - **Secrets:** `kubeconfig` (a file). EKS kubeconfigs get their token from the image's
   `aws eks get-token`, signed locally, with the AWS keys in the agent's environment or the
-  optional `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_K8S_AWS_*`), which the server
+  optional `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_EKS_*`; older configs name `KODRA_K8S_AWS_*`), which the server
   gets as `AWS_*`. They only sign that token: no AWS API is called.
 - **Reads:** pods, logs, events, deployments, and other resources in the configured
   `namespaces`. The server's config refuses Secrets, ServiceAccounts, and RBAC objects.
@@ -188,7 +188,7 @@ Reviewed manifest: `docker@3b37b8682456` (preview)
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@fa07386cf4f1`
+Reviewed manifest: `kubernetes@0c9292cf39de`
 
 ### Prometheus
 
@@ -238,7 +238,7 @@ Reviewed manifest: `aws@dde614ac59ad`
 - **Console dashboard:** each database's state, version, connections, and lag, from the same
   read tool, shown only in the console and on Overview. Not audited (nothing changes).
 
-Reviewed manifest: `databases@3d4cc9059824` (preview)
+Reviewed manifest: `databases@41bdf113f15c`
 
 ### Slack
 

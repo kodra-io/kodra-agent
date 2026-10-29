@@ -67,7 +67,7 @@ export function helpText(): string {
     '',
     'demo options (needs the Docker socket):',
     '  --provider <name> --model <id> The model to use (else spec.model from --config)',
-    '  --set <key=value>              A model setting, like baseUrl=http://ollama:11434',
+    '  --set <key=value>              A model setting, like baseUrl=http://host.docker.internal:11434',
     '  --cleanup                      Delete the demo cluster',
   ].join('\n');
 }

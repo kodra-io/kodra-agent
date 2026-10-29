@@ -286,21 +286,21 @@ test('an approver changes a connector: review the diff and the access it adds, t
   });
 });
 
-test('preview connectors carry a badge and wait under More connectors', async ({ page }) => {
+test('Databases and Jenkins are regular connectors, with no preview badge', async ({ page }) => {
   await signIn(page, APPROVER_TOKEN);
   await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click();
-  // Databases is on: its card says it is in preview.
-  await expect(page.getByRole('heading', { name: 'Databases Preview', level: 3 })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Databases', exact: true, level: 3 }),
+  ).toBeVisible();
   await expect(page.getByRole('heading', { name: 'GitLab', exact: true, level: 3 })).toBeVisible();
-  // Stable connectors are offered directly; preview ones only under More connectors.
+  // Every connector that is off is offered directly.
+  await expect(page.getByText('More connectors')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^GitHub/ })).toBeVisible();
   const jenkins = page.getByRole('button', { name: /^Jenkins/ });
-  await expect(jenkins).toBeHidden();
-  await page.getByText('More connectors').click();
   await expect(jenkins).toBeVisible();
-  await expect(jenkins).toContainText('Preview');
+  await expect(jenkins).not.toContainText('Preview');
   await jenkins.click();
-  await expect(page.getByRole('heading', { name: 'Jenkins Preview', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Jenkins', exact: true, level: 2 })).toBeVisible();
 });
 
 test('adds a database, with a tunnel; its secrets are named for it, never typed here', async ({
@@ -381,9 +381,7 @@ test('shows how to make a kubeconfig on each system, then takes one pasted', asy
 test('onboards a repo from the console: the report, then the pull request', async ({ page }) => {
   await signIn(page, APPROVER_TOKEN);
   await page.getByRole('navigation').getByRole('link', { name: 'Repos' }).click();
-  // Onboarding runs the ship flow, which is in preview.
-  await expect(page.getByRole('heading', { name: 'Onboard a repo Preview' })).toBeVisible();
-  await expect(page.getByText('uses the ship flow, which is in preview')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Onboard a repo', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox')).toHaveValue('jordan-kodra/terraform');
   await page.getByRole('button', { name: 'Analyze' }).click();
   await expect(

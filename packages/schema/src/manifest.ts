@@ -207,6 +207,11 @@ const secretSpec = z.strictObject({
   probe: z.string().regex(PROBE),
   format: z.enum(SECRET_FORMATS).optional(),
   steps,
+  /**
+   * Optional secrets that only make sense together, like the two EKS sign-in keys: the
+   * configurator offers them as one choice, labeled and described here.
+   */
+  group: z.strictObject({ key: z.string().regex(KEY), label: copy, description: copy }).optional(),
 });
 export type SecretSpec = z.infer<typeof secretSpec>;
 
@@ -636,6 +641,15 @@ export const manifestSchema = z
           code: 'custom',
           path: ['scaleLimit', 'current', 'tool'],
           message: 'must be a read tool',
+        });
+      }
+    }
+    for (const [i, s] of m.secrets.entries()) {
+      if (s.group && (s.required || (s.requiredOn ?? []).length > 0)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['secrets', i, 'group'],
+          message: 'only optional secrets can be grouped',
         });
       }
     }

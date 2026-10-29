@@ -209,7 +209,13 @@ function composeYaml(draft: AgentDraft): string {
     env_file:
       - path: .env
         required: false
-`;
+${
+  draft.model.provider === 'ollama'
+    ? `    # Ollama on this machine is http://host.docker.internal:11434; Linux needs this line for it.
+    extra_hosts: ["host.docker.internal:host-gateway"]
+`
+    : ''
+}`;
   const hardening = `    read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]

@@ -225,6 +225,34 @@ const CATEGORY_ORDER: readonly Category[] = [
   'chat',
 ];
 
+/** Optional secrets as choices: one per secret, or one per group of secrets that go together. */
+function optionalChoices(
+  secrets: SecretSpec[],
+  fileLabel: string,
+): { key: string; label: string; description: string; secrets: SecretSpec[] }[] {
+  const choices: { key: string; label: string; description: string; secrets: SecretSpec[] }[] = [];
+  for (const secret of secrets) {
+    const group = secret.group;
+    const same = group ? choices.find((c) => c.key === `group:${group.key}`) : undefined;
+    if (same) same.secrets.push(secret);
+    else if (group)
+      choices.push({
+        key: `group:${group.key}`,
+        label: group.label,
+        description: group.description,
+        secrets: [secret],
+      });
+    else
+      choices.push({
+        key: secret.key,
+        label: secret.defaultRef === 'env' ? secret.envVar : fileLabel,
+        description: secret.description,
+        secrets: [secret],
+      });
+  }
+  return choices;
+}
+
 function ConnectorCard({
   manifest,
   draft,
@@ -359,35 +387,33 @@ function ConnectorCard({
                     secrets={manifest.secrets.filter((s) => isSecretRequired(s, draft.target))}
                     access={access}
                   />
-                  {manifest.secrets
-                    .filter((s) => !isSecretRequired(s, draft.target))
-                    .map((secret) => (
-                      <label key={secret.key} className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="mt-1 accent-primary"
-                          checked={entry.optionalSecrets.includes(secret.key)}
-                          onChange={(e) => {
+                  {optionalChoices(
+                    manifest.secrets.filter((s) => !isSecretRequired(s, draft.target)),
+                    t('connectors.fileSecret'),
+                  ).map((choice) => (
+                    <label key={choice.key} className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1 accent-primary"
+                        checked={choice.secrets.every((s) => entry.optionalSecrets.includes(s.key))}
+                        onChange={(e) => {
+                          for (const s of choice.secrets) {
                             dispatch({
                               type: 'optionalSecret',
                               id: manifest.id,
-                              key: secret.key,
+                              key: s.key,
                               included: e.target.checked,
                             });
-                          }}
-                        />
-                        <span>
-                          {t('connectors.include', {
-                            name:
-                              secret.defaultRef === 'env'
-                                ? secret.envVar
-                                : t('connectors.fileSecret'),
-                          })}{' '}
-                          ({t('connectors.optional')}):{' '}
-                          <span className="text-ink-secondary">{secret.description}</span>
-                        </span>
-                      </label>
-                    ))}
+                          }
+                        }}
+                      />
+                      <span>
+                        {t('connectors.include', { name: choice.label })} (
+                        {t('connectors.optional')}):{' '}
+                        <span className="text-ink-secondary">{choice.description}</span>
+                      </span>
+                    </label>
+                  ))}
                 </>
               )}
             </Section>
