@@ -41,6 +41,12 @@ rbac:
   # Allows scaling deployments (get and update on deployments/scale), nothing else. Every
   # change still needs an approval.
   write: false
+  # B2: a namespace of its own where the agent deploys a pull request for a test, after one
+  # approval, and deletes it afterwards. Set the Kubernetes connector's `sandbox` to the same
+  # name. Never Secrets; keep only test settings in it.
+  sandbox:
+    namespace: ''
+    createNamespace: true
 
 # The web console (spec.console in kodra-agent.yaml; keep the ports the same).
 # A ClusterIP service only: reach it with kubectl port-forward. No Ingress is created.

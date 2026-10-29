@@ -141,7 +141,7 @@ Done when ship and onboard write a working caller for a GitHub reusable workflow
 - **One approval** deploys the pull request's `pr-<sha>` image with its chart as release
   `kt-<id>`, smoke-tests it, reports, and uninstalls it (or keeps it up to 24 hours).
 - **Destroys only its own releases:** recorded and labeled by the agent. Expired ones are swept
-  on startup and with the daily checks.
+  on startup and every 5 minutes while `run` is up.
 - **Test settings:** placeholders for each secret, overridden by an optional
   `<app>-sandbox-env` Secret the team creates and the agent never reads.
 
@@ -161,8 +161,8 @@ anything outside the sandbox or a release it did not create.
 | L4 Publish and release v0.4.0               | In progress: deploy and hallway test next | #86 |
 | L5 Partner zero: Kodra.io                   | Not started                               |     |
 | L6 Design partners                          | Not started                               |     |
-| B1 The pipeline that fits                   | Done                                      |     |
-| B2 Test in a sandbox, then destroy          | Not started                               |     |
+| B1 The pipeline that fits                   | Done                                      | #91 |
+| B2 Test in a sandbox, then destroy          | In review                                 |     |
 | Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules

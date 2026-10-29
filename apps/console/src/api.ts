@@ -796,7 +796,7 @@ export interface OnboardRepo {
 
 export interface OnboardJobSummary {
   id: string;
-  kind: 'analyze' | 'pr';
+  kind: 'analyze' | 'pr' | 'sandbox';
   repo: string;
   branch: string | null;
   by: string;
@@ -807,6 +807,8 @@ export interface OnboardJobSummary {
   risks: number | null;
   gaps: number | null;
   prUrl: string | null;
+  /** A sandbox test (B2): whether it passed, and until when it is kept (null: destroyed). */
+  test?: { id: string; passed: boolean; keptUntil: string | null };
 }
 
 export interface OnboardJob extends OnboardJobSummary {
@@ -814,7 +816,24 @@ export interface OnboardJob extends OnboardJobSummary {
   report: string | null;
 }
 
+/** A sandbox test that is still up (B2). */
+export interface SandboxTest {
+  id: string;
+  release: string;
+  namespace: string;
+  repo: string;
+  branch: string;
+  sha: string;
+  image: string;
+  requestedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  result?: string;
+}
+
 export interface OnboardView {
   repos: OnboardRepo[];
   jobs: OnboardJobSummary[];
+  /** The sandbox namespace, or why there is none, and its tests. */
+  sandbox?: { namespace: string | null; reason: string | null; tests: SandboxTest[] };
 }

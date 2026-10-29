@@ -1,4 +1,4 @@
-import { getConnector } from '@kodra-agent/connectors';
+import { getConnector, SANDBOX_RULES, sandboxRulesYaml } from '@kodra-agent/connectors';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -231,10 +231,54 @@ describe('kubernetes bundle', () => {
     expect(file(generateBundle(kubernetesDraft('read-write-approved')), 'rbac.yaml')).toContain(
       rule,
     );
-    expect(chart).not.toMatch(/patch|\*/);
+    // The sandbox's own Role (B2) comes after, and is tested below.
+    const watched = chart.split('{{- with .Values.rbac.sandbox }}')[0] ?? '';
+    expect(watched).toContain(rule);
+    expect(watched).not.toMatch(/patch|\*/);
     const steps = JSON.stringify(getConnector('kubernetes'));
     expect(steps).toContain('--verb=get,update --resource=deployments/scale');
     expect(steps).not.toContain('--verb=patch');
+  });
+
+  // B2: a Role in the sandbox to deploy test releases and remove them. Never Secrets.
+  it('adds the sandbox Role only with write access, with the same rules as the chart', () => {
+    const sandboxDraft = (access: 'read-only' | 'read-write-approved') =>
+      withConnector(kubernetesDraft(access), 'kubernetes', {
+        access,
+        config: { namespaces: 'api, web', sandbox: 'previews' },
+      });
+    const docs = parseAllDocuments(
+      file(generateBundle(sandboxDraft('read-write-approved')), 'rbac.yaml'),
+    ).map(
+      (d) =>
+        d.toJS() as {
+          kind: string;
+          metadata: { name: string; namespace?: string };
+          rules?: { apiGroups: string[]; resources: string[]; verbs: string[] }[];
+        },
+    );
+    const inSandbox = docs.filter(
+      (d) => d.metadata.namespace === 'previews' || d.metadata.name === 'previews',
+    );
+    expect(inSandbox.map((d) => d.kind)).toEqual(['Namespace', 'Role', 'RoleBinding']);
+    expect(inSandbox[1]?.rules).toEqual(
+      SANDBOX_RULES.map((r) => ({
+        apiGroups: [r.apiGroup],
+        resources: r.resources,
+        verbs: r.verbs,
+      })),
+    );
+    expect(JSON.stringify(docs)).not.toContain('secrets');
+    expect(file(generateBundle(sandboxDraft('read-only')), 'rbac.yaml')).not.toContain('previews');
+
+    const chart = readFileSync(
+      fileURLToPath(new URL('../../../charts/kodra-agent/templates/rbac.yaml', import.meta.url)),
+      'utf8',
+    );
+    expect(chart).toContain(sandboxRulesYaml(2));
+    expect(JSON.stringify(getConnector('kubernetes'))).toContain(
+      JSON.stringify(sandboxRulesYaml(2)).slice(1, -1),
+    );
   });
 
   // L3: the demo is one-shot (a profile), read-only, with this bundle's model and config.

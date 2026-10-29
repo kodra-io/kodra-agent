@@ -85,7 +85,7 @@ export interface ShipResult {
   prUrl?: string;
 }
 
-interface Source {
+export interface Source {
   provider: SourceProvider;
   /** As configured, e.g. acme/payments-api. */
   repo: string;
@@ -96,10 +96,10 @@ interface Source {
 const REPO = /^[\w.-]+(\/[\w.-]+)+$/;
 const BUILD_TIMEOUT_MS = 20 * 60_000;
 
-const settingList = (settings: Readonly<Record<string, unknown>>, key: string) =>
+export const settingList = (settings: Readonly<Record<string, unknown>>, key: string) =>
   Array.isArray(settings[key]) ? (settings[key] as unknown[]).map(String) : [];
 
-function findSource(runtime: Runtime, target: string): Source | null {
+export function findSource(runtime: Runtime, target: string): Source | null {
   for (const input of runtime.inputs) {
     const id = input.component.id;
     if (id !== 'github' && id !== 'gitlab') continue;
@@ -508,7 +508,12 @@ function slackSummary(repo: string, a: Analysis): string {
 }
 
 /** Posts to the agent's Slack channel when Slack is configured. A failure only warns. */
-async function postToSlack(ctx: Context, runtime: Runtime, text: string): Promise<void> {
+export async function postToSlack(
+  ctx: Context,
+  runtime: Runtime,
+  text: string,
+  what = 'the risks and questions',
+): Promise<void> {
   const input = runtime.inputs.find((i) => i.component.id === 'slack');
   const botToken = input?.secrets['botToken'];
   const appToken = input?.secrets['appToken'];
@@ -521,7 +526,7 @@ async function postToSlack(ctx: Context, runtime: Runtime, text: string): Promis
       proxyOptions(runtime.network),
     );
     await slack.api.postMessage({ channel, text: ctx.redactor.redact(text) });
-    ctx.term.out(`Posted the risks and questions to Slack (${channel}).`);
+    ctx.term.out(`Posted ${what} to Slack (${channel}).`);
   } catch (error) {
     ctx.term.err(
       `Could not post to Slack: ${ctx.redactor.redact(error instanceof Error ? error.message : String(error))}`,

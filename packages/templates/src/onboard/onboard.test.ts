@@ -261,9 +261,11 @@ describe('the chart and PR with onboarding', () => {
     expect(values).toContain(
       'kubectl create secret generic api-env --from-literal=DATABASE_URL=... --from-literal=STRIPE_API_KEY=...',
     );
+    // envFromSecret first, then the sandbox's sources (B2), so a later one wins a clash.
     expect(chart['charts/api/templates/deployment.yaml']).toContain(
-      '{{- with .Values.envFromSecret }}\n          envFrom:\n            - secretRef:\n                name: {{ . }}',
+      '{{- if or .Values.envFromSecret .Values.extraEnvFrom }}\n          envFrom:\n            {{- with .Values.envFromSecret }}\n            - secretRef:\n                name: {{ . }}\n            {{- end }}\n            {{- with .Values.extraEnvFrom }}',
     );
+    expect(parse(values)).toMatchObject({ extraEnvFrom: [] });
   });
 
   it('adds the onboarding section and the Secret step to the PR description', () => {

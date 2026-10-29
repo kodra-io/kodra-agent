@@ -11,6 +11,16 @@ import type { AccessCheck, KubernetesClient, KubernetesFactory } from './kuberne
 export const BROAD_HINT =
   'Make a kubeconfig for a read-only service account with the steps under the kubeconfig, or set allowBroadCredentials: true on the connector to keep this one (the agent then warns at every start).';
 
+/**
+ * The namespaces where reading Secrets is too much: the watched ones and the sandbox (B2),
+ * where the agent deploys but must never read the team's test Secret.
+ */
+export function secretNamespaces(settings: Readonly<Record<string, unknown>>): string[] {
+  const watched = Array.isArray(settings['namespaces']) ? settings['namespaces'].map(String) : [];
+  const sandbox = typeof settings['sandbox'] === 'string' ? settings['sandbox'].trim() : '';
+  return sandbox && !watched.includes(sandbox) ? [...watched, sandbox] : watched;
+}
+
 /** What is too broad about a kubeconfig, in plain words; empty when its reach is right. */
 export async function kubernetesScopeProblems(
   client: KubernetesClient,
@@ -61,9 +71,7 @@ export async function startupScopeProblem(
   timeoutMs: number,
 ): Promise<{ refused: string } | { kept: string[] } | null> {
   if (comp.manifest.credentialScope !== 'kubernetes-rbac') return null;
-  const namespaces = Array.isArray(comp.settings['namespaces'])
-    ? comp.settings['namespaces'].map(String)
-    : [];
+  const namespaces = secretNamespaces(comp.settings);
   let problems: string[] | null;
   try {
     const id = secrets['awsAccessKeyId'];

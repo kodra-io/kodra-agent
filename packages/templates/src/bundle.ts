@@ -1,4 +1,4 @@
-import { getConnector, getModelProvider } from '@kodra-agent/connectors';
+import { getConnector, getModelProvider, sandboxRulesYaml } from '@kodra-agent/connectors';
 import {
   allApprovers,
   CONSOLE_ADMIN,
@@ -361,6 +361,37 @@ subjects:
     name: ${q(name)}
     namespace: ${AGENT_NAMESPACE}`,
   );
+  // B2: the sandbox, only with write access. The agent deploys test releases there and deletes
+  // them; it never reads Secrets anywhere.
+  const sandbox = (k8s.config['sandbox'] ?? '').trim();
+  if (sandbox && k8s.access === 'read-write-approved') {
+    docs.push(`apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${q(sandbox)}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${q(`${name}-sandbox`)}
+  namespace: ${q(sandbox)}
+rules:
+${sandboxRulesYaml(2)}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${q(`${name}-sandbox`)}
+  namespace: ${q(sandbox)}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${q(`${name}-sandbox`)}
+subjects:
+  - kind: ServiceAccount
+    name: ${q(name)}
+    namespace: ${AGENT_NAMESPACE}`);
+  }
   return `# Least-privilege access for ${name}: one Role per namespace, nothing cluster-wide.
 # Access level: ${k8s.access}.
 ${docs.join('\n---\n')}

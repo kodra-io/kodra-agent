@@ -41,3 +41,61 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 {{- end }}
 {{- end }}
+{{- with .Values.rbac.sandbox }}
+{{- if and $.Values.rbac.create .namespace }}
+{{- if or (has .namespace $.Values.rbac.namespaces) (has .namespace (list "default" "kube-system" "kube-public" "kube-node-lease")) }}
+{{- fail "rbac.sandbox.namespace must be a namespace of its own: not one in rbac.namespaces, and not default or kube-*" }}
+{{- end }}
+{{- if .createNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .namespace }}
+  labels:
+    {{- include "kodra-agent.labels" $ | nindent 4 }}
+{{- end }}
+---
+# B2: test releases in the sandbox, and nothing else. Never Secrets: Helm keeps its records in
+# ConfigMaps. Same rules as the bundle's rbac.yaml (packages/connectors/src/kubernetes/sandbox.ts).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kodra-agent.fullname" $ }}-sandbox
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "kodra-agent.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kodra-agent.fullname" $ }}-sandbox
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "kodra-agent.labels" $ | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kodra-agent.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "kodra-agent.fullname" $ }}-sandbox
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}

@@ -61,6 +61,7 @@ pnpm demo:slack                               # same cluster + a local Alertmana
 pnpm --filter @kodra-agent/agent cli run --config <file>   # the service: Slack, alert monitoring, /healthz and /readyz
 pnpm --filter @kodra-agent/agent cli onboard <repo|dir> --config <file>   # report on a repo, then ship it with the report
 pnpm --filter @kodra-agent/agent cli check --config <file>   # run the read-only checks once and print the digest (--post to Slack)
+pnpm --filter @kodra-agent/agent cli sandbox deploy <repo> --config <file>   # test a branch in the sandbox, then destroy it (list, destroy, sweep)
 ```
 
 - pnpm enforces a minimum release age: a just-published version fails install. Pin the
@@ -82,6 +83,7 @@ pnpm --filter @kodra-agent/agent cli check --config <file>   # run the read-only
   - `observability.md`: audit hash chain, metrics, tracing, the chart's monitoring
   - `checks.md`: scheduled checks and the digest
   - `ship.md`: ship, onboard, onboard from the console
+  - `sandbox.md`: sandbox tests, Helm with the ConfigMap driver, ownership labels, the sweep
   - `packaging.md`: versions and releases, EKS tokens, CI pinning, Windows audit paths
   - `evals.md`: scenarios, `pnpm eval`, deterministic checks and reports, `kodra-agent demo`
 

@@ -7,6 +7,7 @@ import {
   type OnboardJob,
   type OnboardJobSummary,
   type OnboardView,
+  type SandboxTest,
 } from './api.ts';
 import { useI18n, type MessageKey } from './i18n.tsx';
 import { Icon } from './icons.tsx';
@@ -24,6 +25,9 @@ const secondary =
   'inline-flex h-10 items-center gap-2 rounded-lg border border-line-strong bg-raised px-4 font-medium hover:bg-muted disabled:opacity-50';
 const input = 'h-10 w-full rounded-lg border border-line-strong bg-surface px-3';
 
+/** How long a sandbox test stays up after it ran, in minutes (0: destroyed right away). */
+const KEEP_OPTIONS = [0, 60, 120, 480, 1440] as const;
+
 /**
  * Onboarding from the console (M30a): pick a configured repo, analyze it (the report, posted
  * to Slack), then open the pull request with its Dockerfile, CI, chart, and report. Pushing
@@ -37,8 +41,11 @@ export function ReposPage({ onSignedOut, me, go }: PageProps) {
   const [branch, setBranch] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [keep, setKeep] = useState<number>(0);
   const repoId = useId();
   const branchId = useId();
+  const keepId = useId();
+  const sandbox = data?.sandbox;
 
   const running = data?.jobs.some((j) => j.state === 'running') ?? false;
   useEffect(() => {
@@ -50,10 +57,14 @@ export function ReposPage({ onSignedOut, me, go }: PageProps) {
   }, [running, reload]);
 
   const chosen = data?.repos.find((r) => r.repo === repo) ?? data?.repos[0];
-  const start = (kind: 'analyze' | 'pr') => {
+  const start = (kind: 'analyze' | 'pr' | 'sandbox') => {
     if (!chosen) return;
     setProblem(null);
-    post<{ id: string }>(`onboard/${kind}`, { repo: chosen.repo, branch })
+    post<{ id: string }>(`onboard/${kind}`, {
+      repo: chosen.repo,
+      branch,
+      ...(kind === 'sandbox' ? { keepMinutes: keep } : {}),
+    })
       .then(({ id }) => {
         setOpen(id);
         reload();
@@ -158,7 +169,56 @@ export function ReposPage({ onSignedOut, me, go }: PageProps) {
               {t('repos.openPr')}
             </button>
           </div>
+          <div className="mt-2 flex flex-col gap-3 border-t border-line pt-4">
+            <h3 className="font-semibold">{t('repos.sandbox')}</h3>
+            <p className="text-sm text-ink-secondary">
+              {sandbox?.namespace
+                ? t('repos.sandboxHow', { namespace: sandbox.namespace })
+                : t('repos.sandboxOff')}
+            </p>
+            {sandbox?.namespace && (
+              <div className="flex flex-wrap items-end gap-3">
+                <label htmlFor={keepId} className="flex min-w-[200px] flex-col gap-1 text-sm">
+                  <span className="font-medium">{t('repos.keep')}</span>
+                  <select
+                    id={keepId}
+                    className={input}
+                    value={keep}
+                    onChange={(e) => {
+                      setKeep(Number(e.target.value));
+                    }}
+                  >
+                    {KEEP_OPTIONS.map((m) => (
+                      <option key={m} value={m}>
+                        {m === 0
+                          ? t('repos.keepNone')
+                          : t('repos.keepHours', { hours: String(m / 60) })}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className={secondary}
+                  disabled={!me.canApprove || running}
+                  onClick={() => {
+                    start('sandbox');
+                  }}
+                >
+                  {t('repos.test')}
+                </button>
+              </div>
+            )}
+          </div>
         </section>
+      )}
+      {sandbox && sandbox.tests.length > 0 && (
+        <SandboxTests
+          tests={sandbox.tests}
+          canDestroy={me.canApprove}
+          onDone={reload}
+          onSignedOut={onSignedOut}
+        />
       )}
       {data && data.jobs.length > 0 && (
         <section aria-labelledby="jobs-title" className="mt-6">
@@ -240,7 +300,7 @@ function JobRow({
         <span className="flex flex-wrap items-center gap-2">
           {job.state === 'running' && <Icon name="spinner" size={16} className="animate-spin" />}
           <Mono>{job.repo}</Mono>
-          <span>{t(job.kind === 'pr' ? 'repos.kind.pr' : 'repos.kind.analyze')}</span>
+          <span>{t(`repos.kind.${job.kind}` as MessageKey)}</span>
           <Badge tone={tone}>
             <span>{t(`repos.state.${job.state}` as MessageKey)}</span>
           </Badge>
@@ -264,9 +324,9 @@ function JobRow({
           {t('repos.prLink')}
         </a>
       )}
-      {job.kind === 'pr' && job.state === 'running' && (
+      {job.kind !== 'analyze' && job.state === 'running' && (
         <p className="mt-2 text-sm">
-          {t('repos.waiting')}{' '}
+          {t(job.kind === 'sandbox' ? 'repos.waitingTest' : 'repos.waiting')}{' '}
           <button type="button" className="font-semibold underline" onClick={onApprovals}>
             {t('repos.toApprovals')}
           </button>
@@ -288,5 +348,81 @@ function JobRow({
         </div>
       )}
     </li>
+  );
+}
+
+/** The sandbox tests that are still up, each with Destroy now (B2). */
+function SandboxTests({
+  tests,
+  canDestroy,
+  onDone,
+  onSignedOut,
+}: {
+  tests: SandboxTest[];
+  canDestroy: boolean;
+  onDone: () => void;
+  onSignedOut: () => void;
+}) {
+  const { t, time } = useI18n();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const destroy = (id: string) => {
+    setBusy(id);
+    setProblem(null);
+    post('sandbox/destroy', { id })
+      .then(onDone)
+      .catch((e: unknown) => {
+        if (e instanceof SignedOut) onSignedOut();
+        else setProblem(e instanceof ApiError ? e.message : String(e));
+      })
+      .finally(() => {
+        setBusy(null);
+      });
+  };
+  return (
+    <section aria-labelledby="sandbox-title" className="mt-6">
+      <h2 id="sandbox-title" className="text-lg font-semibold">
+        {t('repos.sandboxTests')}
+      </h2>
+      {problem && (
+        <p role="alert" className="mt-2 text-sm font-semibold text-bad-text">
+          {problem}
+        </p>
+      )}
+      <ul className="mt-3 flex flex-col gap-3">
+        {tests.map((test) => (
+          <li
+            key={test.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-raised p-4"
+          >
+            <span className="flex flex-wrap items-center gap-2">
+              <Mono>{test.release}</Mono>
+              <span>
+                {test.repo} ({test.branch} @ {test.sha.slice(0, 7)})
+              </span>
+              {test.result && (
+                <Badge tone={test.result === 'passed' ? 'ok' : 'bad'}>
+                  <span>{t(test.result === 'passed' ? 'repos.passed' : 'repos.failed')}</span>
+                </Badge>
+              )}
+              <span className="text-sm text-ink-secondary">
+                {t('repos.until', { time: time(test.expiresAt) })}
+              </span>
+            </span>
+            <button
+              type="button"
+              className={secondary}
+              disabled={!canDestroy || busy !== null}
+              onClick={() => {
+                destroy(test.id);
+              }}
+            >
+              {busy === test.id && <Icon name="spinner" size={16} className="animate-spin" />}
+              {t('repos.destroy')}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

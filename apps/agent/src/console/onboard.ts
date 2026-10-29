@@ -5,6 +5,14 @@ import { ship, type ShipHooks, type ShipResult } from '../commands/ship.ts';
 import type { Context } from '../context.ts';
 import { writePrivateFile } from '../env-file.ts';
 import type { Runtime } from '../runtime.ts';
+import {
+  MAX_KEEP_MS,
+  sandboxDeploy,
+  sandboxDestroy,
+  sandboxList,
+  sandboxSetup,
+} from '../sandbox/sandbox.ts';
+import type { SandboxTest } from '../sandbox/state.ts';
 
 /**
  * Onboarding from the console (M30a): analyze a configured repo (the report, posted to
@@ -14,7 +22,8 @@ import type { Runtime } from '../runtime.ts';
  * progress only: redacted, never a secret), so they can be opened again after a restart.
  */
 
-export type JobKind = 'analyze' | 'pr';
+/** `sandbox` deploys a branch to the sandbox, tests it, and destroys it (B2). */
+export type JobKind = 'analyze' | 'pr' | 'sandbox';
 export type JobState = 'running' | 'done' | 'failed';
 
 export interface OnboardJob {
@@ -33,6 +42,8 @@ export interface OnboardJob {
   risks: number | null;
   gaps: number | null;
   prUrl: string | null;
+  /** A sandbox test: whether it passed, and until when it is kept (null: destroyed). */
+  test?: { id: string; passed: boolean; keptUntil: string | null };
 }
 
 /** A configured GitHub repo or GitLab project the console can onboard. */
@@ -101,6 +112,25 @@ export class OnboardJobs {
     return this.jobs.map((j) => ({ ...j, log: undefined, report: undefined }));
   }
 
+  /** The sandbox (B2): its namespace, or why there is none, and the tests that are up. */
+  async sandbox(): Promise<{
+    namespace: string | null;
+    reason: string | null;
+    tests: SandboxTest[];
+  }> {
+    const setup = sandboxSetup(this.deps.runtime);
+    return {
+      namespace: setup.ok ? setup.setup.namespace : null,
+      reason: setup.ok ? null : setup.reason,
+      tests: await sandboxList(this.deps.runtime),
+    };
+  }
+
+  /** Destroys one of the agent's own sandbox tests now. */
+  destroy(id: string, by: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+    return sandboxDestroy(this.deps.ctx, this.deps.runtime, id, by);
+  }
+
   get(id: string): OnboardJob | null {
     return this.jobs.find((j) => j.id === id) ?? null;
   }
@@ -116,8 +146,10 @@ export class OnboardJobs {
     repoInput: string,
     branch: string | null,
     by: string,
+    keepMs = 0,
   ): { job: OnboardJob } | { error: string; status: number } {
-    if (this.running) return { status: 409, error: 'another onboarding is running; wait for it' };
+    if (this.running)
+      return { status: 409, error: 'another onboarding or sandbox test is running; wait for it' };
     const repo = this.repos().find((r) => r.repo.toLowerCase() === repoInput.toLowerCase());
     if (!repo) {
       return {
@@ -131,6 +163,13 @@ export class OnboardJobs {
         status: 400,
         error: `the ${repo.provider === 'github' ? 'GitHub' : 'GitLab'} connector is read-only; give it read-write-approved access in Settings, Connectors to open a pull request`,
       };
+    }
+    if (kind === 'sandbox') {
+      const setup = sandboxSetup(this.deps.runtime);
+      if (!setup.ok) return { status: 400, error: setup.reason };
+      if (!Number.isInteger(keepMs) || keepMs < 0 || keepMs > MAX_KEEP_MS) {
+        return { status: 400, error: 'a test can be kept for at most 24 hours' };
+      }
     }
     if (branch !== null && !/^[\w./-]{1,200}$/.test(branch)) {
       return { status: 400, error: 'that is not a branch name' };
@@ -153,22 +192,65 @@ export class OnboardJobs {
       prUrl: null,
     };
     this.jobs = [job, ...this.jobs].slice(0, MAX_JOBS);
-    this.running = this.run(job).finally(() => {
+    this.running = (kind === 'sandbox' ? this.test(job, keepMs) : this.run(job)).finally(() => {
       this.running = null;
     });
     void this.save();
     return { job };
   }
 
-  private async run(job: OnboardJob): Promise<void> {
-    const ctx = this.deps.ctx;
-    const redactor = ctx.redactor;
-    const line = (text: string) => {
+  /** The job's own log, redacted. */
+  private logger(job: OnboardJob): (text: string) => void {
+    const redactor = this.deps.ctx.redactor;
+    return (text: string) => {
       for (const l of redactor.redact(text).split('\n')) {
         job.log.push(l);
         if (job.log.length > MAX_LOG) job.log.splice(0, job.log.length - MAX_LOG);
       }
     };
+  }
+
+  private async finish(job: OnboardJob, code: number): Promise<void> {
+    job.state = code === 0 ? 'done' : 'failed';
+    job.endedAt = (this.deps.now ?? (() => new Date()))().toISOString();
+    await this.save();
+  }
+
+  private async test(job: OnboardJob, keepMs: number): Promise<void> {
+    const ctx = this.deps.ctx;
+    const line = this.logger(job);
+    let code = 1;
+    try {
+      code = await sandboxDeploy(
+        {
+          configPath: this.deps.configPath,
+          repo: job.repo,
+          branch: job.branch ?? undefined,
+          keepMs,
+        },
+        { ...ctx, term: { out: line, err: line }, prompter: null },
+        {
+          runtime: this.deps.runtime,
+          approvals: this.deps.approvals,
+          requestedBy: job.by,
+          ...(this.deps.post ? { post: this.deps.post } : {}),
+          onResult: (r) => {
+            job.report = ctx.redactor.redact(r.report);
+            job.test = { id: r.id, passed: r.passed, keptUntil: r.keptUntil ?? null };
+            void this.save();
+          },
+        },
+      );
+    } catch (error) {
+      line(`Failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await this.finish(job, code);
+  }
+
+  private async run(job: OnboardJob): Promise<void> {
+    const ctx = this.deps.ctx;
+    const redactor = ctx.redactor;
+    const line = this.logger(job);
     const hooks: ShipHooks = {
       runtime: this.deps.runtime,
       approvals: this.deps.approvals,
@@ -202,9 +284,7 @@ export class OnboardJobs {
     } catch (error) {
       line(`Failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    job.state = code === 0 ? 'done' : 'failed';
-    job.endedAt = (this.deps.now ?? (() => new Date()))().toISOString();
-    await this.save();
+    await this.finish(job, code);
   }
 
   private async save(): Promise<void> {

@@ -71,3 +71,4 @@ export function parseAgentConfig(text: string): ParseResult {
 export function dependencyIssues(enabledIds: readonly string[]): DependencyIssue[] {
   return checkDependencies(connectors, enabledIds);
 }
+export { NOT_A_SANDBOX, SANDBOX_RULES, sandboxRulesYaml } from './kubernetes/sandbox.ts';
