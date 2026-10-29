@@ -72,5 +72,10 @@ release in the same namespace, or another agent's test, is never touched.
 stopped in the middle of a test, the sweep also removes a release of its own that is not in
 `sandbox.json` once it is more than 24 hours old.
 
+Each test is removed from the namespace it was made in. If you change or clear the `sandbox`
+setting while tests are still up, the sweep still removes them there when their time is up,
+as long as the Kubernetes connector stays at read-write-approved access and its Role in that
+namespace is still in place.
+
 Every step is in the audit log: the request, the decision, the install, the removal, and the
 result.

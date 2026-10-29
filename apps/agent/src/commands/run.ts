@@ -31,7 +31,7 @@ import { People } from '../console/people.ts';
 import { PolicyGate } from '../console/policy-gate.ts';
 import { consoleApi } from '../console/routes.ts';
 import { SettingsStore } from '../console/settings.ts';
-import { sandboxSetup, sandboxSweep } from '../sandbox/sandbox.ts';
+import { sandboxCanClean, sandboxSweep } from '../sandbox/sandbox.ts';
 import { SessionRegistry, startConsoleServer, type ConsoleAccount } from '../console/server.ts';
 import { CONSOLE_TOKEN_ENV } from '../console/token.ts';
 import type { Context } from '../context.ts';
@@ -293,8 +293,9 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     });
     if (checks.schedules.length > 0) checks.start();
 
-    // Sandbox tests (B2): destroy what is past its time, at startup and every few minutes.
-    if (sandboxSetup(runtime).ok) {
+    // Sandbox tests (B2): destroy what is past its time, at startup and every few minutes,
+    // also when the sandbox setting was cleared while tests were still up.
+    if (sandboxCanClean(runtime)) {
       const sweep = () => {
         if (sweepBusy) return;
         sweepBusy = true;

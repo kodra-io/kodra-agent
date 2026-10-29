@@ -73,12 +73,7 @@ export function sandboxSetup(
       reason: 'Testing in a sandbox needs the Kubernetes connector at read-write-approved access.',
     };
   }
-  const own = runtime.env['KODRA_AGENT_SELF_NAMESPACE'] ?? AGENT_NAMESPACE;
-  if (
-    NOT_A_SANDBOX.includes(namespace) ||
-    namespace === own ||
-    settingList(settings, 'namespaces').includes(namespace)
-  ) {
+  if (!mayBeSandbox(runtime, input, namespace)) {
     return {
       ok: false,
       reason: `${namespace} cannot be the sandbox: it must be a namespace of its own, not one the agent watches, its own, default, or kube-*.`,
@@ -89,6 +84,34 @@ export function sandboxSetup(
     ok: true,
     setup: { namespace, pullSecret: typeof pull === 'string' && pull ? pull : null, input },
   };
+}
+
+/** A namespace of its own: not one the agent watches, its own, default, or kube-*. */
+function mayBeSandbox(runtime: Runtime, input: ConnectorInput, namespace: string): boolean {
+  const own = runtime.env['KODRA_AGENT_SELF_NAMESPACE'] ?? AGENT_NAMESPACE;
+  return !(
+    NOT_A_SANDBOX.includes(namespace) ||
+    namespace === own ||
+    settingList(input.component.settings, 'namespaces').includes(namespace)
+  );
+}
+
+/**
+ * What cleanup works with. Tests are removed from the namespace they were made in, so they are
+ * still cleaned up after the sandbox setting is changed or cleared; `namespace` is '' then.
+ * Writes stay off when the connector is gone or no longer read-write-approved.
+ */
+function cleanupSetup(runtime: Runtime): SandboxSetup | null {
+  const checked = sandboxSetup(runtime);
+  if (checked.ok) return checked.setup;
+  const input = runtime.inputs.find((i) => i.component.id === 'kubernetes');
+  if (!input || input.access !== 'read-write-approved') return null;
+  return { namespace: '', pullSecret: null, input };
+}
+
+/** Whether `run` sweeps: there is a sandbox, or tests may still be up in an earlier one. */
+export function sandboxCanClean(runtime: Runtime): boolean {
+  return cleanupSetup(runtime) !== null;
 }
 
 /** What a sandbox operation works with: Helm and the cluster, both with the connector's credentials. */
@@ -147,13 +170,14 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /** Our releases in the sandbox, found by our labels (Helm's JSON has no labels itself). */
 async function ownReleases(
   ops: Ops,
+  namespace: string,
   id?: string,
 ): Promise<{ name: string; updated: number }[] | { error: string }> {
   const r = await ops.helm.run(
     [
       'list',
       '-n',
-      ops.setup.namespace,
+      namespace,
       // Every state a test can be left in (Helm 4 has no --all).
       ...LIST_STATES,
       '-l',
@@ -210,12 +234,16 @@ async function auditTool(
  */
 async function destroyTest(
   ops: Ops,
-  test: Pick<SandboxTest, 'id' | 'release'>,
+  test: Pick<SandboxTest, 'id' | 'release' | 'namespace'>,
   why: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const task = `sandbox-${test.id}`;
-  const ns = ops.setup.namespace;
-  const owned = await ownReleases(ops, test.id);
+  // Where it was made: the sandbox, unless the setting changed since.
+  const ns = test.namespace || ops.setup.namespace;
+  if (!ns || !mayBeSandbox(ops.runtime, ops.setup.input, ns)) {
+    return { ok: false, reason: `the agent may not clean up in ${ns || 'no namespace'}` };
+  }
+  const owned = await ownReleases(ops, ns, test.id);
   if ('error' in owned) return { ok: false, reason: owned.error };
   if (owned.some((r) => r.name === test.release)) {
     const r = await ops.helm.run(
@@ -711,9 +739,14 @@ async function withOps<T>(
   runtime: Runtime,
   run: (ops: Ops) => Promise<T>,
 ): Promise<T | { error: string }> {
-  const checked = sandboxSetup(runtime);
-  if (!checked.ok) return { error: checked.reason };
-  const ops = await openOps(ctx, runtime, checked.setup);
+  const setup = cleanupSetup(runtime);
+  if (!setup) {
+    return {
+      error:
+        'Cleaning up a sandbox test needs the Kubernetes connector at read-write-approved access.',
+    };
+  }
+  const ops = await openOps(ctx, runtime, setup);
   try {
     return await run(ops);
   } finally {
@@ -754,8 +787,11 @@ export async function sandboxSweep(
 ): Promise<{ destroyed: string[]; problems: string[] }> {
   const destroyed: string[] = [];
   const problems: string[] = [];
-  // No sandbox, nothing to sweep.
-  if (!sandboxSetup(runtime).ok) return { destroyed, problems };
+  // No sandbox and no tests left in an earlier one: nothing to sweep.
+  const statePath = sandboxStatePath(runtime.config.spec.audit.path);
+  if (!sandboxSetup(runtime).ok && (await readTests(statePath)).length === 0) {
+    return { destroyed, problems };
+  }
   const result = await withOps(ctx, runtime, async (ops) => {
     const tests = await readTests(ops.statePath);
     for (const t of tests.filter((x) => Date.parse(x.expiresAt) <= now)) {
@@ -763,8 +799,11 @@ export async function sandboxSweep(
       if (gone.ok) destroyed.push(t.release);
       else problems.push(`${t.release}: ${gone.reason}`);
     }
+    // Left-overs are looked for in the current sandbox only.
+    const ns = ops.setup.namespace;
+    if (!ns) return;
     const known = new Set(tests.map((t) => t.release));
-    const releases = await ownReleases(ops);
+    const releases = await ownReleases(ops, ns);
     if ('error' in releases) {
       problems.push(releases.error);
       return;
@@ -773,17 +812,21 @@ export async function sandboxSweep(
     for (const r of releases.filter(
       (x) => RELEASE.test(x.name) && !known.has(x.name) && old(x.updated),
     )) {
-      const gone = await destroyTest(ops, { id: r.name.slice(3), release: r.name }, 'left over');
+      const gone = await destroyTest(
+        ops,
+        { id: r.name.slice(3), release: r.name, namespace: ns },
+        'left over',
+      );
       if (gone.ok) destroyed.push(r.name);
       else problems.push(`${r.name}: ${gone.reason}`);
     }
     // Placeholders whose deploy never got as far as a release.
-    const cms = await ops.cluster.configMaps(ops.setup.namespace, selector(ops)).catch(() => []);
+    const cms = await ops.cluster.configMaps(ns, selector(ops)).catch(() => []);
     for (const cm of cms) {
       const release = cm.name.replace(/-placeholders$/, '');
       if (cm.name === release || !RELEASE.test(release) || known.has(release)) continue;
       if (!old(Date.parse(cm.created))) continue;
-      await ops.cluster.deleteConfigMap(ops.setup.namespace, cm.name).catch((error: unknown) => {
+      await ops.cluster.deleteConfigMap(ns, cm.name).catch((error: unknown) => {
         problems.push(`${cm.name}: ${message(error)}`);
       });
     }

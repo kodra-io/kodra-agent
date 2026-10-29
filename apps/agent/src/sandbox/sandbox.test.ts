@@ -485,6 +485,73 @@ describe('sandbox destroy and sweep (B2)', () => {
     }
   });
 
+  it('still sweeps tests in the namespace they were made in after the setting is cleared', async () => {
+    const helm = fakeHelm({
+      releases: [
+        { name: 'kt-44444444', labels: { ...ours, 'kodra.io/test': '44444444' }, updated: old },
+        { name: 'kt-55555555', labels: { ...ours, 'kodra.io/test': '55555555' }, updated: old },
+      ],
+    });
+    const s = await setup({ helm, kubeConfig: 'namespaces: [api]' });
+    const entry = (id: string, namespace: string) => ({
+      id,
+      release: `kt-${id}`,
+      namespace,
+      repo: 'acme/node-api',
+      branch: 'main',
+      sha: 'x',
+      image: 'i',
+      requestedBy: 't',
+      createdAt: '',
+      expiresAt: '2026-10-01T00:00:00Z',
+    });
+    // The second entry names a watched namespace: never a place the agent cleans up.
+    await writeFile(
+      join(s.dir, 'sandbox.json'),
+      JSON.stringify([entry('44444444', 'old-sandbox'), entry('55555555', 'api')]),
+    );
+    const runtime = await runtimeOf(s);
+    try {
+      expect(await sandboxSweep(s.t.ctx, runtime)).toEqual({
+        destroyed: ['kt-44444444'],
+        problems: ['kt-55555555: the agent may not clean up in api'],
+      });
+      const uninstall = helm.calls.find((c) => c.args[0] === 'uninstall');
+      expect(uninstall?.args).toEqual(expect.arrayContaining(['kt-44444444', '-n', 'old-sandbox']));
+      expect(helm.releases.map((r) => r.name)).toEqual(['kt-55555555']);
+      expect((await readTests(join(s.dir, 'sandbox.json'))).map((t) => t.id)).toEqual(['55555555']);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it('cleans up nothing when the connector is no longer read-write-approved', async () => {
+    const s = await setup({ access: 'read-only', kubeConfig: 'namespaces: [api]' });
+    await writeFile(
+      join(s.dir, 'sandbox.json'),
+      JSON.stringify([
+        {
+          id: '66666666',
+          release: 'kt-66666666',
+          namespace: 'old-sandbox',
+          expiresAt: '2026-10-01T00:00:00Z',
+        },
+      ]),
+    );
+    const runtime = await runtimeOf(s);
+    try {
+      expect(await sandboxSweep(s.t.ctx, runtime)).toEqual({
+        destroyed: [],
+        problems: [
+          'Cleaning up a sandbox test needs the Kubernetes connector at read-write-approved access.',
+        ],
+      });
+      expect(s.helm.calls).toEqual([]);
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it('sweeps nothing when there is no sandbox', async () => {
     const s = await setup({ kubeConfig: 'namespaces: [api]' });
     const runtime = await runtimeOf(s);
