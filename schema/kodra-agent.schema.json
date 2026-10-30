@@ -432,16 +432,6 @@
                       "type": "string",
                       "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
                       "description": "Kubeconfig for the cluster. Not needed when the agent runs inside the cluster with its own service account. Usually ${env:KODRA_KUBECONFIG}."
-                    },
-                    "awsAccessKeyId": {
-                      "type": "string",
-                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
-                      "description": "AWS access key id, only for an EKS kubeconfig that signs in with aws eks get-token. Usually ${env:KODRA_K8S_AWS_ACCESS_KEY_ID}."
-                    },
-                    "awsSecretAccessKey": {
-                      "type": "string",
-                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
-                      "description": "AWS secret access key, only for an EKS kubeconfig that signs in with aws eks get-token. Usually ${env:KODRA_K8S_AWS_SECRET_ACCESS_KEY}."
                     }
                   },
                   "additionalProperties": false

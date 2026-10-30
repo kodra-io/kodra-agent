@@ -6,11 +6,13 @@ how many approvals a change needs, and how to set that per environment (M10, see
 
 ## Profiles
 
-`spec.profile` picks defaults for a kind of organization. A profile sets defaults only:
-every value can be set explicitly in `kodra-agent.yaml`.
+`spec.profile` picks the approval rules to start with. A profile sets defaults only: every
+value can be set explicitly in `kodra-agent.yaml`. The configurator and the console show each
+one by what it does.
 
 |                            | `starter` (default)                        | `team`                                       | `strict`                                            |
 | -------------------------- | ------------------------------------------ | -------------------------------------------- | --------------------------------------------------- |
+| Shown as                   | Approve your own changes                   | Peer review in production                    | Two approvers in production                         |
 | For                        | One person or a small team getting started | Several people and more than one environment | Regulated, audited, or change-managed organizations |
 | Approving your own request | Allowed                                    | Allowed, except in production                | Never                                               |
 | Approvers needed           | 1                                          | 1                                            | 2 in production, 1 elsewhere                        |

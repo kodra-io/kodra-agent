@@ -235,8 +235,9 @@ export const ollama = defineManifest({
       kind: 'url',
       key: 'baseUrl',
       required: true,
-      description: 'Ollama server address.',
-      example: 'http://ollama:11434',
+      description:
+        'Ollama server address. Ollama on the same machine as Docker: http://host.docker.internal:11434. A service named ollama in the same Compose file: http://ollama:11434. Ollama in Kubernetes: http://ollama.<namespace>.svc:11434.',
+      example: 'http://host.docker.internal:11434',
     },
   ],
   secrets: [],

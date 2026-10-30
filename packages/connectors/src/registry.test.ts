@@ -14,10 +14,13 @@ const all: readonly Manifest[] = [...connectors, ...modelProviders];
 describe('connector registry', () => {
   it('lists the MVP catalog from SPEC section 6', () => {
     const ids = (status: string) => connectors.filter((c) => c.status === status).map((c) => c.id);
-    // Launch plan L1: what we stand behind, and what works but is less tested.
+    // Launch plan L1, then B3: Docker, Jenkins, and Databases left preview.
     expect(ids('available').sort()).toEqual(
       [
         'aws',
+        'databases',
+        'docker',
+        'jenkins',
         'github',
         'github-actions',
         'gitlab',
@@ -28,7 +31,7 @@ describe('connector registry', () => {
         'slack',
       ].sort(),
     );
-    expect(ids('preview').sort()).toEqual(['databases', 'docker', 'jenkins']);
+    expect(ids('preview')).toEqual([]);
     const comingSoon = ids('coming-soon');
     expect(comingSoon.sort()).toEqual(
       ['azure', 'azure-devops', 'bitbucket', 'gcp', 'teams'].sort(),

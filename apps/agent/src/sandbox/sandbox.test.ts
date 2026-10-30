@@ -26,7 +26,6 @@ import {
 
 const SAMPLES = new URL('../../../../examples/ship/', import.meta.url);
 const KUBECONFIG = 'apiVersion: v1\nkind: Config\n# sandbox-kubeconfig-canary-6f1e\n';
-const AWS_SECRET = 'awsSandboxCanarySecret0123456789abcdefXYZ'; // gitleaks:allow
 
 const git = (args: string[], cwd?: string) =>
   spawnExec('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], {
@@ -115,13 +114,8 @@ function fakeCluster(o: { status?: number; pods?: SandboxPod[] } = {}) {
     { labels: Record<string, string>; data: Record<string, string>; created: string }
   >();
   const gets: string[] = [];
-  const credentials: (Readonly<Record<string, string>> | undefined)[] = [];
   const pods = o.pods ?? [{ name: 'p', ready: true, restarts: 0, waiting: null }];
-  const factory = (
-    _kubeconfig?: string,
-    execEnv?: Readonly<Record<string, string>>,
-  ): SandboxCluster => {
-    credentials.push(execEnv);
+  const factory = (): SandboxCluster => {
     return {
       createConfigMap: (_ns, name, labels, data) => {
         configMaps.set(name, { labels, data, created: new Date().toISOString() });
@@ -148,7 +142,7 @@ function fakeCluster(o: { status?: number; pods?: SandboxPod[] } = {}) {
       },
     };
   };
-  return Object.assign(factory, { configMaps, gets, credentials });
+  return Object.assign(factory, { configMaps, gets });
 }
 
 async function setup(
@@ -175,7 +169,7 @@ async function setup(
         '      enabled: true',
         `      access: ${opts.access ?? 'read-write-approved'}`,
         `      config: {${opts.kubeConfig ?? 'namespaces: [api], sandbox: test-sandbox'}}`,
-        "      secrets: {kubeconfig: '${env:KUBECONFIG_TEXT}', awsAccessKeyId: '${env:AWS_ID}', awsSecretAccessKey: '${env:AWS_KEY}'}",
+        "      secrets: {kubeconfig: '${env:KUBECONFIG_TEXT}'}",
       ].join('\n'),
     }),
     dir,
@@ -186,8 +180,6 @@ async function setup(
     env: {
       GITHUB_TOKEN: 'ghp_sandboxTestToken0123456789abcdefABCD', // gitleaks:allow
       KUBECONFIG_TEXT: KUBECONFIG,
-      AWS_ID: 'AKIASANDBOXTEST0001', // gitleaks:allow
-      AWS_KEY: AWS_SECRET,
     },
     launcher: fakeLauncher(),
     prompter: scriptedPrompter(opts.answers ?? [true]),
@@ -243,11 +235,9 @@ describe('sandbox deploy (B2)', () => {
     // Credentials reach Helm through its environment, never its arguments.
     const env = install?.opts?.env ?? {};
     expect(env['HELM_DRIVER']).toBe('configmap');
-    expect(env['AWS_SECRET_ACCESS_KEY']).toBe(AWS_SECRET);
     expect(await readFile(env['KUBECONFIG'] ?? '', 'utf8').catch(() => 'removed')).toBe('removed');
     for (const c of s.helm.calls) {
       expect(c.args.join(' ')).not.toContain('sandbox-kubeconfig-canary');
-      expect(c.args.join(' ')).not.toContain(AWS_SECRET);
     }
 
     // The smoke test called the service, then everything was removed.
@@ -270,7 +260,6 @@ describe('sandbox deploy (B2)', () => {
       'result::',
     ]);
     expect(JSON.stringify(records)).not.toContain('sandbox-kubeconfig-canary');
-    expect(JSON.stringify(records)).not.toContain(AWS_SECRET);
   });
 
   it('gives secrets placeholders, never values', async () => {
@@ -278,8 +267,8 @@ describe('sandbox deploy (B2)', () => {
     const cluster = fakeCluster();
     const s = await setup({
       cluster: Object.assign(
-        (k?: string, e?: Readonly<Record<string, string>>) => {
-          const c = cluster(k, e);
+        () => {
+          const c = cluster();
           return {
             ...c,
             createConfigMap: (
@@ -293,7 +282,7 @@ describe('sandbox deploy (B2)', () => {
             },
           };
         },
-        { configMaps: cluster.configMaps, gets: cluster.gets, credentials: cluster.credentials },
+        { configMaps: cluster.configMaps, gets: cluster.gets },
       ),
     });
     expect(await main(['sandbox', 'deploy', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);

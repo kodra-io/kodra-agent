@@ -128,23 +128,14 @@ interface Ops {
 
 async function openOps(ctx: Context, runtime: Runtime, setup: SandboxSetup): Promise<Ops> {
   const secrets = setup.input.secrets;
-  const credentials = {
-    kubeconfig: secrets['kubeconfig'],
-    awsAccessKeyId: secrets['awsAccessKeyId'],
-    awsSecretAccessKey: secrets['awsSecretAccessKey'],
-  };
+  const credentials = { kubeconfig: secrets['kubeconfig'] };
   const helm = await sandboxHelm({
     exec: ctx.exec ?? spawnExec,
     redactor: ctx.redactor,
     credentials,
     networkEnv: runtime.networkEnv,
   });
-  const id = credentials.awsAccessKeyId;
-  const key = credentials.awsSecretAccessKey;
-  const cluster = (ctx.sandboxCluster ?? realSandboxCluster)(
-    credentials.kubeconfig,
-    id && key ? { AWS_ACCESS_KEY_ID: id, AWS_SECRET_ACCESS_KEY: key } : undefined,
-  );
+  const cluster = (ctx.sandboxCluster ?? realSandboxCluster)(credentials.kubeconfig);
   return {
     ctx,
     runtime,

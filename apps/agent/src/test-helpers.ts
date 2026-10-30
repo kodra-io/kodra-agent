@@ -73,18 +73,16 @@ export function fakeKubernetes(behavior: Partial<KubernetesClient> = {}): Kubern
     kubeconfig: string | undefined;
     op: string;
     args: unknown[];
-    execEnv?: Readonly<Record<string, string>> | undefined;
   }[];
 } {
   const calls: {
     kubeconfig: string | undefined;
     op: string;
     args: unknown[];
-    execEnv?: Readonly<Record<string, string>> | undefined;
   }[] = [];
-  const factory = ((kubeconfig?: string, execEnv?: Readonly<Record<string, string>>) => ({
+  const factory = ((kubeconfig?: string) => ({
     listPods: async (ns: string, timeout: number) => {
-      calls.push({ kubeconfig, op: 'listPods', args: [ns, timeout], execEnv });
+      calls.push({ kubeconfig, op: 'listPods', args: [ns, timeout] });
       return behavior.listPods ? behavior.listPods(ns, timeout) : 1;
     },
     upsertSecret: async (ns: string, name: string, data: Record<string, string>) => {

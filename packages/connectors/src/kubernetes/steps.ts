@@ -114,24 +114,3 @@ export const KUBECONFIG_STEPS: SetupStep[] = [
   },
   { text: 'Upload kodra-kubeconfig here. The agent tests it before saving it.' },
 ];
-
-/** For a kubeconfig that runs `aws eks get-token`: an IAM user that can only view. */
-export const EKS_KEY_STEPS: SetupStep[] = [
-  {
-    text: 'Only needed when your kubeconfig signs in with `aws eks get-token`. A kubeconfig made with the steps above needs no AWS keys.',
-  },
-  {
-    text: 'Create an IAM user for the agent and its access key. Copy AccessKeyId and SecretAccessKey from the output; AWS shows the secret only once.',
-    run: {
-      all: `aws iam create-user --user-name kodra-agent-eks
-aws iam create-access-key --user-name kodra-agent-eks`,
-    },
-  },
-  {
-    text: 'Let that user view your namespaces ({{namespaces}}) in the cluster, and nothing else. Use your cluster name and account id.',
-    run: {
-      all: `aws eks create-access-entry --cluster-name <cluster-name> --principal-arn arn:aws:iam::<account-id>:user/kodra-agent-eks
-aws eks associate-access-policy --cluster-name <cluster-name> --principal-arn arn:aws:iam::<account-id>:user/kodra-agent-eks --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy --access-scope type=namespace,namespaces={{namespaces:comma}}`,
-    },
-  },
-];

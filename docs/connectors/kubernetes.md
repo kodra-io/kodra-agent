@@ -58,7 +58,9 @@ The `config` toolset is never enabled: its `configuration_view` tool returns the
 
 ## EKS clusters
 
-A kubeconfig from `aws eks update-kubeconfig` has no token in it. It runs
+The connector takes a kubeconfig and nothing else, on any cluster. On EKS the simplest is the
+console's kubeconfig steps (below): a service account token, with no AWS keys. A kubeconfig
+from `aws eks update-kubeconfig` has no token in it. It runs
 `aws --region <region> eks get-token --cluster-name <name>` each time a client connects. The
 agent image has no AWS CLI (it would add about 200 MB). It ships its own `aws` command, which
 does only `eks get-token` and refuses everything else (`apps/agent/src/eks-token.ts`,
@@ -72,13 +74,10 @@ and this MCP server use it.
 - **Options:** `--cluster-name`, `--region` (or `AWS_REGION`), `--role-arn` (assumed first),
   `--profile` (or `AWS_PROFILE`), and `--output json`.
 - **Credentials:** the standard AWS chain: environment variables, `~/.aws` profiles including
-  SSO, web identity, and instance roles. This server inherits the `AWS_*` variables for it,
-  and the values of the secret ones are registered with the redactor. The connector's
-  optional secrets `awsAccessKeyId` and `awsSecretAccessKey` (`KODRA_K8S_AWS_ACCESS_KEY_ID`,
-  `KODRA_K8S_AWS_SECRET_ACCESS_KEY`), set in the console, go to the server as `AWS_*` over the
-  inherited ones, and to `aws eks get-token` when the console tests the kubeconfig. Their
-  steps make an IAM user with an EKS access entry limited to `AmazonEKSViewPolicy` on the
-  connector's namespaces.
+  SSO, web identity, and instance roles, from the agent's own environment. This server
+  inherits the `AWS_*` variables for it, and the values of the secret ones are registered with
+  the redactor. The connector has no AWS settings of its own: set `AWS_ACCESS_KEY_ID` and
+  `AWS_SECRET_ACCESS_KEY` (or a role) where the agent runs.
 - **Or no AWS keys at all:** the console's steps for a kubeconfig make a service account with
   a read-only Role per namespace and a kubeconfig with its token, which EKS accepts like any
   cluster.

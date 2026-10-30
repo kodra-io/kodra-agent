@@ -87,6 +87,29 @@ describe('compose bundle', () => {
     });
   });
 
+  it('maps host.docker.internal for Ollama on the same machine, and only for Ollama', () => {
+    const services = (b: typeof bundle) =>
+      (
+        parse(file(b, 'docker-compose.yml')) as {
+          services: Record<string, Record<string, unknown>>;
+        }
+      ).services;
+    expect(services(bundle)['kodra-agent']?.['extra_hosts']).toBeUndefined();
+    const ollama = generateBundle({
+      ...composeDraft(),
+      model: {
+        provider: 'ollama',
+        name: 'llama',
+        fields: { baseUrl: 'http://host.docker.internal:11434' },
+      },
+    });
+    for (const name of ['kodra-agent', 'kodra-demo']) {
+      expect(services(ollama)[name]?.['extra_hosts']).toEqual([
+        'host.docker.internal:host-gateway',
+      ]);
+    }
+  });
+
   it('mounts the Docker socket only on one-shot services: the builder (build access) and the demo', () => {
     const readOnly = generateBundle(withConnector(composeDraft(), 'docker'));
     const readOnlyServices = (

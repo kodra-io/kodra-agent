@@ -9,7 +9,7 @@ export default defineManifest({
   id: 'databases',
   displayName: 'Databases',
   category: 'database',
-  status: 'preview',
+  status: 'available',
   description:
     'Watch the databases you list, wherever they run: standalone, in the cloud (like Amazon RDS), or in Kubernetes. MariaDB, MySQL, and PostgreSQL, directly or through an SSH tunnel. Health checks only.',
   accessLevels: ['read-only'],

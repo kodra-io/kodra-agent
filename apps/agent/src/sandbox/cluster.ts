@@ -32,27 +32,12 @@ export interface SandboxPod {
   waiting: string | null;
 }
 
-export type SandboxClusterFactory = (
-  kubeconfig?: string,
-  execEnv?: Readonly<Record<string, string>>,
-) => SandboxCluster;
+export type SandboxClusterFactory = (kubeconfig?: string) => SandboxCluster;
 
-export const realSandboxCluster: SandboxClusterFactory = (kubeconfig, execEnv) => {
+export const realSandboxCluster: SandboxClusterFactory = (kubeconfig) => {
   const kc = new KubeConfig();
   if (kubeconfig) kc.loadFromString(kubeconfig);
   else kc.loadFromDefault();
-  const extra = Object.entries(execEnv ?? {}).map(([name, value]) => ({ name, value }));
-  if (extra.length > 0) {
-    kc.loadFromOptions({
-      clusters: kc.clusters,
-      contexts: kc.contexts,
-      currentContext: kc.currentContext,
-      users: kc.users.map((u) => {
-        const exec = u.exec as { env?: { name: string; value: string }[] } | undefined;
-        return exec ? { ...u, exec: { ...exec, env: [...(exec.env ?? []), ...extra] } } : u;
-      }),
-    });
-  }
   const api = kc.makeApiClient(CoreV1Api);
   return {
     async createConfigMap(namespace, name, labels, data) {

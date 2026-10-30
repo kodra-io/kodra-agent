@@ -74,12 +74,7 @@ export async function startupScopeProblem(
   const namespaces = secretNamespaces(comp.settings);
   let problems: string[] | null;
   try {
-    const id = secrets['awsAccessKeyId'];
-    const key = secrets['awsSecretAccessKey'];
-    const client = kubernetes(
-      secrets['kubeconfig'],
-      id && key ? { AWS_ACCESS_KEY_ID: id, AWS_SECRET_ACCESS_KEY: key } : undefined,
-    );
+    const client = kubernetes(secrets['kubeconfig']);
     let timer: ReturnType<typeof setTimeout> | undefined;
     problems = await Promise.race([
       kubernetesScopeProblems(client, namespaces),

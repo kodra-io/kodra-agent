@@ -11,7 +11,9 @@ spec:
   model:
     provider: ollama
     name: '<model-id>'
-    baseUrl: http://ollama:11434
+    # Ollama on the same machine as Docker. A service named ollama in the same Compose file
+    # is http://ollama:11434; Ollama in Kubernetes is http://ollama.<namespace>.svc:11434.
+    baseUrl: http://host.docker.internal:11434
   connectors:
     kubernetes:
       enabled: true
