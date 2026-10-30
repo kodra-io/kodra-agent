@@ -43,5 +43,6 @@ for cli_name, command in sorted(driver._get_command_table().items()):
     if ops:
         reads[cli_name] = ops
 
+sys.stdout.reconfigure(newline='\n')  # LF on Windows too, as the repo stores it
 json.dump(reads, sys.stdout, indent=0, sort_keys=True)
 sys.stdout.write('\n')
