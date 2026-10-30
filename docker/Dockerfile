@@ -9,7 +9,7 @@ FROM docker:29.8.2-cli AS docker-cli
 FROM alpine/helm:4.3.0 AS helm
 
 # Production dependencies of the agent and its workspace packages, from the lockfile.
-FROM node:24.21.0-trixie-slim AS build
+FROM node:24.22.0-trixie-slim AS build
 RUN npm install --global --no-audit --no-fund pnpm@12.8.1
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -25,7 +25,7 @@ COPY evals/scenarios evals/scenarios
 COPY docker/mcp docker/mcp
 
 # The read-only web console (apps/console), built to static files the agent serves.
-FROM node:24.21.0-trixie-slim AS console
+FROM node:24.22.0-trixie-slim AS console
 RUN npm install --global --no-audit --no-fund pnpm@12.8.1
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -46,7 +46,7 @@ RUN node apps/agent/scripts/install-mcp.ts
 # kind, for `kodra-agent demo` only (a throwaway cluster through the Docker socket).
 RUN node apps/agent/scripts/install-kind.ts
 
-FROM node:24.21.0-trixie-slim
+FROM node:24.22.0-trixie-slim
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends ca-certificates git python3 \
  && rm -rf /var/lib/apt/lists/* \
