@@ -75,7 +75,18 @@ export interface ServerCheck {
   unclassified: string[];
   /** NEVER_EXPOSED tools that reached the model's tool list. */
   exposed: string[];
+  /** What the server wrote to stderr, redacted, for telling why it did not start. */
+  stderr: string[];
 }
+
+/**
+ * Servers that cannot start without the network, and the stderr line that says so. The AWS
+ * server loads AWS's list of read operations from servicereference.us-east-1.amazonaws.com
+ * at startup and refuses to start without it (docs/connectors/aws.md).
+ */
+export const NEEDS_NETWORK: Readonly<Record<string, RegExp>> = {
+  aws: /Error retrieving the service reference document/,
+};
 
 export function component(id: string, settings: Record<string, unknown>): Component {
   const manifest = getConnector(id);
@@ -103,9 +114,13 @@ export async function checkServer(
     input.sharedSecrets = { [parent.id]: parent.secrets };
     input.sharedSettings = { [parent.id]: parent.settings };
   }
+  const stderr: string[] = [];
   const host = await ConnectorHost.start([input], {
     redactor,
-    log: jsonLogger(() => undefined, redactor),
+    log: jsonLogger((line) => {
+      const entry = JSON.parse(line) as { message?: string; line?: string };
+      if (entry.message === 'connector stderr' && entry.line) stderr.push(entry.line);
+    }, redactor),
     audit: new AuditLog(auditPath, redactor),
     env: opts.env,
     ...(opts.launcher ? { launcher: opts.launcher } : {}),
@@ -124,6 +139,7 @@ export async function checkServer(
       tools: tools.length,
       unclassified,
       exposed: tools.filter((t) => NEVER_EXPOSED.includes(t.tool)).map((t) => t.tool),
+      stderr,
     };
   } finally {
     await host.close();

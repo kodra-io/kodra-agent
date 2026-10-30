@@ -214,8 +214,9 @@ Reviewed manifest: `grafana@c52161cc90f7`
 - **Server:** `awslabs.aws-api-mcp-server` from PyPI, with its own telemetry off and local file
   access refused ([decision](../connectors/aws.md)). `suggest_aws_commands`, which sends the
   question to an AWS endpoint, is hidden.
-- **Sends to:** AWS APIs in your `region`, over HTTPS, signed with SigV4. Read-only mode also
-  fetches AWS's public list of read operations from `servicereference.us-east-1.amazonaws.com`.
+- **Sends to:** AWS APIs in your `region`, over HTTPS, signed with SigV4. At each start the
+  server also fetches AWS's public list of read operations from
+  `servicereference.us-east-1.amazonaws.com` (no credentials, nothing of yours is sent).
 - **Secrets:** `accessKeyId` and `secretAccessKey`, or the standard AWS credentials (an IAM
   role) when they are left out.
 - **Reads:** any AWS CLI command AWS lists as a read. Commands that return secret values or

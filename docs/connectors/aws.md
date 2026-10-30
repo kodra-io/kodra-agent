@@ -35,9 +35,12 @@ Environment:
   `AWS_API_MCP_SUPPRESS_DEPRECATION_WARNING=true`, `FASTMCP_LOG_LEVEL=ERROR`.
 - Read-only access adds `READ_OPERATIONS_ONLY=true` (the manifest's `accessEnv`).
 
-**Network:** besides the AWS APIs in your region, read-only mode fetches AWS's list of read
-operations from `https://servicereference.us-east-1.amazonaws.com/` when the server starts. Behind
-a proxy, allow that host too.
+**Network:** besides the AWS APIs in your region, the server fetches AWS's public list of read
+operations from `https://servicereference.us-east-1.amazonaws.com/` each time it starts, at any
+access level, and refuses to start without it. Behind a proxy, allow that host too. Without a
+route to it (an offline install), the AWS connector does not start; the other connectors do.
+The image's offline check (`scripts/check-servers.ts`) accepts exactly that failure for AWS, and
+the real-servers CI job checks its tools with the network.
 
 ## Tool classification
 
