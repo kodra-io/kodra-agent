@@ -527,8 +527,10 @@ describe('agent loop', () => {
       return (model.doGenerateCalls[0]?.tools ?? []).map((t) => t.name).sort();
     };
     // Read-only connector, deny policy: reads only.
+    // A per-command tool (call_aws) is offered for its reads, but proposes nothing.
     expect(await offered({ responses: [answer('ok')] })).toEqual([
       'fakek8s__pods_log',
+      'fakek8s__run_cli',
       'fakek8s__whoami',
     ]);
     // Read-write: the write is offered (it asks an approver); destructive stays out under deny.
@@ -549,7 +551,60 @@ describe('agent loop', () => {
     // A read-only investigation gets reads only, whatever the access.
     expect(
       await offered({ access: 'read-write-approved', responses: [answer('ok')] }, true),
-    ).toEqual(['fakek8s__pods_log', 'fakek8s__whoami']);
+    ).toEqual(['fakek8s__pods_log', 'fakek8s__run_cli', 'fakek8s__whoami']);
+  });
+
+  it('decides each call of a per-command tool by its command', async () => {
+    const { deps, audit, channel, term } = await setup({
+      access: 'read-write-approved',
+      responses: [
+        call('fakek8s__run_cli', { cli_command: 'aws ec2 describe-instances' }),
+        call('fakek8s__run_cli', {
+          cli_command: 'aws ecs update-service --service web --desired-count 3',
+          [REASON_ARG]: 'more capacity',
+        }),
+        call('fakek8s__run_cli', { cli_command: 'aws eks delete-cluster --name shop' }),
+        call('fakek8s__run_cli', {
+          cli_command: 'aws secretsmanager get-secret-value --secret-id db',
+        }),
+        answer('done'),
+      ],
+    });
+    await runTurn(deps, [], 'check aws', 't-aws');
+    const calls = (await audit()).filter((r) => r['event'] === 'tool.call');
+    expect(calls.map((r) => [r['risk'], r['decision']])).toEqual([
+      ['read', 'allowed'],
+      ['write', 'approved'],
+      ['destructive', 'blocked'],
+      ['write', 'blocked'],
+    ]);
+    // Only the write asked an approver, and it was shown as a write.
+    expect(channel.requests).toHaveLength(1);
+    expect(channel.requests[0]?.risk).toBe('write');
+    expect(term.stdout.join(' ')).toContain('returns credentials or secret values');
+  });
+
+  it('tells the model what a per-command tool may run', async () => {
+    const description = async (opts: Parameters<typeof setup>[0]) => {
+      const { deps, model } = await setup(opts);
+      await runTurn(deps, [], 'hi', 't-desc');
+      const tools = (model.doGenerateCalls[0]?.tools ?? []) as {
+        name: string;
+        description?: string;
+      }[];
+      return tools.find((t) => t.name === 'fakek8s__run_cli')?.description ?? '';
+    };
+    expect(await description({ responses: [answer('ok')] })).toContain('Only reads run');
+    expect(
+      await description({ access: 'read-write-approved', responses: [answer('ok')] }),
+    ).toContain('commands that delete are blocked by policy');
+    expect(
+      await description({
+        access: 'read-write-approved',
+        destructive: 'require-approval',
+        responses: [answer('ok')],
+      }),
+    ).toContain('commands that delete wait for approval too');
   });
 
   it('stops when the token budget is spent', async () => {

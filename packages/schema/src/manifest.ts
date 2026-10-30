@@ -388,6 +388,10 @@ const stdioRuntime = z.strictObject({
   args: z.array(argPart),
   /** Extra arguments per access level, like a read-only flag. */
   accessArgs: z.partialRecord(z.enum(ACCESS_LEVELS), z.array(z.string())).optional(),
+  /** Extra environment per access level, like a server's own read-only switch. */
+  accessEnv: z
+    .partialRecord(z.enum(ACCESS_LEVELS), z.record(z.string().regex(ENV_VAR), z.string()))
+    .optional(),
   /** Arguments added only when an optional secret is set. */
   secretArgs: z
     .array(z.strictObject({ secret: z.string().regex(KEY), args: z.array(argPart) }))
@@ -511,6 +515,13 @@ export const modelPrice = z.strictObject({
 });
 export type ModelPrice = z.infer<typeof modelPrice>;
 
+/** How a call's risk is read from its arguments; see `riskFrom`. */
+const riskFromSpec = z.discriminatedUnion('kind', [
+  /** One AWS CLI command, like `aws ec2 describe-instances`, in a string argument. */
+  z.strictObject({ kind: z.literal('aws-cli'), commandArg: z.string().min(1) }),
+]);
+export type RiskFrom = z.infer<typeof riskFromSpec>;
+
 export const manifestSchema = z
   .strictObject({
     id: z.string().regex(ID),
@@ -537,6 +548,22 @@ export const manifestSchema = z
     hiddenTools: z.array(z.string()).optional(),
     /** Argument checks per tool, enforced by the policy engine. */
     guards: z.record(z.string(), z.array(toolGuard)).optional(),
+    /**
+     * Tools that run whatever command they are given (AWS `call_aws`): each call's risk comes
+     * from the command, classified by the policy engine. The tool's own risk in `tools` must be
+     * `write`; it is what the console shows, since a call can be anything.
+     */
+    riskFrom: z.record(z.string(), riskFromSpec).optional(),
+    /**
+     * Config fields and secrets a release removed. A config that still sets one keeps
+     * loading after an upgrade; the value is ignored.
+     */
+    retired: z
+      .strictObject({
+        config: z.array(z.string().regex(KEY)).optional(),
+        secrets: z.array(z.string().regex(KEY)).optional(),
+      })
+      .optional(),
     /**
      * The forge API the agent reads directly: each configured repo's default branch (for
      * not-default-branch guards), and file contents (for the diff in a proposed change).
@@ -636,6 +663,15 @@ export const manifestSchema = z
           code: 'custom',
           path: ['scaleLimit', 'current', 'tool'],
           message: 'must be a read tool',
+        });
+      }
+    }
+    for (const tool of Object.keys(m.riskFrom ?? {})) {
+      if (m.tools[tool] !== 'write') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['riskFrom', tool],
+          message: 'a tool that takes its risk from its arguments must be classified write',
         });
       }
     }

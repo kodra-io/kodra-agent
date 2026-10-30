@@ -67,6 +67,7 @@ describe('ConnectorHost', () => {
     ).toEqual([
       ['fakek8s__pods_log', 'read'],
       ['fakek8s__resources_scale', 'write'],
+      ['fakek8s__run_cli', 'write'],
       ['fakek8s__whoami', 'read'],
       ['fakek8s__wipe_everything', 'destructive'],
     ]);
@@ -138,6 +139,7 @@ describe('ConnectorHost', () => {
     });
     const seen = await whoami(h);
     expect(seen.env).toContain('FAKE_INHERITED');
+    expect(seen.env).toContain('FAKE_READ_ONLY');
     expect(seen.env).not.toContain('SOME_OTHER_SECRET');
     expect(seen.env).not.toContain('GITHUB_TOKEN');
     expect(seen.fakeUrl).toBe('http://fake:1');
@@ -163,6 +165,7 @@ describe('ConnectorHost', () => {
     expect(seen.args.join(' ')).not.toContain('fake-token-value-123');
     expect(seen.args).toContain('--token-file');
     expect(seen.args).not.toContain('--read-only');
+    expect(seen.env).not.toContain('FAKE_READ_ONLY');
     expect(seen.cwdFiles).toEqual(['server-config', 'token.secret']);
   });
 

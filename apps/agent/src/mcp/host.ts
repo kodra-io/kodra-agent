@@ -17,6 +17,7 @@ import {
   type ChangeStep,
   type Manifest,
   type McpStdioRuntime,
+  type RiskFrom,
   type ToolGuard,
   type ValueSource,
 } from '@kodra-agent/schema';
@@ -38,6 +39,8 @@ export interface HostedTool {
   description: string;
   inputSchema: Record<string, unknown>;
   risk: Risk;
+  /** For a tool that runs any command (AWS `call_aws`): each call's risk is its command's. */
+  riskFrom?: RiskFrom;
   guards: readonly ToolGuard[];
   access: AccessLevel | undefined;
   settings: Record<string, unknown>;
@@ -332,6 +335,7 @@ export class ConnectorHost {
       const value = await resolve(source);
       if (value !== undefined) childEnv[name] = value;
     }
+    if (access) Object.assign(childEnv, runtime.accessEnv?.[access] ?? {});
 
     const transport = new StdioClientTransport({
       command: launch.command,
@@ -416,6 +420,7 @@ export class ConnectorHost {
         description: tool.description ?? tool.name,
         inputSchema: tool.inputSchema,
         risk,
+        ...(manifest.riskFrom?.[tool.name] ? { riskFrom: manifest.riskFrom[tool.name] } : {}),
         guards: manifest.guards?.[tool.name] ?? [],
         access,
         settings: component.settings,

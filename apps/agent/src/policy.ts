@@ -1,5 +1,12 @@
-import { listValues, type AccessLevel, type ToolGuard, type ToolRisk } from '@kodra-agent/schema';
+import {
+  listValues,
+  type AccessLevel,
+  type RiskFrom,
+  type ToolGuard,
+  type ToolRisk,
+} from '@kodra-agent/schema';
 import { parseAllDocuments } from 'yaml';
+import { awsCliRisk } from './aws/cli-risk.ts';
 
 /** The agent's own Kubernetes objects, from the chart's KODRA_AGENT_SELF_* variables. */
 export interface SelfTarget {
@@ -23,6 +30,8 @@ export type Decision = { kind: 'allow' } | { kind: 'approve' } | { kind: 'block'
 
 export interface PolicyInput {
   risk: Risk;
+  /** For a tool that runs any command it is given: each call's risk comes from its command. */
+  riskFrom?: RiskFrom | undefined;
   /** The connector's access level; undefined for connectors without access levels. */
   access: AccessLevel | undefined;
   destructiveActions: 'deny' | 'require-approval';
@@ -67,11 +76,16 @@ export function decide(input: PolicyInput): Decision {
   if (input.risk === 'unclassified') {
     return { kind: 'block', reason: 'this tool has no risk classification' };
   }
+  const risk = callRisk(input);
+  if (typeof risk !== 'string') return { kind: 'block', reason: risk.blocked };
+  if (risk === 'unclassified') {
+    return { kind: 'block', reason: 'this tool has no risk classification' };
+  }
   for (const guard of input.guards) {
     const problem = checkGuard(guard, input);
     if (problem) return { kind: 'block', reason: problem };
   }
-  switch (input.risk) {
+  switch (risk) {
     case 'read':
       return { kind: 'allow' };
     case 'write':
@@ -86,6 +100,18 @@ export function decide(input: PolicyInput): Decision {
         ? { kind: 'approve' }
         : { kind: 'block', reason: 'this connector is read-only' };
   }
+}
+
+/**
+ * One call's risk: the tool's own, or for a `riskFrom` tool, its command's. A command that is
+ * refused whatever the access comes back as `blocked`, with the reason.
+ */
+export function callRisk(
+  input: Pick<PolicyInput, 'risk' | 'riskFrom' | 'args'>,
+): Risk | { blocked: string } {
+  if (!input.riskFrom || input.risk === 'unclassified') return input.risk;
+  const result = awsCliRisk(input.args[input.riskFrom.commandArg]);
+  return 'blocked' in result ? result : result.risk;
 }
 
 const isBlank = (v: unknown) => v === undefined || v === null || v === '';

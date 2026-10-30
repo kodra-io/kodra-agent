@@ -77,7 +77,8 @@ and this MCP server use it.
   SSO, web identity, and instance roles, from the agent's own environment. This server
   inherits the `AWS_*` variables for it, and the values of the secret ones are registered with
   the redactor. The connector has no AWS settings of its own: set `AWS_ACCESS_KEY_ID` and
-  `AWS_SECRET_ACCESS_KEY` (or a role) where the agent runs.
+  `AWS_SECRET_ACCESS_KEY` (or a role) where the agent runs. A 0.3.12 config that still sets
+  the retired `awsAccessKeyId` and `awsSecretAccessKey` secrets loads; they are ignored.
 - **Or no AWS keys at all:** the console's steps for a kubeconfig make a service account with
   a read-only Role per namespace and a kubeconfig with its token, which EKS accepts like any
   cluster.

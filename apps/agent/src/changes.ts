@@ -5,7 +5,7 @@ import { decisionAudit, newApprovalRequest, rulesFor } from './approvals.ts';
 import { unifiedDiff } from './diff.ts';
 import type { FileReader } from './forge-files.ts';
 import type { HostedTool } from './mcp/host.ts';
-import { decide, touchedBy, type Risk } from './policy.ts';
+import { callRisk, decide, touchedBy, type Risk } from './policy.ts';
 import {
   NO_ROUTER,
   recordOverride,
@@ -173,6 +173,12 @@ export async function buildPreview(steps: readonly ProposedStep[]): Promise<Prev
 }
 
 /** The `propose_change` tool: offered with the other tools whenever a write is possible. */
+/** A step's risk: its tool's, or for a per-command tool (call_aws), its command's. */
+function stepRisk(tool: HostedTool, args: Readonly<Record<string, unknown>>): Risk {
+  const own = callRisk({ risk: tool.risk, riskFrom: tool.riskFrom, args });
+  return typeof own === 'string' ? own : tool.risk;
+}
+
 export function proposeChangeTool(
   deps: AgentDeps,
   task: string,
@@ -246,6 +252,7 @@ export function proposeChangeTool(
       for (const [index, { tool, args }] of steps.entries()) {
         const decision = decide({
           risk: tool.risk,
+          ...(tool.riskFrom ? { riskFrom: tool.riskFrom } : {}),
           access: tool.access,
           destructiveActions: deps.policy.destructiveActions,
           guards: tool.guards,
@@ -262,7 +269,7 @@ export function proposeChangeTool(
             event: 'tool.call',
             connector: tool.connector,
             tool: tool.tool,
-            risk: tool.risk,
+            risk: stepRisk(tool, args),
             decision: 'blocked',
             detail: clip(
               `proposed change, step ${String(index + 1)}: ${decision.reason}`,
@@ -300,7 +307,7 @@ export function proposeChangeTool(
         }
 
         const risk = steps
-          .map((s) => s.tool.risk)
+          .map((s) => stepRisk(s.tool, s.args))
           .reduce<Risk>((a, b) => ((RISK_ORDER[b] ?? 0) > (RISK_ORDER[a] ?? 0) ? b : a), 'read');
         const connectors = [...new Set(steps.map((s) => s.tool.connector))].join(', ');
         const names = steps.map((s) => `${s.tool.connector}/${s.tool.tool}`).join(', ');
@@ -388,7 +395,7 @@ export function proposeChangeTool(
               call: stepCall,
               connector: tool.connector,
               tool: tool.tool,
-              risk: tool.risk,
+              risk: stepRisk(tool, args),
               args: clip(argText, 2_000),
               state,
               ...(detail === undefined ? {} : { detail: r(detail) }),
@@ -429,7 +436,7 @@ export function proposeChangeTool(
           }
 
           event('running');
-          deps.term.out(`  [${tool.risk}] ${tool.connector}/${tool.tool} (change ${n})`);
+          deps.term.out(`  [${stepRisk(tool, args)}] ${tool.connector}/${tool.tool} (change ${n})`);
           let ok: boolean;
           let text: string;
           try {
@@ -447,7 +454,7 @@ export function proposeChangeTool(
             event: 'tool.call',
             connector: tool.connector,
             tool: tool.tool,
-            risk: tool.risk,
+            risk: stepRisk(tool, args),
             decision: 'approved',
             detail: clip(
               `change ${req.id} step ${n}; ${ok ? 'ok' : 'error'}; args ${argText}`,

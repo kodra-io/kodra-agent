@@ -187,7 +187,7 @@ Reviewed manifest: `docker@41c1c3542fc5`
 
 - **Console dashboard:** Pod states, deployment readiness, and warning events per namespace, and the pods of each workload listed in `databases` (`namespace/name`, in a configured namespace; the **Database pods** card), read with the same read tools and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `kubernetes@af7bb317d853`
+Reviewed manifest: `kubernetes@d096f5a6df14`
 
 ### Prometheus
 
@@ -211,15 +211,22 @@ Reviewed manifest: `grafana@c52161cc90f7`
 
 ### AWS
 
-- **Servers:** `awslabs.eks-mcp-server` and `awslabs.cloudwatch-mcp-server` from PyPI, each
-  only when listed in `services` ([decision](../connectors/aws.md)).
-- **Sends to:** AWS APIs in your `region`, over HTTPS, signed with SigV4.
+- **Server:** `awslabs.aws-api-mcp-server` from PyPI, with its own telemetry off and local file
+  access refused ([decision](../connectors/aws.md)). `suggest_aws_commands`, which sends the
+  question to an AWS endpoint, is hidden.
+- **Sends to:** AWS APIs in your `region`, over HTTPS, signed with SigV4. Read-only mode also
+  fetches AWS's public list of read operations from `servicereference.us-east-1.amazonaws.com`.
 - **Secrets:** `accessKeyId` and `secretAccessKey`, or the standard AWS credentials (an IAM
   role) when they are left out.
-- **Reads only:** EKS clusters and resources, CloudWatch metrics, logs, and alarms. Sensitive
-  data access and writes are turned off in the servers.
+- **Reads:** any AWS CLI command AWS lists as a read. Commands that return secret values or
+  credentials (`secretsmanager get-secret-value`, `kms decrypt`, `sts assume-role`,
+  `ssm get-parameter --with-decryption`, and others) are blocked, so their output never
+  reaches the model.
+- **Writes, after approval:** with read-write-approved access, other commands. Deletes,
+  terminations, and removals are destructive: blocked unless
+  `destructiveActions: require-approval`.
 
-Reviewed manifest: `aws@dde614ac59ad`
+Reviewed manifest: `aws@0030f6c7e5f3`
 
 ### Databases
 

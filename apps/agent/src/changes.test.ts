@@ -232,6 +232,30 @@ describe('propose_change', () => {
     });
   });
 
+  it('counts a per-command step at its command, and blocks a delete', async () => {
+    const cli = (cli_command: string) => ({ tool: 'fakegit__run_cli', args: { cli_command } });
+    const t = await setup({
+      responses: [
+        propose(
+          change([cli('aws ec2 describe-instances'), cli('aws ecs update-service --service web')]),
+        ),
+        propose(
+          change([cli('aws ec2 describe-instances'), cli('aws eks delete-cluster --name shop')]),
+        ),
+        answer('Done.'),
+      ],
+    });
+    await runTurn(t.deps, [], 'scale web', 'ch-aws');
+    expect(t.requests.map((r) => r.risk)).toEqual(['write']);
+    expect(await t.recorded()).toEqual(['run_cli', 'run_cli']);
+    const calls = (await t.audit()).filter((r) => r['event'] === 'tool.call');
+    expect(calls.map((r) => [r['risk'], r['decision']])).toEqual([
+      ['read', 'approved'],
+      ['write', 'approved'],
+      ['destructive', 'blocked'],
+    ]);
+  });
+
   it('stops before a write when the file changed after the preview', async () => {
     const t = await setup({
       responses: [

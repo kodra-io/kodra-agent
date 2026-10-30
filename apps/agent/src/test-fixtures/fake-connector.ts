@@ -36,7 +36,9 @@ export const fakeManifest: Manifest = defineManifest({
     whoami: 'read',
     resources_scale: 'write',
     wipe_everything: 'destructive',
+    run_cli: 'write',
   },
+  riskFrom: { run_cli: { kind: 'aws-cli', commandArg: 'cli_command' } },
   guards: {
     pods_log: [
       {
@@ -76,6 +78,7 @@ export const fakeManifest: Manifest = defineManifest({
     source: { kind: 'pypi', package: 'unused', version: '0.0.0', command: 'unused' },
     args: ['--fixed', { setting: 'namespaces' }],
     accessArgs: { 'read-only': ['--read-only'] },
+    accessEnv: { 'read-only': { FAKE_READ_ONLY: 'true' } },
     secretArgs: [{ secret: 'token', args: ['--token-file', { secretFile: 'token' }] }],
     env: { FAKE_TOKEN: { secret: 'token' }, FAKE_URL: { setting: 'url' } },
     inheritEnv: ['FAKE_INHERITED'],
@@ -127,7 +130,9 @@ export const fakeGitManifest: Manifest = defineManifest({
     create_branch: 'write',
     create_or_update_file: 'write',
     create_pull_request: 'write',
+    run_cli: 'write',
   },
+  riskFrom: { run_cli: { kind: 'aws-cli', commandArg: 'cli_command' } },
   guards: {
     create_branch: [
       { kind: 'repo-in-setting', ownerArg: 'owner', repoArg: 'repo', setting: 'repos' },

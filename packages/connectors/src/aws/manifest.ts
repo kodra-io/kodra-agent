@@ -1,67 +1,59 @@
-import { defineManifest, type McpStdioRuntime, type SetupStep } from '@kodra-agent/schema';
+import { defineManifest, type SetupStep } from '@kodra-agent/schema';
 import { PATTERNS } from '../shared.ts';
 
 const chainNote =
   'Leave both AWS keys empty to use the standard AWS credentials, such as an IAM role for the service account.';
 
-const POLICY =
-  '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["eks:Describe*","eks:List*","cloudwatch:Get*","cloudwatch:List*","cloudwatch:Describe*","logs:Describe*","logs:Get*","logs:FilterLogEvents","logs:StartQuery","logs:GetQueryResults"],"Resource":"*"}]}';
+/** AWS ReadOnlyAccess can read some secret values; this takes them away again. */
+const DENY_SECRETS =
+  '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":["secretsmanager:GetSecretValue","secretsmanager:BatchGetSecretValue","kms:Decrypt","ssm:GetParameter","ssm:GetParameters","ssm:GetParametersByPath","ssm:GetParameterHistory"],"Resource":"*"}]}';
 
-const UNIX_KEY = `echo '${POLICY}' > kodra-agent-policy.json
+const READ_ONLY_ARN = 'arn:aws:iam::aws:policy/ReadOnlyAccess';
+
+const UNIX_KEY = `echo '${DENY_SECRETS}' > kodra-agent-deny-secrets.json
 aws iam create-user --user-name kodra-agent
-aws iam put-user-policy --user-name kodra-agent --policy-name kodra-agent-read --policy-document file://kodra-agent-policy.json
+aws iam attach-user-policy --user-name kodra-agent --policy-arn ${READ_ONLY_ARN}
+aws iam put-user-policy --user-name kodra-agent --policy-name kodra-agent-deny-secrets --policy-document file://kodra-agent-deny-secrets.json
 aws iam create-access-key --user-name kodra-agent`;
 
-/** An IAM user with the read policy above, and its key (M28). */
+/** An IAM user that reads everything except secret values, and its key (M28). */
 const keySteps: SetupStep[] = [
   {
     text: 'Leave both keys empty to use the standard AWS credentials instead, such as an IAM role for the service account.',
   },
   {
-    text: 'Or create an IAM user that can only read EKS and CloudWatch, and its access key. Copy AccessKeyId and SecretAccessKey from the output; AWS shows the secret only once.',
+    text: 'Or create an IAM user with AWS ReadOnlyAccess, minus secret values, and its access key. Copy AccessKeyId and SecretAccessKey from the output; AWS shows the secret only once. For read-write access, attach the policies for what the agent may change instead.',
     run: {
       linux: UNIX_KEY,
       macos: UNIX_KEY,
-      windows: `Set-Content -Path kodra-agent-policy.json -Value '${POLICY}'
+      windows: `Set-Content -Path kodra-agent-deny-secrets.json -Value '${DENY_SECRETS}'
 aws iam create-user --user-name kodra-agent
-aws iam put-user-policy --user-name kodra-agent --policy-name kodra-agent-read --policy-document file://kodra-agent-policy.json
+aws iam attach-user-policy --user-name kodra-agent --policy-arn ${READ_ONLY_ARN}
+aws iam put-user-policy --user-name kodra-agent --policy-name kodra-agent-deny-secrets --policy-document file://kodra-agent-deny-secrets.json
 aws iam create-access-key --user-name kodra-agent`,
     },
   },
 ];
 
-const readPolicy = [
-  'eks:Describe*, eks:List*',
-  'cloudwatch:Get*, cloudwatch:List*, cloudwatch:Describe*',
-  'logs:Describe*, logs:Get*, logs:FilterLogEvents, logs:StartQuery, logs:GetQueryResults',
-];
-
-/** Both AWS Labs servers get the same credentials: the connector's keys or the default chain. */
-const awsEnv: McpStdioRuntime['env'] = {
-  AWS_REGION: { setting: 'region' },
-  AWS_ACCESS_KEY_ID: { secret: 'accessKeyId' },
-  AWS_SECRET_ACCESS_KEY: { secret: 'secretAccessKey' },
-  FASTMCP_LOG_LEVEL: { value: 'ERROR' },
+const scopes = {
+  'read-only': [
+    'AWS managed policy ReadOnlyAccess',
+    'Deny secretsmanager:GetSecretValue, kms:Decrypt, and ssm:GetParameter*',
+  ],
+  'read-write-approved': [
+    'ReadOnlyAccess, as for read-only',
+    'Write actions only for the services and resources the agent may change',
+  ],
 };
-
-/** IAM roles for service accounts (IRSA), container credentials, and profiles. */
-const awsInheritEnv = [
-  'AWS_ROLE_ARN',
-  'AWS_WEB_IDENTITY_TOKEN_FILE',
-  'AWS_CONTAINER_CREDENTIALS_FULL_URI',
-  'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
-  'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE',
-  'AWS_PROFILE',
-  'AWS_STS_REGIONAL_ENDPOINTS',
-];
 
 export default defineManifest({
   id: 'aws',
   displayName: 'AWS',
   category: 'cloud',
   status: 'available',
-  description: 'Read EKS clusters and CloudWatch metrics, logs, and alarms. Read-only.',
-  accessLevels: ['read-only'],
+  description:
+    'Read any AWS service with the AWS CLI: EKS, EC2, CloudWatch metrics, logs, and alarms, and more. Changes need approval.',
+  accessLevels: ['read-only', 'read-write-approved'],
   requires: [],
   configFields: [
     {
@@ -73,17 +65,6 @@ export default defineManifest({
       patternHint: 'use an AWS region, like eu-central-1',
       example: 'eu-central-1',
     },
-    {
-      kind: 'string-list',
-      key: 'services',
-      required: false,
-      description:
-        'AWS services the agent can read: eks, cloudwatch. Each one adds tools the model reads on every question, so leave out what you do not need.',
-      pattern: '^(eks|cloudwatch)$',
-      patternHint: 'use eks or cloudwatch',
-      default: ['eks', 'cloudwatch'],
-      example: ['eks'],
-    },
   ],
   secrets: [
     {
@@ -94,7 +75,7 @@ export default defineManifest({
       defaultFor: ['compose'],
       description: 'AWS access key id.',
       howToCreate: chainNote,
-      minimumScopes: { 'read-only': readPolicy },
+      minimumScopes: scopes,
       probe: 'aws.get-caller-identity',
       steps: keySteps,
     },
@@ -106,86 +87,63 @@ export default defineManifest({
       defaultFor: ['compose'],
       description: 'AWS secret access key.',
       howToCreate: chainNote,
-      minimumScopes: { 'read-only': readPolicy },
+      minimumScopes: scopes,
       probe: 'aws.get-caller-identity',
       steps: keySteps,
     },
   ],
   healthProbe: 'aws.get-caller-identity',
   tools: {
-    // awslabs.eks-mcp-server 0.2.1
-    get_cloudwatch_logs: 'read',
-    get_cloudwatch_metrics: 'read',
-    get_eks_insights: 'read',
-    get_eks_metrics_guidance: 'read',
-    get_eks_vpc_config: 'read',
-    get_policies_for_role: 'read',
-    list_api_versions: 'read',
-    search_eks_troubleshoot_guide: 'read',
-    // Offered even without --allow-write; the server refuses them, and policy blocks them.
-    add_inline_policy: 'destructive',
-    apply_yaml: 'destructive',
-    generate_app_manifest: 'destructive',
-    manage_eks_stacks: 'destructive',
-    manage_k8s_resource: 'destructive',
-    // awslabs.cloudwatch-mcp-server 0.3.1
-    analyze_log_group: 'read',
-    analyze_metric: 'read',
-    describe_log_groups: 'read',
-    execute_cwl_insights_batch: 'read',
-    execute_log_insights_query: 'read',
-    execute_promql_query: 'read',
-    execute_promql_range_query: 'read',
-    get_active_alarms: 'read',
-    get_alarm_history: 'read',
-    get_logs_insight_query_results: 'read',
-    get_metric_data: 'read',
-    get_metric_metadata: 'read',
-    get_promql_label_values: 'read',
-    get_promql_labels: 'read',
-    get_promql_series: 'read',
-    get_recommended_metric_alarms: 'read',
-    recommend_indexes_account: 'read',
-    recommend_indexes_loggroup: 'read',
-    cancel_logs_insight_query: 'write',
+    // awslabs.aws-api-mcp-server 1.5.6. Each call's risk comes from its command (riskFrom).
+    call_aws: 'write',
   },
-  // Pod-level access through AWS credentials would bypass the Kubernetes connector's
-  // namespace limits; the Kubernetes connector covers pods instead.
-  hiddenTools: ['get_k8s_events', 'get_pod_logs', 'list_k8s_resources'],
-  runtime: [
-    {
-      type: 'mcp-stdio',
-      name: 'eks',
-      source: {
-        kind: 'pypi',
-        package: 'awslabs.eks-mcp-server',
-        version: '0.2.1',
-        command: 'awslabs.eks-mcp-server',
-      },
-      args: ['--no-allow-write', '--no-allow-sensitive-data-access'],
-      env: awsEnv,
-      inheritEnv: awsInheritEnv,
-      onlyIf: { setting: 'services', includes: 'eks' },
+  riskFrom: { call_aws: { kind: 'aws-cli', commandArg: 'cli_command' } },
+  // Sends the question to an AWS endpoint; the model writes CLI commands without it.
+  hiddenTools: ['suggest_aws_commands'],
+  // 0.3.x picked the EKS and CloudWatch servers; one server covers every service now.
+  retired: { config: ['services'] },
+  runtime: {
+    type: 'mcp-stdio',
+    name: 'aws-api',
+    source: {
+      kind: 'pypi',
+      package: 'awslabs.aws-api-mcp-server',
+      version: '1.5.6',
+      command: 'awslabs.aws-api-mcp-server',
     },
-    {
-      type: 'mcp-stdio',
-      name: 'cloudwatch',
-      source: {
-        kind: 'pypi',
-        package: 'awslabs.cloudwatch-mcp-server',
-        version: '0.3.1',
-        command: 'awslabs.cloudwatch-mcp-server',
-      },
-      args: [],
-      env: awsEnv,
-      inheritEnv: awsInheritEnv,
-      onlyIf: { setting: 'services', includes: 'cloudwatch' },
+    args: [],
+    env: {
+      AWS_REGION: { setting: 'region' },
+      AWS_ACCESS_KEY_ID: { secret: 'accessKeyId' },
+      AWS_SECRET_ACCESS_KEY: { secret: 'secretAccessKey' },
+      AWS_API_MCP_TELEMETRY: { value: 'false' },
+      AWS_API_MCP_ALLOW_UNRESTRICTED_LOCAL_FILE_ACCESS: { value: 'no-access' },
+      AWS_API_MCP_SUPPRESS_DEPRECATION_WARNING: { value: 'true' },
+      FASTMCP_LOG_LEVEL: { value: 'ERROR' },
     },
-  ],
+    // The server's own check too: it refuses anything AWS does not list as a read.
+    accessEnv: { 'read-only': { READ_OPERATIONS_ONLY: 'true' } },
+    // IAM roles for service accounts (IRSA), container credentials, and profiles.
+    inheritEnv: [
+      'AWS_ROLE_ARN',
+      'AWS_WEB_IDENTITY_TOKEN_FILE',
+      'AWS_CONTAINER_CREDENTIALS_FULL_URI',
+      'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
+      'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE',
+      'AWS_PROFILE',
+      'AWS_STS_REGIONAL_ENDPOINTS',
+    ],
+  },
   permissionsSummary: {
     'read-only': [
-      'Reads EKS clusters and CloudWatch metrics, logs, and alarms. Changes nothing.',
+      'Runs AWS CLI commands that AWS lists as reads. Changes nothing.',
+      'Commands that return secret values or credentials are blocked.',
       'CloudWatch Logs Insights queries are billed by AWS for the data they scan.',
+    ],
+    'read-write-approved': [
+      'Reads run; every command that changes something waits for approval.',
+      'Commands that delete, terminate, or remove are blocked unless policy allows them with approval.',
+      'Commands that return secret values or credentials are blocked.',
     ],
   },
 });

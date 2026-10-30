@@ -188,6 +188,37 @@ describe('connectors', () => {
     ]);
   });
 
+  it('still loads a config that sets a retired field or secret, and names only live ones', () => {
+    const result = parseAgentConfig(
+      config(`${ollama}  connectors:
+    aws:
+      enabled: true
+      config:
+        region: eu-central-1
+        services: [eks]
+    kubernetes:
+      enabled: true
+      config:
+        namespaces: [api]
+      secrets:
+        kubeconfig: \${file:/secrets/kubeconfig}
+        awsAccessKeyId: \${env:AWS_ACCESS_KEY_ID}
+        awsSecretAccessKey: \${env:AWS_SECRET_ACCESS_KEY}`),
+    );
+    expect(result.ok).toBe(true);
+    const typo = parseAgentConfig(
+      config(`${ollama}  connectors:
+    aws:
+      enabled: true
+      config:
+        region: eu-central-1
+        sevices: [eks]`),
+    );
+    expect(messages(typo)).toEqual([
+      'kodra-agent.yaml:16:9 spec.connectors.aws.config: unknown config field sevices. Allowed: region.',
+    ]);
+  });
+
   it('enforces integer bounds', () => {
     const result = parseAgentConfig(
       config(`${ollama}  connectors:

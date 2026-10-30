@@ -495,6 +495,16 @@ function connectorEntrySchema(manifest: Manifest) {
     );
   }
 
+  // Removed by a release: still accepted so older configs load, and ignored.
+  const retired = (what: string) =>
+    z
+      .unknown()
+      .optional()
+      .meta({ deprecated: true, description: `No longer used: this ${what} is ignored.` });
+  for (const key of manifest.retired?.config ?? []) configShape[key] = retired('config field');
+  for (const key of manifest.retired?.secrets ?? []) secretsShape[key] = retired('secret');
+  const hidden = [...(manifest.retired?.config ?? []), ...(manifest.retired?.secrets ?? [])];
+
   const shape: Record<string, z.ZodType> = { enabled: z.boolean() };
   if (manifest.accessLevels.length > 0) {
     shape['access'] = z
@@ -506,10 +516,16 @@ function connectorEntrySchema(manifest: Manifest) {
   const anyConfigRequired = Object.values(configShape).some((s) => !s.safeParse(undefined).success);
   const anySecretRequired = manifest.secrets.some((s) => s.required);
   if (manifest.configFields.length > 0) {
-    shape['config'] = optionalUnless(unknownKeys(configShape, 'config field'), anyConfigRequired);
+    shape['config'] = optionalUnless(
+      unknownKeys(configShape, 'config field', hidden),
+      anyConfigRequired,
+    );
   }
   if (manifest.secrets.length > 0) {
-    shape['secrets'] = optionalUnless(unknownKeys(secretsShape, 'secret'), anySecretRequired);
+    shape['secrets'] = optionalUnless(
+      unknownKeys(secretsShape, 'secret', hidden),
+      anySecretRequired,
+    );
   }
   if (manifest.credentialScope) {
     shape['allowBroadCredentials'] = z.boolean().optional().meta({
@@ -524,8 +540,12 @@ function connectorEntrySchema(manifest: Manifest) {
 }
 
 /** A strict object whose unknown-key error names what was expected. */
-function unknownKeys<T extends z.ZodRawShape>(shape: T, noun: string) {
-  const known = Object.keys(shape);
+function unknownKeys<T extends z.ZodRawShape>(
+  shape: T,
+  noun: string,
+  hidden: readonly string[] = [],
+) {
+  const known = Object.keys(shape).filter((k) => !hidden.includes(k));
   return z.strictObject(shape, {
     error: (issue) =>
       issue.code === 'unrecognized_keys'

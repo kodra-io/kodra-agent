@@ -52,6 +52,15 @@ register(
 );
 
 register(
+  'run_cli',
+  { description: 'Run one AWS CLI command', inputSchema: { cli_command: z.string() } },
+  async ({ cli_command }) => {
+    await record('run_cli', { cli_command });
+    return text(`ran ${cli_command}`);
+  },
+);
+
+register(
   'wipe_everything',
   { description: 'Delete everything', inputSchema: { namespace: z.string().optional() } },
   () => text('WIPED'),

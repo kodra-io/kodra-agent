@@ -192,8 +192,8 @@ the connector docs record each decision.
 | L6 Design partners                          | Not started                               |     |
 | B1 The pipeline that fits                   | Done                                      | #91 |
 | B2 Test in a sandbox, then destroy          | Done                                      | #92 |
-| B3 Configurator clean-up                    | In review                                 |     |
-| B4 Official MCP servers                     | Not started                               |     |
+| B3 Configurator clean-up                    | Done                                      | #94 |
+| B4 Official MCP servers                     | In progress: AWS in review                |     |
 | Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules

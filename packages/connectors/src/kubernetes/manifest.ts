@@ -136,6 +136,8 @@ export default defineManifest({
       steps: KUBECONFIG_STEPS,
     },
   ],
+  // 0.3.12 took EKS keys here; the agent's own AWS_* environment covers EKS now (B3).
+  retired: { secrets: ['awsAccessKeyId', 'awsSecretAccessKey'] },
   healthProbe: 'kubernetes.list-pods',
   // Every tool in the server's core toolset (v0.0.67). Only the allowlisted ones are exposed.
   tools: {

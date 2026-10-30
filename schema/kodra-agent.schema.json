@@ -432,6 +432,14 @@
                       "type": "string",
                       "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
                       "description": "Kubeconfig for the cluster. Not needed when the agent runs inside the cluster with its own service account. Usually ${env:KODRA_KUBECONFIG}."
+                    },
+                    "awsAccessKeyId": {
+                      "deprecated": true,
+                      "description": "No longer used: this secret is ignored."
+                    },
+                    "awsSecretAccessKey": {
+                      "deprecated": true,
+                      "description": "No longer used: this secret is ignored."
                     }
                   },
                   "additionalProperties": false
@@ -711,7 +719,8 @@
                   "default": "read-only",
                   "type": "string",
                   "enum": [
-                    "read-only"
+                    "read-only",
+                    "read-write-approved"
                   ]
                 },
                 "config": {
@@ -724,14 +733,8 @@
                       "description": "AWS region."
                     },
                     "services": {
-                      "minItems": 1,
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "pattern": "^(eks|cloudwatch)$"
-                      },
-                      "description": "AWS services the agent can read: eks, cloudwatch. Each one adds tools the model reads on every question, so leave out what you do not need."
+                      "deprecated": true,
+                      "description": "No longer used: this config field is ignored."
                     }
                   },
                   "required": [
@@ -762,7 +765,7 @@
               ],
               "additionalProperties": false,
               "title": "AWS",
-              "description": "Read EKS clusters and CloudWatch metrics, logs, and alarms. Read-only."
+              "description": "Read any AWS service with the AWS CLI: EKS, EC2, CloudWatch metrics, logs, and alarms, and more. Changes need approval."
             },
             "databases": {
               "type": "object",

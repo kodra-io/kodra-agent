@@ -36,11 +36,13 @@ import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
 import {
+  callRisk,
   decide,
   describeGuards,
   touchedBy,
   type Decision,
   type PolicyInput,
+  type Risk,
   type SelfTarget,
 } from './policy.ts';
 import { StreamingRedactor, type Redactor } from './redactor.ts';
@@ -182,16 +184,20 @@ function schemaFor(tool: HostedTool): Record<string, unknown> {
     required?: string[];
   } & Record<string, unknown>;
   if (tool.risk === 'read') return base;
+  // A tool whose risk is its command's (call_aws) mostly reads: the reason is for changes.
+  const optional = tool.riskFrom !== undefined;
   return {
     ...base,
     properties: {
       ...base.properties,
       [REASON_ARG]: {
         type: 'string',
-        description: 'Why this change is needed, shown to the approver.',
+        description: optional
+          ? 'For a command that changes something: why, shown to the approver.'
+          : 'Why this change is needed, shown to the approver.',
       },
     },
-    required: [...(base.required ?? []), REASON_ARG],
+    required: optional ? [...(base.required ?? [])] : [...(base.required ?? []), REASON_ARG],
   };
 }
 
@@ -272,6 +278,7 @@ export function policyInputFor(
   return {
     self,
     risk: hosted.risk,
+    ...(hosted.riskFrom ? { riskFrom: hosted.riskFrom } : {}),
     access: hosted.access,
     destructiveActions,
     guards: hosted.guards,
@@ -293,10 +300,12 @@ export function alwaysBlocked(
   policy: Pick<AgentDeps['policy'], 'destructiveActions'>,
   readOnly: boolean,
 ): boolean {
-  if (readOnly && tool.risk !== 'read') return true;
+  // A tool whose risk is its command's can always read, so it is offered; each call is decided.
+  const risk = tool.riskFrom ? 'read' : tool.risk;
+  if (readOnly && risk !== 'read') return true;
   return (
     decide({
-      risk: tool.risk,
+      risk,
       access: tool.access,
       destructiveActions: policy.destructiveActions,
       guards: [],
@@ -304,6 +313,19 @@ export function alwaysBlocked(
       settings: {},
     }).kind === 'block'
   );
+}
+
+/** What a per-command tool (call_aws) may run, in words the model can follow up front. */
+function perCommandRules(
+  tool: HostedTool,
+  destructiveActions: AgentDeps['policy']['destructiveActions'],
+): string {
+  const secrets = 'Commands that return credentials or secret values are refused.';
+  if (tool.access !== 'read-write-approved')
+    return `Only reads run: this connector is read-only. ${secrets}`;
+  const deletes =
+    destructiveActions === 'require-approval' ? 'wait for approval too' : 'are blocked by policy';
+  return `Reads run; commands that change something wait for approval; commands that delete ${deletes}. ${secrets}`;
 }
 
 function buildTools(
@@ -318,7 +340,10 @@ function buildTools(
     .tools()
     .filter((t) => !alwaysBlocked(t, deps.policy, deps.readOnly === true));
   // Proposed changes come first, so the cache breakpoint on the last tool still covers all.
-  if (deps.readOnly !== true && hostedTools.some((t) => t.risk !== 'read')) {
+  // A per-command tool can change something only with read-write access.
+  const canChange = (t: HostedTool) =>
+    t.risk !== 'read' && (t.riskFrom === undefined || t.access === 'read-write-approved');
+  if (deps.readOnly !== true && hostedTools.some(canChange)) {
     tools[PROPOSE_CHANGE] = proposeChangeTool(deps, task, hostedTools, router);
   }
   const last = hostedTools.at(-1)?.name;
@@ -327,7 +352,9 @@ function buildTools(
       // A cache breakpoint after the last tool: tool definitions are the same on every call.
       ...(hosted.name === last ? { providerOptions: CACHE } : {}),
       description: [
-        `[${hosted.connector}, ${hosted.risk}] ${hosted.description}`,
+        hosted.riskFrom
+          ? `[${hosted.connector}, risk per command] ${hosted.description} ${perCommandRules(hosted, deps.policy.destructiveActions)}`
+          : `[${hosted.connector}, ${hosted.risk}] ${hosted.description}`,
         ...describeGuards(hosted.guards, hosted.settings, hosted.sharedSettings).map(
           (limit) => `Allowed: ${limit}.`,
         ),
@@ -358,13 +385,17 @@ function buildTools(
         const raw = (input ?? {}) as Record<string, unknown>;
         const { [REASON_ARG]: reason, ...args } = raw;
         const source = `${hosted.connector}/${hosted.tool}`;
+        // This call's risk: the tool's, or its command's (call_aws). A refused command keeps
+        // the tool's own; the policy blocks it below.
+        const perCall = callRisk({ risk: hosted.risk, riskFrom: hosted.riskFrom, args });
+        const ownRisk: Risk = typeof perCall === 'string' ? perCall : hosted.risk;
         const redactedArgs = deps.redactor.redact(JSON.stringify(args));
         const base = {
           actor,
           task,
           connector: hosted.connector,
           tool: hosted.tool,
-          risk: hosted.risk,
+          risk: ownRisk,
         } as const;
         const call = options.toolCallId;
         const toolEvent = (state: ToolState, detail?: string) => {
@@ -373,7 +404,7 @@ function buildTools(
             call,
             connector: hosted.connector,
             tool: hosted.tool,
-            risk: hosted.risk,
+            risk: ownRisk,
             args: redactedArgs,
             state,
             ...(detail === undefined ? {} : { detail: deps.redactor.redact(detail) }),
@@ -394,9 +425,9 @@ function buildTools(
           settle('blocked');
           return wrapUntrusted(source, `BLOCKED: ${misplaced}. Nothing was run.`, deps.redactor);
         }
-        const pausedReason = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
+        const pausedReason = ownRisk !== 'read' ? (deps.paused?.() ?? null) : null;
         let decision: Decision =
-          deps.readOnly && hosted.risk !== 'read'
+          deps.readOnly && ownRisk !== 'read'
             ? {
                 kind: 'block',
                 reason: 'investigations are read-only; ask in Slack to make a change',
@@ -412,13 +443,14 @@ function buildTools(
           decision = { kind: 'block', reason: rules.reason };
         }
         // A big cut in replicas is destructive (M29): blocked or approved as one.
-        let risk = hosted.risk;
+        let risk = ownRisk;
         if (decision.kind === 'approve' && hosted.scaleLimit) {
           const cut = await bigCut(hosted.scaleLimit, args, (a) => readFor(deps, hosted, a));
           if (cut) {
             risk = 'destructive';
             const strict = decide({
               ...policyInputFor(hosted, args, deps.policy.destructiveActions, deps.policy.self),
+              riskFrom: undefined,
               risk,
             });
             if (strict.kind === 'block') {
@@ -524,7 +556,7 @@ function buildTools(
           }
 
           // Paused while it waited for approval: the approval does not count any more.
-          const pausedNow = hosted.risk !== 'read' ? (deps.paused?.() ?? null) : null;
+          const pausedNow = ownRisk !== 'read' ? (deps.paused?.() ?? null) : null;
           if (pausedNow) {
             toolEvent('blocked', pausedNow);
             await deps.audit.append({
@@ -536,7 +568,7 @@ function buildTools(
             settle('blocked');
             return wrapUntrusted(source, `BLOCKED: ${pausedNow}. Nothing was run.`, deps.redactor);
           }
-          deps.term.out(`  [${hosted.risk}] ${source} ${redactedArgs}`);
+          deps.term.out(`  [${ownRisk}] ${source} ${redactedArgs}`);
           toolEvent('running');
           try {
             // The value before the change, for the rollback if it does not settle (M29b).

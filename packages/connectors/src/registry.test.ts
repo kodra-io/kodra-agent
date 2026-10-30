@@ -71,12 +71,18 @@ describe('connector registry', () => {
     }
   });
 
-  it('defaults to safe access: monitoring and cloud connectors are read-only only', () => {
-    for (const c of connectors.filter((m) => ['monitoring', 'cloud'].includes(m.category))) {
+  it('defaults to safe access: monitoring connectors are read-only only', () => {
+    for (const c of connectors.filter((m) => m.category === 'monitoring')) {
       expect(
         c.accessLevels.filter((l) => l !== 'read-only'),
         c.id,
       ).toEqual([]);
+    }
+  });
+
+  it('starts cloud connectors read-only', () => {
+    for (const c of connectors.filter((m) => m.category === 'cloud' && m.accessLevels.length)) {
+      expect(c.accessLevels[0], c.id).toBe('read-only');
     }
   });
 
