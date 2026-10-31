@@ -85,7 +85,7 @@ async function start(inputs: ConnectorInput[], redactor = new Redactor()) {
 
 describe('remote MCP servers (B4)', () => {
   it("talks to GitLab's built-in server with the token as a Bearer header, and only its toolsets", async () => {
-    const token = 'glpat-remote-secret-0123456789';
+    const token = 'glpat-remote-secret-0123456789'; // gitleaks:allow
     const gitlab = await remoteServer('/api/v4/mcp', [
       'list_branches',
       'add_branch',
@@ -119,7 +119,7 @@ describe('remote MCP servers (B4)', () => {
   });
 
   it("GitLab CI uses the GitLab connector's address and token, with the ci toolset", async () => {
-    const token = 'glpat-shared-secret-0123456789';
+    const token = 'glpat-shared-secret-0123456789'; // gitleaks:allow
     const gitlab = await remoteServer('/api/v4/mcp', ['list_pipelines', 'save_pipeline']);
     const h = await start([
       input(
@@ -158,7 +158,7 @@ describe('remote MCP servers (B4)', () => {
   });
 
   it('reports a server that refuses the token, without the token', async () => {
-    const token = 'glpat-refused-secret-0123456789';
+    const token = 'glpat-refused-secret-0123456789'; // gitleaks:allow
     const gitlab = await remoteServer('/api/v4/mcp', [], 401);
     const redactor = new Redactor();
     redactor.add(token);
