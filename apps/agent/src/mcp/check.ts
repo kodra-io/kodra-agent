@@ -53,12 +53,7 @@ export const DUMMY_CASES: {
     },
     secrets: { token: 'jenkins-dummy-not-used' },
   },
-  {
-    id: 'aws',
-    access: 'read-only',
-    settings: { region: 'eu-central-1' },
-    secrets: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'dummy-not-used' },
-  },
+  // AWS is coming soon (B4), with no server to check.
 ];
 
 /** Tools that must never reach the model, under any connector. */

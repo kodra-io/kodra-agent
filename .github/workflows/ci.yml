@@ -115,7 +115,7 @@ jobs:
           docker build -t kodra-jenkins-mcp docker/test/jenkins-mcp
           docker run -d --name jenkins -p 127.0.0.1:18080:8080 kodra-jenkins-mcp
           for i in $(seq 1 60); do
-            curl -sf -u kodra:kodra-e2e-password http://127.0.0.1:18080/api/json >/dev/null && break
+            curl -sf -u kodra:kodra-e2e-password http://127.0.0.1:18080/api/json >/dev/null && break # gitleaks:allow
             sleep 5
           done
           pnpm --filter @kodra-agent/agent exec vitest run src/jenkins-plugin.e2e.test.ts
