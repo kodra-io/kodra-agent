@@ -1,3 +1,6 @@
+// Parked: not registered in ../index.ts. Cloud providers are off for now (expected to become
+// a licensed, paid add-on), so AWS is listed as coming soon. Register this manifest again to
+// bring the connector back.
 import { defineManifest, type McpStdioRuntime, type SetupStep } from '@kodra-agent/schema';
 import { PATTERNS } from '../shared.ts';
 

@@ -1,0 +1,17 @@
+{
+  "message": "Data retrieved successfully.",
+  "result": {
+    "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+    "description": null,
+    "fullName": "team-a/deploy-web",
+    "name": "deploy-web",
+    "url": "http://127.0.0.1:18080/job/team-a/job/deploy-web/",
+    "buildable": true,
+    "color": "notbuilt",
+    "healthReport": [],
+    "lastBuild": null,
+    "lastCompletedBuild": null,
+    "inQueue": false
+  },
+  "status": "COMPLETED"
+}

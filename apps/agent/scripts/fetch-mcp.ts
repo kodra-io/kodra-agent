@@ -1,11 +1,12 @@
 import { connectors } from '@kodra-agent/connectors';
-import { stdioRuntimes } from '@kodra-agent/schema';
+import { allVariants, stdioRuntimes } from '@kodra-agent/schema';
 import { fetchServer, mcpCacheDir } from '../src/mcp/fetch.ts';
 
 // Downloads every pinned MCP server binary for this platform, checksum-verified.
 const dir = mcpCacheDir();
 let failed = false;
-for (const manifest of connectors) {
+// Every server a connector can use, so a community fallback works offline too (B4).
+for (const manifest of connectors.flatMap(allVariants)) {
   for (const runtime of stdioRuntimes(manifest)) {
     const label = `${manifest.id}${runtime.name ? `/${runtime.name}` : ''}`.padEnd(20);
     try {

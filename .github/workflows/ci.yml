@@ -109,6 +109,19 @@ jobs:
         run: pnpm --filter @kodra-agent/agent exec vitest run src/real-servers.e2e.test.ts
         env:
           KODRA_REAL_SERVERS: '1'
+      # The official Jenkins MCP Server plugin, pinned, in a throwaway Jenkins (test password).
+      - name: Jenkins MCP Server plugin (every tool classified, jobs read through it)
+        run: |
+          docker build -t kodra-jenkins-mcp docker/test/jenkins-mcp
+          docker run -d --name jenkins -p 127.0.0.1:18080:8080 kodra-jenkins-mcp
+          for i in $(seq 1 60); do
+            curl -sf -u kodra:kodra-e2e-password http://127.0.0.1:18080/api/json >/dev/null && break # gitleaks:allow
+            sleep 5
+          done
+          pnpm --filter @kodra-agent/agent exec vitest run src/jenkins-plugin.e2e.test.ts
+        env:
+          KODRA_JENKINS_MCP_URL: http://127.0.0.1:18080
+          KODRA_JENKINS_MCP_TOKEN: kodra-e2e-password # gitleaks:allow
       # The dashboard's GitHub Actions card on real output, with this workflow's own token.
       - name: Dashboard card on real GitHub output
         run: pnpm --filter @kodra-agent/agent exec vitest run src/dashboard.github.e2e.test.ts

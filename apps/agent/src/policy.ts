@@ -203,6 +203,24 @@ function checkGuard(guard: ToolGuard, input: PolicyInput): string | null {
         ? `${branch} is the default branch of ${repo}; changes go through a pull request on another branch`
         : null;
     }
+    case 'arg-absent':
+      return args[guard.arg] === undefined ? null : `${guard.arg} is not allowed: ${guard.hint}`;
+    case 'items-allowed': {
+      const items = args[guard.arg];
+      if (!Array.isArray(items)) return `${guard.arg} must be a list`;
+      for (const item of items) {
+        if (typeof item !== 'object' || item === null)
+          return `${guard.arg} holds an item that is not an object`;
+        const record = item as Record<string, unknown>;
+        const value = record[guard.field];
+        if (typeof value !== 'string' || !guard.allowed.includes(value)) {
+          return `each ${guard.arg} item's ${guard.field} must be one of: ${guard.allowed.join(', ')}`;
+        }
+        const forbidden = (guard.forbid ?? []).find((key) => record[key] !== undefined);
+        if (forbidden) return `${guard.arg} items cannot set ${forbidden}`;
+      }
+      return null;
+    }
   }
 }
 
@@ -227,7 +245,7 @@ export function touchedBy(
       for (const object of objectsOf(guard, args) ?? []) {
         if (object.namespace) namespaces.add(object.namespace);
       }
-    } else {
+    } else if (guard.kind === 'repo-in-setting' || guard.kind === 'not-default-branch') {
       const repo = repoFrom(args, guard.repoArg, guard.ownerArg);
       if (repo) repos.add(repo);
     }
@@ -266,6 +284,14 @@ export function describeGuards(
         break;
       case 'not-self':
         out.push("never the agent's own deployment, pods, config, or secrets");
+        break;
+      case 'arg-absent':
+        out.push(`never pass ${guard.arg}: ${guard.hint}`);
+        break;
+      case 'items-allowed':
+        out.push(
+          `each ${guard.arg} item's ${guard.field} must be one of: ${guard.allowed.join(', ')}${guard.forbid?.length ? `, without ${guard.forbid.join(', ')}` : ''}`,
+        );
         break;
     }
   }

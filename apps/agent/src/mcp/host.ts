@@ -9,13 +9,17 @@ import {
   getDefaultEnvironment,
   StdioClientTransport,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
+  httpRuntime,
   stdioRuntimes,
   type AccessLevel,
   type BuiltinRuntime,
   type ChangeStep,
   type Manifest,
+  type McpHttpRuntime,
   type McpStdioRuntime,
   type ToolGuard,
   type ValueSource,
@@ -199,6 +203,11 @@ export class ConnectorHost {
         await host.attempt(input, undefined, () => host.startBuiltin(input, runtime));
         continue;
       }
+      const remote = httpRuntime(input.component.manifest);
+      if (remote) {
+        await host.attempt(input, undefined, () => host.startHttp(input, remote));
+        continue;
+      }
       for (const stdio of stdioRuntimes(input.component.manifest)) {
         if (!wanted(stdio, input.component.settings)) continue;
         await host.attempt(input, stdio.name, () => host.startOne(input, stdio));
@@ -240,6 +249,87 @@ export class ConnectorHost {
     const client = new Client({ name: 'kodra-agent', version: '0.0.0' });
     await client.connect(clientSide);
     await this.register(input, client, input.component.manifest.id, null);
+  }
+
+  /**
+   * A remote server (B4): the tool's own MCP endpoint, over Streamable HTTP. Secrets go only
+   * into request headers and are registered with the redactor, encoded forms included. The
+   * agent's proxy and CA settings apply, as they do to every request this process makes.
+   */
+  private async startHttp(input: ConnectorInput, runtime: McpHttpRuntime): Promise<void> {
+    const { component, secrets } = input;
+    const manifest = component.manifest;
+    const fromSetting = (setting: string, from: string | undefined): string | undefined => {
+      const raw =
+        from === undefined
+          ? component.settings[setting]
+          : requires(manifest, from)
+            ? input.sharedSettings?.[from]?.[setting]
+            : undefined;
+      return settingValue(raw)?.replace(/\/+$/, '');
+    };
+    const resolve = (source: ValueSource): string | undefined => {
+      if ('value' in source) return source.value;
+      if ('setting' in source) {
+        const value = fromSetting(source.setting, source.from);
+        return value === undefined ? undefined : `${value}${source.suffix ?? ''}`;
+      }
+      if ('secret' in source) {
+        if (source.from === undefined) return secrets[source.secret];
+        return requires(manifest, source.from)
+          ? input.sharedSecrets?.[source.from]?.[source.secret]
+          : undefined;
+      }
+      // A file path means nothing to a remote server.
+      return undefined;
+    };
+    const base = fromSetting(runtime.url.setting, runtime.url.from);
+    if (base === undefined) throw new Error(`no ${runtime.url.setting} configured`);
+    const url = new URL(`${base}${runtime.url.suffix}`);
+
+    const headers: Record<string, string> = {};
+    for (const [name, header] of Object.entries(runtime.headers)) {
+      let value: string | undefined;
+      if ('bearer' in header) {
+        const token = resolve(header.bearer);
+        value = token === undefined ? undefined : `Bearer ${token}`;
+      } else if ('basic' in header) {
+        const user = resolve(header.basic.user);
+        const password = resolve(header.basic.password);
+        value =
+          user === undefined || password === undefined
+            ? undefined
+            : `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+      } else {
+        value = resolve(header);
+      }
+      if (value === undefined) continue;
+      headers[name] = value;
+      // The header as sent, and the encoded part alone: neither may reach output or logs.
+      this.opts.redactor.add(value);
+      const encoded = value.replace(/^(Bearer|Basic) /, '');
+      if (encoded !== value) this.opts.redactor.add(encoded);
+    }
+
+    // The SDK types sessionId as `string | undefined` against an optional `string`, which
+    // exactOptionalPropertyTypes rejects; the object is a Transport all the same.
+    const transport = new StreamableHTTPClientTransport(url, {
+      requestInit: { headers },
+    }) as unknown as Transport;
+    const client = new Client({ name: 'kodra-agent', version: '0.0.0' });
+    try {
+      await client.connect(transport, { timeout: this.opts.timeoutMs ?? 30_000 });
+    } catch (error) {
+      await client.close().catch(() => undefined);
+      // No `cause`: the original error may carry an unredacted secret.
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error(
+        `could not reach the ${manifest.displayName} MCP server at ${url.origin}${url.pathname}: ${this.opts.redactor.redact(
+          error instanceof Error ? error.message : String(error),
+        )}`,
+      );
+    }
+    await this.register(input, client, manifest.id, null);
   }
 
   /** Servers that could not start, with the reason (redacted). */

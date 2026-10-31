@@ -163,14 +163,20 @@ Done when the configurator e2e tests cover each of these.
 
 #### B4: The official MCP server for each connector
 
-- **AWS:** `awslabs.aws-api-mcp-server` (`call_aws`, every service) replaces the EKS and
-  CloudWatch servers. Each call's risk comes from its AWS operation: reads run, writes need
-  approval, deletes are blocked. Read-only access also sets `READ_OPERATIONS_ONLY`.
+- **AWS: off for now.** Cloud providers are expected to become a licensed, paid add-on, so AWS
+  is listed as coming soon, like Azure and Google Cloud (Omar, 31 October 2026). The manifest
+  stays in the code, unregistered. `awslabs.aws-api-mcp-server` turned out to be superseded by
+  AWS's managed AWS MCP Server; that choice waits until AWS comes back.
+- **Cloud model providers: off for now.** Azure OpenAI and AWS Bedrock are refused in
+  `spec.model` and `spec.models` with a "coming soon" message, and left out of the configurator
+  and console (Omar, 31 October 2026). Their code stays, parked; Anthropic, OpenAI, and Ollama
+  remain.
 - **Remote MCP servers:** an HTTP runtime with the token as a header, through the proxy and CA
   settings.
-- **GitLab:** GitLab's built-in MCP server, if its tools cover merge requests and pipelines;
-  else the current server stays, with the reason in `docs/connectors/gitlab.md`.
-- **Jenkins:** the Jenkins `mcp-server` plugin.
+- **GitLab:** GitLab's built-in MCP server (19.5 or newer) by default, for GitLab and GitLab
+  CI; `server: community` keeps `@zereight/mcp-gitlab` for older GitLab (Omar, 31 October 2026).
+- **Jenkins:** the Jenkins `mcp-server` plugin by default; `server: community` keeps
+  `mcp-jenkins` for a Jenkins without the plugin (Omar, 31 October 2026).
 - GitHub, Grafana, Kubernetes, and Prometheus already use the official or the only maintained
   server; Docker and Databases stay built in.
 
@@ -192,8 +198,8 @@ the connector docs record each decision.
 | L6 Design partners                          | Not started                               |     |
 | B1 The pipeline that fits                   | Done                                      | #91 |
 | B2 Test in a sandbox, then destroy          | Done                                      | #92 |
-| B3 Configurator clean-up                    | In review                                 |     |
-| B4 Official MCP servers                     | Not started                               |     |
+| B3 Configurator clean-up                    | Done                                      | #94 |
+| B4 Official MCP servers                     | In review                                 |     |
 | Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules

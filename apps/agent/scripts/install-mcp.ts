@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { connectors } from '@kodra-agent/connectors';
-import { stdioRuntimes } from '@kodra-agent/schema';
+import { allVariants, stdioRuntimes } from '@kodra-agent/schema';
 import { fetchServer, mcpCacheDir, preinstalledPath } from '../src/mcp/fetch.ts';
 import { lockfileFor, lockfileProblem } from '../src/mcp/preinstall.ts';
 
@@ -18,7 +18,8 @@ const run = (command: string, args: string[], cwd?: string) => {
 };
 
 const done = new Set<string>();
-for (const manifest of connectors) {
+// Every server a connector can use, so a community fallback works offline too (B4).
+for (const manifest of connectors.flatMap(allVariants)) {
   for (const runtime of stdioRuntimes(manifest)) {
     const source = runtime.source;
     const key = JSON.stringify(source);

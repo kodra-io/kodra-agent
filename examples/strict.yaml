@@ -9,9 +9,9 @@ spec:
   profile: strict
   target: kubernetes
   model:
-    provider: bedrock
+    provider: anthropic
     name: '<model-id>'
-    region: eu-central-1
+    apiKey: ${env:ANTHROPIC_API_KEY}
   connectors:
     github:
       enabled: true

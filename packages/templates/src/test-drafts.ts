@@ -45,7 +45,7 @@ export function kubernetesDraft(
     ...emptyDraft(),
     name: 'platform-agent',
     target: 'kubernetes',
-    model: { provider: 'bedrock', name: 'some-model', fields: { region: 'eu-central-1' } },
+    model: { provider: 'openai', name: 'some-model', fields: { baseUrl: '' } },
     policy: {
       approvers: '@omar, U0123ABCD',
       expiresAfterMinutes: '30',

@@ -1,5 +1,16 @@
 # AWS connector
 
+> **Coming soon (Oct 31, 2026).** Cloud providers are turned off for now: they are expected to
+> become a licensed, paid add-on. AWS is listed as coming soon, like Azure and Google Cloud, and
+> cannot be enabled. The manifest below is kept, unregistered, in
+> `packages/connectors/src/aws/manifest.ts`. EKS kubeconfigs for the Kubernetes connector
+> (`aws eks get-token`) are not affected. The Bedrock and Azure OpenAI model providers are
+> coming soon too.
+>
+> When it comes back, B4 found that `awslabs.aws-api-mcp-server` (the server PLAN.md named) is
+> superseded by AWS's managed AWS MCP Server, reached through `mcp-proxy-for-aws`. Decide between
+> them then.
+
 **Servers:** [`awslabs/mcp`](https://github.com/awslabs/mcp): `awslabs.eks-mcp-server` 0.2.1 and `awslabs.cloudwatch-mcp-server` 0.3.1 (PyPI)
 **Decided:** 2026-10-03, for M4b
 

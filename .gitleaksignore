@@ -1,0 +1,6 @@
+# Test-only values in commit 26b2fbd (B4), marked gitleaks:allow in later commits:
+# the throwaway Jenkins password in CI, and fake GitLab tokens in a test.
+26b2fbdf50d5d0762be0e1931f679369bdd9922b:.github/workflows/ci.yml:curl-auth-user:118
+26b2fbdf50d5d0762be0e1931f679369bdd9922b:apps/agent/src/mcp/host-http.test.ts:gitlab-pat:88
+26b2fbdf50d5d0762be0e1931f679369bdd9922b:apps/agent/src/mcp/host-http.test.ts:gitlab-pat:122
+26b2fbdf50d5d0762be0e1931f679369bdd9922b:apps/agent/src/mcp/host-http.test.ts:gitlab-pat:161

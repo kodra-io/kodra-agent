@@ -6,6 +6,7 @@ import {
   entryEnvVar,
   formatIssue,
   parseSecretRef,
+  resolveVariant,
   type AgentConfig,
   type Manifest,
   type SecretRef,
@@ -68,10 +69,17 @@ export function components(config: AgentConfig): Component[] {
   const provider = getModelProvider(model.provider);
   if (provider) out.push(component(provider, model, model));
 
+  // Every enabled connector's settings, for a variant picked by another connector's setting.
+  const allSettings: Record<string, Record<string, unknown>> = {};
+  for (const [id, entry] of Object.entries(config.spec.connectors)) {
+    if (entry?.enabled) allSettings[id] = entry.config ?? {};
+  }
   for (const [id, entry] of Object.entries(config.spec.connectors)) {
     if (!entry?.enabled) continue;
-    const manifest = getConnector(id);
-    if (!manifest) continue;
+    const listed = getConnector(id);
+    if (!listed) continue;
+    // The server the settings pick (B4): its tools, guards, and runtime.
+    const manifest = resolveVariant(listed, entry.config ?? {}, allSettings);
     const comp = component(manifest, entry.config ?? {}, entry.secrets ?? {});
     out.push(
       entry.allowBroadCredentials === true ? { ...comp, allowBroadCredentials: true } : comp,

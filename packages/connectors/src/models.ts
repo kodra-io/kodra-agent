@@ -140,6 +140,7 @@ export const openai = defineManifest({
   },
 });
 
+/** Parked (B4): not in modelProviders while cloud providers are off. */
 export const azureOpenai = defineManifest({
   id: 'azure-openai',
   displayName: 'Azure OpenAI',
@@ -191,6 +192,7 @@ export const azureOpenai = defineManifest({
   },
 });
 
+/** Parked (B4): not in modelProviders while cloud providers are off. */
 export const bedrock = defineManifest({
   id: 'bedrock',
   displayName: 'AWS Bedrock',

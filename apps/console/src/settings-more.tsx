@@ -35,7 +35,8 @@ function without<T extends object, K extends keyof T>(obj: T, ...keys: K[]): Omi
 const PROFILES = ['starter', 'team', 'strict'] as const;
 const DETECTORS = ['cards', 'ibans', 'emails', 'phones'] as const;
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
-const PROVIDERS = ['anthropic', 'openai', 'azure-openai', 'bedrock', 'ollama'] as const;
+// Azure OpenAI and Bedrock are parked (B4): cloud providers are off for now.
+const PROVIDERS = ['anthropic', 'openai', 'ollama'] as const;
 
 const small = 'h-9 rounded-lg border border-line-strong bg-surface px-2.5 text-sm';
 const remove =
@@ -753,15 +754,11 @@ export function NamedModelsEditor({
             disabled={false}
             onChange={setModel}
           />
-          {(provider === 'ollama' || provider === 'azure-openai') && (
+          {provider === 'ollama' && (
             <Field
-              label={provider === 'ollama' ? 'baseUrl' : 'endpoint'}
+              label="baseUrl"
               value={baseUrl}
-              placeholder={
-                provider === 'ollama'
-                  ? 'http://host.docker.internal:11434'
-                  : 'https://name.openai.azure.com'
-              }
+              placeholder="http://host.docker.internal:11434"
               disabled={false}
               onChange={setBaseUrl}
               wide
@@ -773,8 +770,7 @@ export function NamedModelsEditor({
             disabled={!/^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/.test(name) || model.trim() === ''}
             onClick={() => {
               const config: Record<string, string> = {};
-              if (baseUrl.trim())
-                config[provider === 'ollama' ? 'baseUrl' : 'endpoint'] = baseUrl.trim();
+              if (provider === 'ollama' && baseUrl.trim()) config['baseUrl'] = baseUrl.trim();
               onChange({
                 models: { ...pending, [name]: { provider, name: model.trim(), config } },
               });

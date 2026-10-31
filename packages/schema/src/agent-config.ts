@@ -130,10 +130,27 @@ export const modelSchema = z.discriminatedUnion(
       'key',
     ),
   ],
-  { error: 'provider must be one of anthropic, openai, azure-openai, bedrock, ollama' },
+  { error: 'provider must be one of anthropic, openai, ollama' },
 );
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type ModelProvider = ModelConfig['provider'];
+
+/**
+ * Providers that are parked: cloud model providers are off for now, expected as a licensed
+ * add-on later (B4). Their code stays, but a config that names one is refused.
+ */
+export const PARKED_MODEL_PROVIDERS: readonly ModelProvider[] = ['azure-openai', 'bedrock'];
+
+/** spec.model and spec.models: a model whose provider is not parked. */
+const usableModelSchema = modelSchema.superRefine((model, ctx) => {
+  if (PARKED_MODEL_PROVIDERS.includes(model.provider)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['provider'],
+      message: `${model.provider} is coming soon: cloud model providers are off for now. Use anthropic, openai, or ollama.`,
+    });
+  }
+});
 
 /** Approval rules; left out, the profile decides (see resolvePolicy). */
 const approvalRules = {
@@ -564,7 +581,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
         /** Defaults for a kind of organization: starter, team, or strict. */
         profile: z.enum(PROFILES, { error: 'must be starter, team, or strict' }).default('starter'),
         target: z.enum(['compose', 'kubernetes'], { error: 'must be compose or kubernetes' }),
-        model: modelSchema,
+        model: usableModelSchema,
         connectors: connectorsSchema.prefault({}),
         policy: policySchema,
         environments: z.array(environmentSchema).default([]),
@@ -587,7 +604,7 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
                 /^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/,
                 'must be lowercase letters, digits, and hyphens',
               ),
-            modelSchema,
+            usableModelSchema,
           )
           .default({}),
         ship: shipSchema,

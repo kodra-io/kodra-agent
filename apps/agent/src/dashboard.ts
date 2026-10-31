@@ -333,7 +333,13 @@ function jobsData(
   } catch {
     return null;
   }
-  const list = view.items ? pick(parsed, view.items) : parsed;
+  let list = view.items ? pick(parsed, view.items) : parsed;
+  if (view.items && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+    // The Jenkins plugin answers one job as an object, and leaves `result` out when there is
+    // nothing to list (a job asked for as a folder).
+    if (list === undefined) list = [];
+    else if (typeof list === 'object' && list !== null && !Array.isArray(list)) list = [list];
+  }
   if (!Array.isArray(list)) return null;
   // Only what the connector is scoped to, by the same rule as its guards.
   const scope = view.scope;

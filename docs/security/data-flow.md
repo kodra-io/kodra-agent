@@ -53,6 +53,8 @@ Reviewed manifest: `openai@cbc77e01200b`
 
 ### Azure OpenAI
 
+Coming soon: cloud model providers are off for now (B4), so no config can select it.
+
 - **Sends to:** your Azure OpenAI `endpoint` and `deployment`, over HTTPS.
 - **Secrets:** `apiKey`, sent as the `api-key` header.
 - **Data:** the model input above, processed in your Azure tenant and region.
@@ -60,6 +62,8 @@ Reviewed manifest: `openai@cbc77e01200b`
 Reviewed manifest: `azure-openai@c4bfe7cdd7c5`
 
 ### Amazon Bedrock
+
+Coming soon: cloud model providers are off for now (B4), so no config can select it.
 
 - **Sends to:** the Bedrock runtime endpoint in your `region`, over HTTPS.
 - **Secrets:** none in the config: the standard AWS credentials (an IAM role, or AWS keys in the
@@ -94,7 +98,7 @@ Reviewed manifest: `ollama@3fb5b050c773`
 - **Writes, after approval:** branches, files, and pull requests in those repos, never on the
   default branch.
 
-Reviewed manifest: `github@8947bf98adbb`
+Reviewed manifest: `github@1628ab1cc4f1`
 
 ### GitHub Actions
 
@@ -110,47 +114,65 @@ Reviewed manifest: `github-actions@98ad5a079546`
 
 ### GitLab
 
-- **Server:** `@zereight/mcp-gitlab` from npm ([decision](../connectors/gitlab.md)).
-- **Sends to:** your GitLab at `url` (`https://gitlab.com` by default), over HTTPS.
-- **Secrets:** `token` (a personal, project, or group access token).
-- **Reads:** files, commits, branches, issues, and merge requests in the configured `projects`.
+- **Server (`server: builtin`, the default):** GitLab's own MCP server, at `<url>/api/v4/mcp`
+  over Streamable HTTP, with the core, merge_requests, work_items, and repository toolsets
+  ([decision](../connectors/gitlab.md)). Nothing runs in the agent for it. Needs GitLab 19.5
+  or newer, with MCP access allowed.
+- **Server (`server: community`):** `@zereight/mcp-gitlab` from npm, run in the agent, for
+  older GitLab.
+- **Sends to:** your GitLab at `url` (`https://gitlab.com` by default), over HTTPS, through the
+  agent's proxy and CA settings.
+- **Secrets:** `token`: a fine-grained personal access token with the MCP server permission
+  (built-in server), sent only as the `Authorization` header; or a personal, project, or group
+  access token in the server's environment (community server).
+- **Reads:** files, commits, branches, tags, releases, issues and other work items, and merge
+  requests in the configured `projects`. Calls that name a project by `url`, or a whole group,
+  are refused.
 - **Ship and onboard (B1):** to choose the pipeline, read only the `.gitlab-ci.yml` of the other
   configured `projects` (a shallow, blob-less `git fetch` with the same token as a header), and
   the shared template named in `pipelineTemplate` or held in a configured project. Parsed as
   YAML only: never run and never sent to the model. A value that looks like a credential is
   never copied into the new merge request.
-- **Writes, after approval:** branches, files, and merge requests in those projects, never on
-  the default branch.
+- **Writes, after approval:** branches, commits that create or update files, comments, work
+  items, and merge requests in those projects, never on the default branch. Never merges,
+  approves, forks, deletes, or moves files.
 
-Reviewed manifest: `gitlab@246dfad097c4`
+Reviewed manifest: `gitlab@88284449c9cc`
 
 ### GitLab CI
 
-- **Server:** the same `@zereight/mcp-gitlab` package, limited to pipeline tools.
+- **Server:** the GitLab connector's server, limited to pipeline tools: GitLab's built-in
+  server with the ci toolset, or `@zereight/mcp-gitlab` with its pipeline tools.
 - **Sends to:** the GitLab connector's `url`, with its token.
-- **Reads:** pipelines, jobs, and job logs.
-- **Creates, retries, or plays pipelines and jobs:** classified destructive, because a pipeline
+- **Reads:** pipelines, jobs, job logs, and job artifacts. CI/CD variable values are never read.
+- **Runs, retries, or plays pipelines and jobs:** classified destructive, because a pipeline
   can deploy. Blocked unless `destructiveActions: require-approval`, and then only after
-  approval.
-
+  approval. With the built-in server, only a new pipeline on a listed project: an existing
+  pipeline is named by an id no project check covers.
 - **Console dashboard:** The latest pipelines per project (status, ref, link), read with the same read tool and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `gitlab-ci@8d810c0836c0`
+Reviewed manifest: `gitlab-ci@92bc1aa18d8b`
 
 ### Jenkins
 
-- **Server:** `mcp-jenkins` from PyPI ([decision](../connectors/jenkins.md)).
-- **Sends to:** your Jenkins at `url`, with the configured user and API token.
-- **Secrets:** `token` (a Jenkins API token), passed to the server as an environment variable.
-- **Reads:** jobs, builds, console logs, test reports, and artifacts of the configured `jobs`
-  (or under a listed folder); the job list, queue, nodes, and plugins the token's user can see.
-- **Writes, after approval:** stopping a build of a listed job. Starting builds and answering
-  pipeline inputs are destructive: blocked unless `destructiveActions: require-approval`.
-  Groovy scripts and job or node config.xml are never exposed.
-- **Console dashboard:** the listed jobs and their last result, read with the same read tool
+- **Server (`server: plugin`, the default):** the official MCP Server plugin, installed in your
+  Jenkins, at `<url>/mcp-server/mcp` over Streamable HTTP ([decision](../connectors/jenkins.md)).
+  Nothing runs in the agent for it.
+- **Server (`server: community`):** `mcp-jenkins` from PyPI, run in the agent.
+- **Sends to:** your Jenkins at `url`, with the configured user and API token, through the
+  agent's proxy and CA settings.
+- **Secrets:** `token` (a Jenkins API token): sent only as a Basic `Authorization` header to the
+  plugin, or passed to `mcp-jenkins` as an environment variable.
+- **Reads:** jobs, builds, console logs, test results, and SCM details of the configured `jobs`
+  (or under a listed folder); the job list and queue items the token's user can see.
+- **Writes, after approval:** stopping a build of a listed job. Starting and rebuilding builds
+  (and, with `mcp-jenkins`, answering pipeline inputs) are destructive: blocked unless
+  `destructiveActions: require-approval`. Replaying or creating pipelines, Groovy scripts, the
+  system log, and job or node config.xml are never exposed.
+- **Console dashboard:** the listed jobs and their last result, read with the same read tools
   and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `jenkins@9d1eb40f4075`
+Reviewed manifest: `jenkins@a77a9cef8a36`
 
 ### Docker
 
@@ -210,6 +232,9 @@ Reviewed manifest: `prometheus@622328c0bab1`
 Reviewed manifest: `grafana@c52161cc90f7`
 
 ### AWS
+
+Coming soon: the connector cannot be enabled for now ([why](../connectors/aws.md)). When it
+comes back, it works like this:
 
 - **Servers:** `awslabs.eks-mcp-server` and `awslabs.cloudwatch-mcp-server` from PyPI, each
   only when listed in `services` ([decision](../connectors/aws.md)).

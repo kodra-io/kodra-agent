@@ -24,6 +24,15 @@ function comingSoon(
   });
 }
 
+// Cloud providers are off for now: they are expected to become a licensed, paid add-on. The
+// full AWS connector is kept, unregistered, in ./aws/manifest.ts.
+export const aws = comingSoon(
+  'aws',
+  'AWS',
+  'cloud',
+  'Read EKS clusters and CloudWatch metrics, logs, and alarms.',
+);
+
 export const azure = comingSoon(
   'azure',
   'Microsoft Azure',

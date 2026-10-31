@@ -1,7 +1,10 @@
 import {
+  allVariants,
+  httpRuntime,
   isUsable,
   manifestSchema,
   modelSchema,
+  resolveVariant,
   PLATFORMS,
   stdioRuntimes,
   type Manifest,
@@ -10,14 +13,16 @@ import { describe, expect, it } from 'vitest';
 import { connectors, getConnector, getModelProvider, modelProviders } from './index.ts';
 
 const all: readonly Manifest[] = [...connectors, ...modelProviders];
+/** Each manifest once per server it can use (B4): the default, then each variant. */
+const servers: readonly Manifest[] = all.flatMap(allVariants);
 
 describe('connector registry', () => {
   it('lists the MVP catalog from SPEC section 6', () => {
     const ids = (status: string) => connectors.filter((c) => c.status === status).map((c) => c.id);
-    // Launch plan L1, then B3: Docker, Jenkins, and Databases left preview.
+    // Launch plan L1, then B3: Docker, Jenkins, and Databases left preview. B4: cloud
+    // providers (AWS) are coming soon, as a licensed add-on later.
     expect(ids('available').sort()).toEqual(
       [
-        'aws',
         'databases',
         'docker',
         'jenkins',
@@ -34,15 +39,9 @@ describe('connector registry', () => {
     expect(ids('preview')).toEqual([]);
     const comingSoon = ids('coming-soon');
     expect(comingSoon.sort()).toEqual(
-      ['azure', 'azure-devops', 'bitbucket', 'gcp', 'teams'].sort(),
+      ['aws', 'azure', 'azure-devops', 'bitbucket', 'gcp', 'teams'].sort(),
     );
-    expect(modelProviders.map((p) => p.id)).toEqual([
-      'anthropic',
-      'openai',
-      'azure-openai',
-      'bedrock',
-      'ollama',
-    ]);
+    expect(modelProviders.map((p) => p.id)).toEqual(['anthropic', 'openai', 'ollama']);
     expect(modelProviders.every((p) => p.status === 'available')).toBe(true);
   });
 
@@ -94,14 +93,14 @@ describe('connector registry', () => {
   });
 
   it('has no tools without a server, and classifies tools when it has one', () => {
-    for (const manifest of all) {
+    for (const manifest of servers) {
       if (manifest.runtime === null) expect(manifest.tools, manifest.id).toEqual({});
       else expect(Object.keys(manifest.tools).length, manifest.id).toBeGreaterThan(0);
     }
   });
 
   it('only guards tools it classifies, with settings it has', () => {
-    for (const manifest of all) {
+    for (const manifest of servers) {
       const settings = manifest.configFields.map((f) => f.key);
       for (const [tool, guards] of Object.entries(manifest.guards ?? {})) {
         expect(manifest.tools[tool], `${manifest.id}.${tool}`).toBeDefined();
@@ -128,7 +127,7 @@ describe('connector registry', () => {
   });
 
   it('starts servers only with secrets and settings the manifest declares', () => {
-    for (const manifest of all) {
+    for (const manifest of servers) {
       const secrets = manifest.secrets.map((s) => s.key);
       const settings = manifest.configFields.map((f) => f.key);
       const required = manifest.requires.flatMap((r) =>
@@ -168,7 +167,7 @@ describe('connector registry', () => {
   });
 
   it('never puts a secret value on a command line', () => {
-    for (const manifest of all) {
+    for (const manifest of servers) {
       for (const runtime of stdioRuntimes(manifest)) {
         const argSources = [
           ...runtime.args,
@@ -183,7 +182,7 @@ describe('connector registry', () => {
   });
 
   it('pins binary servers for every supported platform and names multiple servers', () => {
-    for (const manifest of all) {
+    for (const manifest of servers) {
       const runtimes = stdioRuntimes(manifest);
       if (runtimes.length > 1) {
         const names = runtimes.map((r) => r.name);
@@ -200,7 +199,7 @@ describe('connector registry', () => {
   });
 
   it('gates servers only on list settings that exist and accept the value', () => {
-    for (const manifest of connectors) {
+    for (const manifest of servers) {
       for (const runtime of stdioRuntimes(manifest)) {
         if (!runtime.onlyIf) continue;
         const { setting, includes } = runtime.onlyIf;
@@ -220,9 +219,56 @@ describe('connector registry', () => {
     for (const id of ['gitlab', 'gitlab-ci']) {
       const manifest = getConnector(id);
       if (!manifest) throw new Error(`no ${id} connector`);
-      for (const runtime of stdioRuntimes(manifest)) {
+      for (const runtime of allVariants(manifest).flatMap(stdioRuntimes)) {
         expect(runtime.env['GITLAB_DISABLE_VERSION_CHECK'], id).toEqual({ value: 'true' });
       }
+    }
+  });
+
+  it('sends remote servers only declared settings and secrets, in headers, over the url setting', () => {
+    for (const manifest of servers) {
+      const runtime = httpRuntime(manifest);
+      if (!runtime) continue;
+      const owner = (from: string | undefined) => (from ? getConnector(from) : manifest);
+      const fields = (from: string | undefined) => owner(from)?.configFields ?? [];
+      expect(
+        fields(runtime.url.from).find((f) => f.key === runtime.url.setting)?.kind,
+        manifest.id,
+      ).toBe('url');
+      for (const value of Object.values(runtime.headers)) {
+        const sources =
+          'bearer' in value
+            ? [value.bearer]
+            : 'basic' in value
+              ? [value.basic.user, value.basic.password]
+              : [value];
+        for (const source of sources) {
+          if ('secret' in source) {
+            expect(
+              owner(source.from)?.secrets.map((x) => x.key),
+              manifest.id,
+            ).toContain(source.secret);
+          }
+          if ('setting' in source) {
+            expect(
+              fields(source.from).map((f) => f.key),
+              manifest.id,
+            ).toContain(source.setting);
+          }
+        }
+      }
+    }
+  });
+
+  it('offers the official server by default and the community one as a fallback (B4)', () => {
+    for (const id of ['gitlab', 'gitlab-ci', 'jenkins']) {
+      const manifest = getConnector(id);
+      if (!manifest) throw new Error(id);
+      expect(httpRuntime(manifest), id).not.toBeNull();
+      const [, community, ...rest] = allVariants(manifest);
+      expect(rest, id).toEqual([]);
+      expect(community && stdioRuntimes(community).length, id).toBe(1);
+      expect(community?.variants, id).toBeUndefined();
     }
   });
 
@@ -284,5 +330,69 @@ describe('model provider manifests match spec.model', () => {
     ].sort();
     expect(manifestKeys).toEqual(schemaKeys);
     expect(getModelProvider(id)).toBe(manifest);
+  });
+});
+
+describe('server variants (B4)', () => {
+  const jenkins = getConnector('jenkins');
+  const ci = getConnector('gitlab-ci');
+  const variants = jenkins?.variants;
+  const community = variants?.options['community'];
+  if (!jenkins || !variants || !community || !ci)
+    throw new Error('jenkins and gitlab-ci have variants');
+  const issues = (manifest: Manifest) =>
+    (manifestSchema.safeParse(manifest).error?.issues ?? []).map(
+      (i) => `${i.path.join('.')}: ${i.message}`,
+    );
+  const withServerField = (patch: Record<string, unknown>): Manifest => ({
+    ...jenkins,
+    configFields: jenkins.configFields.map((f) => (f.key === 'server' ? { ...f, ...patch } : f)),
+  });
+
+  it('needs a string setting with a default that picks the default server', () => {
+    expect(issues({ ...jenkins, variants: { ...variants, setting: 'nope' } })).toEqual([
+      'variants.setting: nope must be a string setting with a default and a pattern that allows community',
+    ]);
+    // The default must not itself be a variant, or the default server could never run.
+    expect(issues(withServerField({ default: 'community' }))).toHaveLength(1);
+    // Every option must be a value the setting accepts.
+    expect(issues(withServerField({ pattern: '^plugin$' }))).toHaveLength(1);
+  });
+
+  it("reads another connector's setting only from a connector it requires", () => {
+    expect(issues({ ...ci, requires: [] })).toContain(
+      'variants.from: gitlab is not a connector this manifest requires',
+    );
+  });
+
+  it('checks each variant like the default server', () => {
+    const panel = community.dashboard?.[0];
+    if (!panel) throw new Error('the community server has a dashboard');
+    const broken: Manifest = {
+      ...jenkins,
+      variants: {
+        ...variants,
+        options: {
+          community: {
+            ...community,
+            dashboard: [{ ...panel, tool: 'stop_build' }],
+          },
+        },
+      },
+    };
+    expect(issues(broken)).toEqual([
+      'variants.options.community.dashboard.0.tool: stop_build is not a read tool of this connector',
+    ]);
+  });
+
+  it('resolves to the default server for a missing or unknown value', () => {
+    const plain = (settings: Record<string, unknown>) =>
+      httpRuntime(resolveVariant(jenkins, settings));
+    expect(plain({})).not.toBeNull();
+    expect(plain({ server: 'plugin' })).not.toBeNull();
+    expect(plain({ server: 'elsewhere' })).not.toBeNull();
+    expect(plain({ server: 'community' })).toBeNull();
+    // The resolved manifest has no variants left to pick from.
+    expect(resolveVariant(jenkins, { server: 'community' }).variants).toBeUndefined();
   });
 });

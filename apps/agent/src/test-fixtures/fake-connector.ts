@@ -163,6 +163,7 @@ export const fakeGitManifest: Manifest = defineManifest({
       head: 'head',
       base: 'base',
       title: 'title',
+      body: 'body',
     },
   },
   runtime: {

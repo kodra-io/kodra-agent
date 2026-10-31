@@ -151,13 +151,13 @@ A console approver can change them; everyone else sees them read-only.
 - **Approvals and policy:** approvers, how long a request stays open, and whether destructive
   actions are blocked.
 - **Model and limits:** the model, the limits for each question, and the monthly budget. The
-  model is picked from the models the agent's key can use (the provider's own model list;
-  Bedrock offers the known models), with list prices and this month's questions priced at
+  model is picked from the models the agent's key can use (the provider's own model list),
+  with list prices and this month's questions priced at
   each. **Test** asks the model one tiny question (5 output tokens at most); saving a new
   model does the same first and refuses one that does not answer, so a typo never stops the
   agent. **Another model** takes any name.
 - **Change provider** (in Model and limits) switches to another model provider: Anthropic,
-  OpenAI, Azure OpenAI, Bedrock, or Ollama, drawn from their manifests. Fill the provider's
+  OpenAI, or Ollama, drawn from their manifests (Azure OpenAI and Bedrock are coming soon). Fill the provider's
   settings and paste its key (or leave it empty when the key is already in `.env`), then
   **Check**: the provider's own check runs with that key and its models are listed with
   prices. **Switch** asks the chosen model one tiny question with the new key, then writes
