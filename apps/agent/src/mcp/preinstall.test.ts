@@ -1,16 +1,24 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { connectors, getConnector } from '@kodra-agent/connectors';
-import { stdioRuntimes, type McpStdioRuntime } from '@kodra-agent/schema';
+import {
+  allVariants,
+  resolveVariant,
+  stdioRuntimes,
+  type McpStdioRuntime,
+} from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
 import { tempDir } from '../test-helpers.ts';
 import { preinstalledPath } from './fetch.ts';
 import { defaultLauncher } from './host.ts';
 import { lockfileProblem } from './preinstall.ts';
 
-const runtimes = connectors.flatMap((m) =>
-  stdioRuntimes(m).map((r) => [`${m.id}${r.name ? `/${r.name}` : ''}`, r] as const),
-);
+// Every server a connector can use, community fallbacks included (B4).
+const runtimes = connectors
+  .flatMap(allVariants)
+  .flatMap((m) =>
+    stdioRuntimes(m).map((r) => [`${m.id}${r.name ? `/${r.name}` : ''}`, r] as const),
+  );
 
 function manifest(id: string) {
   const found = getConnector(id);
@@ -47,7 +55,7 @@ describe('MCP lockfiles for the agent image', () => {
   });
 
   it('notices a stale npm lock', async () => {
-    const [gitlab] = stdioRuntimes(manifest('gitlab'));
+    const [gitlab] = stdioRuntimes(resolveVariant(manifest('gitlab'), { server: 'community' }));
     if (!gitlab) throw new Error('no GitLab server');
     const dir = await tempDir();
     const folder = join(dir, 'npm', 'zereight__mcp-gitlab');

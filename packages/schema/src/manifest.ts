@@ -336,6 +336,27 @@ const toolGuard = z.discriminatedUnion('kind', [
     ownerArg: z.string().min(1).optional(),
     repoArg: z.string().min(1),
   }),
+  z.strictObject({
+    /**
+     * An argument the call must not have, because it would get around the other guards: a
+     * GitLab `url` names its own project, past the `project_id` the allowlist checked.
+     */
+    kind: z.literal('arg-absent'),
+    arg: z.string().min(1),
+    /** Why, in words the model can follow, like "name the project with project_id". */
+    hint: copy,
+  }),
+  z.strictObject({
+    /**
+     * Every item of an array argument keeps `field` within `allowed` and has none of the
+     * `forbid` keys: a GitLab commit may create and update files, never delete or move them.
+     */
+    kind: z.literal('items-allowed'),
+    arg: z.string().min(1),
+    field: z.string().min(1),
+    allowed: z.array(z.string().min(1)).min(1),
+    forbid: z.array(z.string().min(1)).optional(),
+  }),
 ]);
 export type ToolGuard = z.infer<typeof toolGuard>;
 
@@ -376,6 +397,8 @@ const changeStep = z.discriminatedUnion('kind', [
     head: z.string(),
     base: z.string(),
     title: z.string(),
+    /** The description argument, where `ship` puts what it did and why. */
+    body: z.string(),
   }),
 ]);
 export type ChangeStep = z.infer<typeof changeStep>;
@@ -416,12 +439,42 @@ const builtinRuntime = z.strictObject({
 });
 export type BuiltinRuntime = z.infer<typeof builtinRuntime>;
 
+/**
+ * An HTTP header for a remote server. Secrets go only into headers, which are never logged:
+ * as they are, as `Bearer <secret>`, or as Basic auth from a user and a password.
+ */
+const headerValue = z.union([
+  valueSource,
+  z.strictObject({ bearer: valueSource }),
+  z.strictObject({ basic: z.strictObject({ user: valueSource, password: valueSource }) }),
+]);
+export type HeaderValue = z.infer<typeof headerValue>;
+
+/**
+ * A remote MCP server over Streamable HTTP, one that runs inside the tool itself (GitLab's
+ * built-in server, the Jenkins plugin). Nothing is installed; requests go through the
+ * agent's proxy and CA settings.
+ */
+const httpRuntimeSchema = z.strictObject({
+  type: z.literal('mcp-http'),
+  /** The server's address: a URL setting with the server's path after it. */
+  url: z.strictObject({
+    setting: z.string().regex(KEY),
+    suffix: z.string().regex(/^\/[^\s?#]*$/),
+    /** Read it from a connector this manifest `requires`. */
+    from: z.string().regex(ID).optional(),
+  }),
+  headers: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9-]*$/), headerValue),
+});
+export type McpHttpRuntime = z.infer<typeof httpRuntimeSchema>;
+
 const runtime = z.union([
   stdioRuntime,
   /** Several servers for one connector; their tool names must not overlap. */
   z.array(stdioRuntime).min(2),
   z.strictObject({ type: z.literal('mcp-container'), image: z.string() }),
   builtinRuntime,
+  httpRuntimeSchema,
 ]);
 
 /** A dotted path into a JSON item, like `status` or `user.name`. */
@@ -501,6 +554,21 @@ const dashboardPanel = z.strictObject({
   view: dashboardView,
 });
 export type DashboardPanel = z.infer<typeof dashboardPanel>;
+
+/**
+ * What changes with the server a connector uses: its tools, their checks, and the dashboard.
+ * Everything else (settings, secrets, summaries) is shared. A variant replaces these fields
+ * whole; one it leaves out is empty.
+ */
+const variant = z.strictObject({
+  tools: z.record(z.string(), z.enum(TOOL_RISKS)),
+  hiddenTools: z.array(z.string()).optional(),
+  guards: z.record(z.string(), z.array(toolGuard)).optional(),
+  changeSteps: z.record(z.string(), changeStep).optional(),
+  dashboard: z.array(dashboardPanel).optional(),
+  runtime,
+});
+export type ManifestVariant = z.infer<typeof variant>;
 
 /** US dollars per million tokens. */
 export const modelPrice = z.strictObject({
@@ -600,6 +668,19 @@ export const manifestSchema = z
       .optional(),
     /** null until the MCP server is chosen and documented (M4). */
     runtime: runtime.nullable(),
+    /**
+     * Other servers the connector can use instead, picked by a choice setting (this
+     * connector's, or `from` one it requires). The fields above are the default server's;
+     * an option named here replaces them with its own (B4: GitLab's built-in server, or the
+     * community one for older GitLab).
+     */
+    variants: z
+      .strictObject({
+        setting: z.string().regex(KEY),
+        from: z.string().regex(ID).optional(),
+        options: z.record(z.string().min(1), variant),
+      })
+      .optional(),
     permissionsSummary: z.strictObject({
       always: z.array(copy).optional(),
       'read-only': z.array(copy).optional(),
@@ -681,46 +762,88 @@ export const manifestSchema = z
         });
       }
     }
-    for (const tool of Object.keys(m.changeSteps ?? {})) {
-      if (!(tool in m.tools)) {
+    // The same rules for the default server and for each variant.
+    const checkServer = (s: ManifestVariant, at: (string | number)[]) => {
+      for (const tool of Object.keys(s.changeSteps ?? {})) {
+        if (!(tool in s.tools)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...at, 'changeSteps', tool],
+            message: `${tool} is not in tools`,
+          });
+        }
+      }
+      for (const [i, panel] of (s.dashboard ?? []).entries()) {
+        // The dashboard never changes anything: its tools must be classified as reads.
+        if (s.tools[panel.tool] !== 'read') {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...at, 'dashboard', i, 'tool'],
+            message: `${panel.tool} is not a read tool of this connector`,
+          });
+        }
+        // A workload card reads one named workload: it needs `scope/name` entries, and only it.
+        if ((panel.view.kind === 'workload') !== (panel.forEach?.scoped === true)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...at, 'dashboard', i, 'forEach', 'scoped'],
+            message: 'the workload view and scoped entries go together',
+          });
+        }
+        if (panel.forEach?.scoped && panel.forEach.repoArg) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...at, 'dashboard', i, 'forEach', 'repoArg'],
+            message: 'scoped entries cannot also be split into a repo arg',
+          });
+        }
+      }
+      if (s.changeSteps && !m.defaultBranchLookup) {
         ctx.addIssue({
           code: 'custom',
-          path: ['changeSteps', tool],
-          message: `${tool} is not in tools`,
+          path: [...at, 'changeSteps'],
+          message: 'change previews read files, so they need defaultBranchLookup',
         });
       }
-    }
-    for (const [i, panel] of (m.dashboard ?? []).entries()) {
-      // The dashboard never changes anything: its tools must be classified as reads.
-      if (m.tools[panel.tool] !== 'read') {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['dashboard', i, 'tool'],
-          message: `${panel.tool} is not a read tool of this connector`,
-        });
+    };
+    if (m.runtime !== null) checkServer({ ...m, runtime: m.runtime }, []);
+    if (m.variants) {
+      const { setting, from, options } = m.variants;
+      for (const [name, v] of Object.entries(options))
+        checkServer(v, ['variants', 'options', name]);
+      if (from !== undefined) {
+        // Another connector's setting: it must be one this manifest requires.
+        const required = m.requires.some((r) =>
+          r.anyOf.some((alt) => 'connector' in alt && alt.connector === from),
+        );
+        if (!required) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['variants', 'from'],
+            message: `${from} is not a connector this manifest requires`,
+          });
+        }
+      } else {
+        // A string setting with a default (the default server) whose pattern allows each
+        // option, like the `pipeline` setting.
+        const field = m.configFields.find((f) => f.key === setting);
+        const pattern =
+          field?.kind === 'string' && field.pattern ? new RegExp(field.pattern) : null;
+        const fits =
+          field?.kind === 'string' &&
+          pattern !== null &&
+          field.default !== undefined &&
+          pattern.test(field.default) &&
+          !(field.default in options) &&
+          Object.keys(options).every((name) => pattern.test(name));
+        if (!fits) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['variants', 'setting'],
+            message: `${setting} must be a string setting with a default and a pattern that allows ${Object.keys(options).join(', ')}`,
+          });
+        }
       }
-      // A workload card reads one named workload: it needs `scope/name` entries, and only it.
-      if ((panel.view.kind === 'workload') !== (panel.forEach?.scoped === true)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['dashboard', i, 'forEach', 'scoped'],
-          message: 'the workload view and scoped entries go together',
-        });
-      }
-      if (panel.forEach?.scoped && panel.forEach.repoArg) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['dashboard', i, 'forEach', 'repoArg'],
-          message: 'scoped entries cannot also be split into a repo arg',
-        });
-      }
-    }
-    if (m.changeSteps && !m.defaultBranchLookup) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['changeSteps'],
-        message: 'change previews read files, so they need defaultBranchLookup',
-      });
     }
     // Steps may use the connector's settings (an entry's steps, the entry's fields) only.
     const known = (keys: string[]) => new Set<string>([...keys, ...GLOBAL_PLACEHOLDERS]);
@@ -774,4 +897,56 @@ export function stdioRuntimes(manifest: Pick<Manifest, 'runtime'>): McpStdioRunt
   if (runtime === null) return [];
   if (Array.isArray(runtime)) return runtime;
   return runtime.type === 'mcp-stdio' ? [runtime] : [];
+}
+
+/** The remote server a manifest uses, if it uses one. */
+export function httpRuntime(manifest: Pick<Manifest, 'runtime'>): McpHttpRuntime | null {
+  const runtime = manifest.runtime;
+  return runtime !== null && !Array.isArray(runtime) && runtime.type === 'mcp-http'
+    ? runtime
+    : null;
+}
+
+/**
+ * The manifest as the agent runs it, with the server the settings pick: the variant named by
+ * the setting (or, with `from`, the required connector's setting), else the default server.
+ */
+export function resolveVariant(
+  manifest: Manifest,
+  settings: Readonly<Record<string, unknown>>,
+  sharedSettings: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {},
+): Manifest {
+  const variants = manifest.variants;
+  if (!variants) return manifest;
+  const source = variants.from === undefined ? settings : (sharedSettings[variants.from] ?? {});
+  const value = source[variants.setting];
+  const picked = typeof value === 'string' ? variants.options[value] : undefined;
+  if (!picked) return manifest;
+  const rest = { ...manifest };
+  delete rest.variants;
+  return {
+    ...rest,
+    tools: picked.tools,
+    hiddenTools: picked.hiddenTools,
+    guards: picked.guards,
+    changeSteps: picked.changeSteps,
+    dashboard: picked.dashboard,
+    runtime: picked.runtime,
+  };
+}
+
+/** The manifest once per server it can use: the default, then each variant. */
+export function allVariants(manifest: Manifest): Manifest[] {
+  const variants = manifest.variants;
+  if (!variants) return [manifest];
+  return [
+    manifest,
+    ...Object.keys(variants.options).map((name) =>
+      resolveVariant(
+        manifest,
+        variants.from === undefined ? { [variants.setting]: name } : {},
+        variants.from === undefined ? {} : { [variants.from]: { [variants.setting]: name } },
+      ),
+    ),
+  ];
 }

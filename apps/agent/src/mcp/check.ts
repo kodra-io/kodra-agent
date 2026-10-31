@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getConnector } from '@kodra-agent/connectors';
-import type { AccessLevel } from '@kodra-agent/schema';
+import { resolveVariant, type AccessLevel } from '@kodra-agent/schema';
 import { AuditLog } from '../audit.ts';
 import type { Component } from '../config.ts';
 import { jsonLogger } from '../io.ts';
@@ -29,7 +29,8 @@ export const DUMMY_CASES: {
   {
     id: 'gitlab',
     access: 'read-write-approved',
-    settings: { url: 'http://127.0.0.1:1', projects: ['acme/api'] },
+    // The community server; GitLab's built-in one runs inside GitLab and is checked there.
+    settings: { url: 'http://127.0.0.1:1', projects: ['acme/api'], server: 'community' },
     secrets: { token: 'glpat-dummy-not-used' },
   },
   { id: 'gitlab-ci', access: 'read-write-approved', settings: {}, secrets: {} },
@@ -43,7 +44,13 @@ export const DUMMY_CASES: {
   {
     id: 'jenkins',
     access: 'read-write-approved',
-    settings: { url: 'http://127.0.0.1:1', username: 'kodra', jobs: ['team-a'] },
+    // mcp-jenkins; the plugin runs inside Jenkins and has its own real-server test.
+    settings: {
+      url: 'http://127.0.0.1:1',
+      username: 'kodra',
+      jobs: ['team-a'],
+      server: 'community',
+    },
     secrets: { token: 'jenkins-dummy-not-used' },
   },
   {
@@ -60,6 +67,13 @@ export const NEVER_EXPOSED = [
   'pull_request_review_write',
   'merge_merge_request',
   'approve_merge_request',
+  'accept_merge_request',
+  'save_merge_request_review',
+  'fork_repository',
+  'replayBuild',
+  'createPipeline',
+  'getSystemLog',
+  'run_groovy_script',
   'update_default_branch',
   'execute_graphql',
   'get_pipeline_variables',
@@ -77,9 +91,14 @@ export interface ServerCheck {
   exposed: string[];
 }
 
-export function component(id: string, settings: Record<string, unknown>): Component {
-  const manifest = getConnector(id);
-  if (!manifest) throw new Error(`unknown connector ${id}`);
+export function component(
+  id: string,
+  settings: Record<string, unknown>,
+  sharedSettings: Record<string, Record<string, unknown>> = {},
+): Component {
+  const listed = getConnector(id);
+  if (!listed) throw new Error(`unknown connector ${id}`);
+  const manifest = resolveVariant(listed, settings, sharedSettings);
   return { id, displayName: manifest.displayName, manifest, settings, secrets: [] };
 }
 
@@ -91,14 +110,14 @@ export async function checkServer(
   const redactor = new Redactor();
   const dir = await mkdtemp(join(tmpdir(), 'kodra-check-'));
   const auditPath = join(dir, 'audit.jsonl');
-  const input: ConnectorInput = {
-    component: component(c.id, c.settings),
-    access: c.access,
-    secrets: c.secrets,
-  };
   const parent = DUMMY_CASES.find(
     (p) => p.id === (c.id === 'github-actions' ? 'github' : c.id === 'gitlab-ci' ? 'gitlab' : ''),
   );
+  const input: ConnectorInput = {
+    component: component(c.id, c.settings, parent ? { [parent.id]: parent.settings } : {}),
+    access: c.access,
+    secrets: c.secrets,
+  };
   if (parent) {
     input.sharedSecrets = { [parent.id]: parent.secrets };
     input.sharedSettings = { [parent.id]: parent.settings };

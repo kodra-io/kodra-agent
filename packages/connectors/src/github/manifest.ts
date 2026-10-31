@@ -175,6 +175,7 @@ export default defineManifest({
       head: 'head',
       base: 'base',
       title: 'title',
+      body: 'body',
     },
   },
   runtime: {

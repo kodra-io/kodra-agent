@@ -13,7 +13,7 @@ import {
   type ShipFile,
   type SourceProvider,
 } from '@kodra-agent/templates';
-import { resolvePolicy } from '@kodra-agent/schema';
+import { resolvePolicy, type ChangeStep } from '@kodra-agent/schema';
 import { policyInputFor, recordOverride } from '../agent.ts';
 import {
   cliApprovalChannel,
@@ -567,10 +567,15 @@ async function openPullRequest(i: PrInput): Promise<number> {
   const github = source.provider === 'github';
   const display = github ? 'GitHub' : 'GitLab';
   const tools = runtime.host.tools();
-  const find = (tool: string) =>
-    tools.find((t) => t.connector === source.provider && t.tool === tool);
-  const branchTool = find('create_branch');
-  const prTool = find(github ? 'create_pull_request' : 'create_merge_request');
+  // By what the tool does, not its name: GitLab's built-in server and the community one name
+  // them differently (B4). The manifest's change steps say where each argument goes.
+  const find = <K extends 'branch' | 'pull-request'>(kind: K) =>
+    tools.find(
+      (t): t is HostedTool & { changeStep: Extract<ChangeStep, { kind: K }> } =>
+        t.connector === source.provider && t.changeStep?.kind === kind,
+    );
+  const branchTool = find('branch');
+  const prTool = find('pull-request');
   if (!branchTool || !prTool) {
     ctx.term.err(
       `The ${display} connector needs read-write-approved access to open a pull request. Nothing was pushed.`,
@@ -581,18 +586,26 @@ async function openPullRequest(i: PrInput): Promise<number> {
 
   const title = i.onboard ? ONBOARD_TITLE : TITLE;
   const head = `kodra-agent/${i.onboard ? 'onboard' : 'ship'}-${task.slice(5)}`;
-  const [owner = '', ...rest] = source.repo.split('/');
-  const repoArgs = github ? { owner, repo: rest.join('/') } : { project_id: source.repo };
-  const pushArgs = { ...repoArgs, branch: head };
-  const prArgs = github
-    ? { ...repoArgs, title, body: i.body, head, base: i.baseBranch }
-    : {
-        ...repoArgs,
-        title,
-        description: i.body,
-        source_branch: head,
-        target_branch: i.baseBranch,
-      };
+  // `owner/repo` into ['owner', 'repo'], or a GitLab project path into one argument.
+  const repoArgsFor = (names: readonly string[]): Record<string, string> => {
+    if (names.length === 1) return { [names[0] ?? '']: source.repo };
+    const [owner = '', ...rest] = source.repo.split('/');
+    return { [names[0] ?? '']: owner, [names[1] ?? '']: rest.join('/') };
+  };
+  const b = branchTool.changeStep;
+  const pushArgs = {
+    ...repoArgsFor(b.repo),
+    [b.branch]: head,
+    [b.from]: i.baseBranch,
+  };
+  const p = prTool.changeStep;
+  const prArgs = {
+    ...repoArgsFor(p.repo),
+    [p.title]: title,
+    [p.body]: i.body,
+    [p.head]: head,
+    [p.base]: i.baseBranch,
+  };
 
   const destructive = runtime.config.spec.policy.destructiveActions;
   // The push and the pull request go to one repo, so one environment's rules apply.

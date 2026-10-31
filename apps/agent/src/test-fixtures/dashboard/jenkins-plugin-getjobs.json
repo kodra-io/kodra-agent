@@ -1,0 +1,20 @@
+{
+  "message": "Data retrieved successfully.",
+  "result": [
+    {
+      "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+      "fullName": "other",
+      "name": "other",
+      "url": "http://127.0.0.1:18080/job/other/",
+      "color": "notbuilt",
+      "lastBuild": null
+    },
+    {
+      "_class": "com.cloudbees.hudson.plugins.folder.Folder",
+      "fullName": "team-a",
+      "name": "team-a",
+      "url": "http://127.0.0.1:18080/job/team-a/"
+    }
+  ],
+  "status": "COMPLETED"
+}

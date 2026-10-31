@@ -1,4 +1,5 @@
 import type { AccessLevel, ToolGuard } from '@kodra-agent/schema';
+import { getConnector } from '@kodra-agent/connectors';
 import { describe, expect, it } from 'vitest';
 import { decide, describeGuards, inList, touchedBy, type Decision, type Risk } from './policy.ts';
 
@@ -338,5 +339,144 @@ describe('arg-in-setting with prefix (Jenkins jobs and folders)', () => {
       expect(read(fullname), fullname).toBe('block');
     }
     expect(inList('deploy-web/x', ['deploy-web'], false)).toBe(false);
+  });
+});
+
+describe("GitLab's built-in server guards (B4)", () => {
+  const gitlab = getConnector('gitlab');
+  if (!gitlab) throw new Error('gitlab');
+  const guards = (tool: string) => gitlab.guards?.[tool] ?? [];
+  const settings = { projects: ['acme/api'] };
+  const defaultBranches = new Map([['acme/api', 'main']]);
+  const call = (tool: string, args: Record<string, unknown>) =>
+    kind(
+      decide({
+        ...base,
+        risk: gitlab.tools[tool] ?? 'unclassified',
+        access: 'read-write-approved',
+        guards: guards(tool),
+        args,
+        settings,
+        defaultBranches,
+      }),
+    );
+
+  it('refuses a url or a group, which would name another project past the allowlist', () => {
+    expect(
+      call('get_repository_file', { project_id: 'acme/api', file_path: 'a', ref: 'main' }),
+    ).toBe('allow');
+    expect(
+      call('get_repository_file', {
+        project_id: 'acme/api',
+        url: 'https://gitlab.com/other/secret/-/blob/main/.env',
+      }),
+    ).toBe('block: url is not allowed: name the project with project_id');
+    expect(
+      call('get_repository_file', { url: 'https://gitlab.com/other/secret/-/blob/main/a' }),
+    ).toMatch(/^block: the repository must be one of/);
+    expect(call('list_work_items', { project_id: 'acme/api', group_id: 'acme' })).toMatch(
+      /^block: group_id is not allowed/,
+    );
+    // list_branches names the project with `id`.
+    expect(call('list_branches', { id: 'acme/api' })).toBe('allow');
+    expect(call('list_branches', { id: 'other/secret' })).toMatch(/^block: the repository/);
+  });
+
+  it('commits only whole-file creates and updates, never on the default branch', () => {
+    const commit = (actions: unknown, branch = 'kodra-agent/fix') =>
+      call('add_commit', { project_id: 'acme/api', branch, commit_message: 'm', actions });
+    expect(commit([{ action: 'create', file_path: 'Dockerfile', content: 'FROM x' }])).toBe(
+      'approve',
+    );
+    expect(commit([{ action: 'update', file_path: 'a', content: 'b' }], 'main')).toMatch(
+      /^block: main is the default branch/,
+    );
+    expect(commit([{ action: 'delete', file_path: 'a' }])).toBe(
+      "block: each actions item's action must be one of: create, update",
+    );
+    expect(commit([{ action: 'move', file_path: 'b', previous_path: 'a' }])).toMatch(
+      /^block: each actions item's action/,
+    );
+    // In-place text replacement would get around the preview of the whole file.
+    expect(commit([{ action: 'update', file_path: 'a', old_str: 'x', new_str: 'y' }])).toBe(
+      'block: actions items cannot set old_str',
+    );
+    expect(
+      commit([{ action: 'create', file_path: 'a', content: 'eA==', encoding: 'base64' }]),
+    ).toBe('block: actions items cannot set encoding');
+    expect(commit('not a list')).toBe('block: actions must be a list');
+  });
+
+  it('opens merge requests from a new branch in the same project only', () => {
+    const mr = (extra: Record<string, unknown>) =>
+      call('save_merge_request', {
+        project_id: 'acme/api',
+        title: 't',
+        source_branch: 'kodra-agent/fix',
+        target_branch: 'main',
+        ...extra,
+      });
+    expect(mr({})).toBe('approve');
+    expect(mr({ source_branch: 'main' })).toMatch(/^block: main is the default branch/);
+    expect(mr({ target_project_id: 7 })).toMatch(/^block: target_project_id is not allowed/);
+  });
+
+  it('places a call in the environment of the project it names, ignoring the other guards', () => {
+    expect(touchedBy(guards('add_commit'), { project_id: 'acme/api', actions: [] })).toEqual({
+      namespaces: [],
+      repos: ['acme/api'],
+    });
+    expect(describeGuards(guards('add_commit'), settings)).toContain(
+      'never pass url: name the project with project_id',
+    );
+  });
+});
+
+describe('GitLab CI and Jenkins on their official servers (B4)', () => {
+  it('runs only new pipelines: an existing one is named by a global id', () => {
+    const ci = getConnector('gitlab-ci');
+    if (!ci) throw new Error('gitlab-ci');
+    const run = (args: Record<string, unknown>) =>
+      kind(
+        decide({
+          ...base,
+          destructiveActions: 'require-approval',
+          risk: ci.tools['save_pipeline'] ?? 'unclassified',
+          access: 'read-write-approved',
+          guards: ci.guards?.['save_pipeline'] ?? [],
+          args,
+          settings: {},
+          sharedSettings: { gitlab: { projects: ['acme/api'] } },
+        }),
+      );
+    expect(run({ project_id: 'acme/api', ref: 'main' })).toBe('approve');
+    expect(run({ project_id: 'acme/api', pipeline_id: 12, action: 'retry' })).toMatch(
+      /^block: pipeline_id is not allowed/,
+    );
+  });
+
+  it('cancels builds of listed jobs only, never a queue item by id', () => {
+    const jenkins = getConnector('jenkins');
+    if (!jenkins) throw new Error('jenkins');
+    const cancel = (args: Record<string, unknown>) =>
+      kind(
+        decide({
+          ...base,
+          risk: jenkins.tools['cancelBuild'] ?? 'unclassified',
+          access: 'read-write-approved',
+          guards: jenkins.guards?.['cancelBuild'] ?? [],
+          args,
+          settings: { jobs: ['team-a'] },
+        }),
+      );
+    expect(cancel({ jobFullName: 'team-a/deploy', buildNumber: 3 })).toBe('approve');
+    expect(cancel({ jobFullName: 'team-b/payroll', buildNumber: 3 })).toMatch(
+      /^block: jobFullName/,
+    );
+    expect(cancel({ queueId: 9 })).toMatch(/^block: jobFullName is required/);
+    expect(cancel({ jobFullName: 'team-a/deploy', queueId: 9 })).toMatch(
+      /^block: queueId is not allowed/,
+    );
+    expect(jenkins.hiddenTools).toEqual(expect.arrayContaining(['replayBuild', 'createPipeline']));
   });
 });

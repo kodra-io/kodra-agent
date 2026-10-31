@@ -1,8 +1,13 @@
 import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { dirname } from 'node:path';
 import { join } from 'node:path';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import type { ApprovalOutcome, ApprovalRequest } from '../approvals.ts';
 import { main } from '../cli.ts';
 import { OnboardJobs } from '../console/onboard.ts';
@@ -545,6 +550,125 @@ describe('kodra-agent ship', () => {
       // No source connector, so no CI file.
       expect(added.some((p) => p.includes('workflows') || p.includes('gitlab-ci'))).toBe(false);
       expect(await readFile(join(folder, 'Dockerfile'), 'utf8')).toContain('USER 65532:65532');
+    },
+  );
+
+  it(
+    "opens the merge request through GitLab's built-in MCP server (B4)",
+    { timeout: 60_000 },
+    async () => {
+      const token = 'glpat-shipBuiltinCanary0123456789'; // gitleaks:allow
+      const dir = await tempDir();
+      const bare = await bareRemote(dir, 'node');
+      const calls: { tool: string; args: Record<string, unknown>; auth?: string }[] = [];
+      const gitlab = createServer((req, res) => {
+        if (req.url === '/api/v4/projects/acme%2Fapi') {
+          json(res, 200, { default_branch: 'main' });
+          return;
+        }
+        if (req.url !== '/api/v4/mcp') {
+          res.writeHead(404).end();
+          return;
+        }
+        const server = new McpServer({ name: 'gitlab', version: '19.6.0' });
+        for (const name of ['add_branch', 'add_commit', 'save_merge_request', 'get_project']) {
+          server.registerTool(
+            name,
+            { description: name, inputSchema: z.looseObject({}) },
+            (args) => {
+              calls.push({
+                tool: name,
+                args,
+                ...(req.headers.authorization ? { auth: req.headers.authorization } : {}),
+              });
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      iid: 3,
+                      web_url: 'https://gitlab.example.com/acme/api/-/merge_requests/3',
+                    }),
+                  },
+                ],
+              };
+            },
+          );
+        }
+        const transport = // No session id generator: stateless, like the real servers.
+          new StreamableHTTPServerTransport({});
+        res.on('close', () => {
+          void transport.close();
+          void server.close();
+        });
+        void server
+          .connect(transport as Parameters<typeof server.connect>[0])
+          .then(() => transport.handleRequest(req, res));
+      });
+      await new Promise<void>((resolve) => gitlab.listen(0, '127.0.0.1', resolve));
+      servers.push({
+        close: () =>
+          new Promise<void>((resolve) => {
+            gitlab.close(() => {
+              resolve();
+            });
+            gitlab.closeAllConnections();
+          }),
+      });
+      const url = `http://127.0.0.1:${String((gitlab.address() as AddressInfo).port)}`;
+      const auditPath = join(dir, 'audit.jsonl');
+      const path = await writeConfig(
+        configYaml({
+          auditPath: posixPath(auditPath),
+          model: '    provider: anthropic\n    name: m\n    apiKey: ${env:ANTHROPIC_API_KEY}',
+          connectors: [
+            '    gitlab:',
+            '      enabled: true',
+            '      access: read-write-approved',
+            `      config: {url: '${url}', projects: [acme/api]}`,
+            "      secrets: {token: '${env:GITLAB_TOKEN}'}",
+          ].join('\n'),
+        }),
+        dir,
+      );
+      const exec = await fakeExec();
+      const prompter = scriptedPrompter([true]);
+      const t = testContext({
+        env: { ANTHROPIC_API_KEY: 'k', GITLAB_TOKEN: token },
+        modelFactory: () => model(),
+        prompter,
+        exec,
+        gitRemote: () => bare,
+        shipSmokeTimeoutMs: 5000,
+        selfContainer: null,
+        fetch: (input, init) =>
+          globalThis.fetch(
+            String(input instanceof Request ? input.url : input).replace(
+              /^http:\/\/kodra-ship-[a-f0-9]{8}:\d+/,
+              exec.appUrl,
+            ),
+            init,
+          ),
+      });
+
+      expect(await main(['ship', 'acme/api', '--config', path], t.ctx)).toBe(0);
+      expect(t.output()).toContain(
+        'Opened: https://gitlab.example.com/acme/api/-/merge_requests/3',
+      );
+      expect(prompter.asked).toEqual(['Approve this action?']);
+      // git pushes the branch; the server only opens the merge request, with its own names.
+      expect(calls.map((c) => c.tool)).toEqual(['save_merge_request']);
+      const mr = calls[0];
+      expect(mr?.auth).toBe(`Bearer ${token}`);
+      expect(mr?.args).toMatchObject({ project_id: 'acme/api', target_branch: 'main' });
+      expect(mr?.args['source_branch']).toMatch(/^kodra-agent\/ship-[a-f0-9]{8}$/);
+      expect(mr?.args['description']).toContain('## What was detected');
+      const branch = String(mr?.args['source_branch']);
+      expect(
+        (await git(['--git-dir', bare, 'ls-tree', '-r', '--name-only', branch])).stdout,
+      ).toContain('.gitlab-ci.yml');
+      const everything = [t.output(), await readFile(auditPath, 'utf8')].join('\n');
+      expect(everything).not.toContain(token);
     },
   );
 

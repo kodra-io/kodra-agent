@@ -1,4 +1,4 @@
-import type { ServerSource } from '@kodra-agent/schema';
+import type { McpHttpRuntime, ServerSource, ToolGuard } from '@kodra-agent/schema';
 
 /**
  * zereight/gitlab-mcp 2.1.68 (npm @zereight/mcp-gitlab), shared by the GitLab and GitLab CI
@@ -130,4 +130,60 @@ export const GITLAB_CI_HIDDEN = [
   'update_pipeline_trigger',
   'wait_for_job',
   'wait_for_pipeline',
+] as const;
+
+/**
+ * Which server the GitLab connectors use (B4): GitLab's built-in MCP server (GitLab 19.5 and
+ * newer), or the community server above for older GitLab. GitLab CI follows this setting.
+ */
+export const SERVER_FIELD = {
+  kind: 'string' as const,
+  key: 'server',
+  required: false,
+  description:
+    "The MCP server: builtin is GitLab's own (GitLab 19.5 or newer, with MCP access allowed); community runs @zereight/mcp-gitlab in the agent, for older GitLab.",
+  pattern: '^(builtin|community)$',
+  patternHint: 'use builtin or community',
+  default: 'builtin',
+};
+
+/** GitLab's built-in server at <url>/api/v4/mcp, with only the toolsets a connector uses. */
+export function builtinRuntime(toolsets: string, from?: 'gitlab'): McpHttpRuntime {
+  return {
+    type: 'mcp-http',
+    url: { setting: 'url', suffix: '/api/v4/mcp', ...(from ? { from } : {}) },
+    headers: {
+      Authorization: { bearer: { secret: 'token', ...(from ? { from } : {}) } },
+      'X-Gitlab-Enabled-Mcp-Server-Toolsets': { value: toolsets },
+    },
+  };
+}
+
+/** A GitLab `url` argument names its own project, past the project_id the allowlist checks. */
+export const noUrl: ToolGuard = {
+  kind: 'arg-absent',
+  arg: 'url',
+  hint: 'name the project with project_id',
+};
+
+/**
+ * Offered by GitLab's built-in server (19.6.0-pre) in the toolsets the GitLab connector asks
+ * for, but never exposed: they reach past the listed projects (search, other projects and
+ * groups, users, to-dos), merge or approve, or fork. Unlisted tools are hidden by the server.
+ */
+export const GITLAB_BUILTIN_HIDDEN = [
+  'accept_merge_request',
+  'fork_repository',
+  'get_pages_content',
+  'get_saved_view_work_items',
+  'get_user',
+  'link_work_items',
+  'list_groups',
+  'list_projects',
+  'list_todos',
+  'save_merge_request_review',
+  'save_project',
+  'search',
+  'search_labels',
+  'semantic_search',
 ] as const;

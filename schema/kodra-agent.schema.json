@@ -292,6 +292,13 @@
                       },
                       "description": "Projects the agent may use."
                     },
+                    "server": {
+                      "default": "builtin",
+                      "description": "The MCP server: builtin is GitLab's own (GitLab 19.5 or newer, with MCP access allowed); community runs @zereight/mcp-gitlab in the agent, for older GitLab.",
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(builtin|community)$"
+                    },
                     "pipeline": {
                       "default": "auto",
                       "description": "The pipeline ship and onboard add: auto includes the template most of the projects above already use, or adds a standalone one; shared or standalone forces one.",
@@ -520,6 +527,13 @@
                       "minLength": 1,
                       "pattern": "^[^\\s/]{1,100}$",
                       "description": "Jenkins user the API token belongs to."
+                    },
+                    "server": {
+                      "default": "plugin",
+                      "description": "The MCP server: plugin is the official MCP Server plugin, installed in Jenkins (2.541.3 or newer); community runs mcp-jenkins in the agent, for a Jenkins without the plugin.",
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(plugin|community)$"
                     },
                     "jobs": {
                       "minItems": 1,

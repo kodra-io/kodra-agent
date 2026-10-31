@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { connectors, getConnector } from '@kodra-agent/connectors';
-import { manifestSchema, type DashboardView, type ToolGuard } from '@kodra-agent/schema';
+import {
+  manifestSchema,
+  resolveVariant,
+  type DashboardView,
+  type ToolGuard,
+} from '@kodra-agent/schema';
 import { describe, expect, it } from 'vitest';
 import {
   ConnectorDashboard,
@@ -75,15 +80,66 @@ const GITHUB_RUNS = JSON.stringify({
   ],
 });
 
-const runsView = (manifest: string): DashboardView => {
-  const view = getConnector(manifest)?.dashboard?.[0]?.view;
+/** A card's view with the server the settings pick (B4): `community` for the older servers. */
+const viewOf = (
+  manifest: string,
+  card = 0,
+  settings: Record<string, unknown> = {},
+  shared: Record<string, Record<string, unknown>> = {},
+): DashboardView => {
+  const listed = getConnector(manifest);
+  const view = listed && resolveVariant(listed, settings, shared).dashboard?.[card]?.view;
   if (!view) throw new Error(`no dashboard in ${manifest}`);
   return view;
 };
+const runsView = (manifest: string): DashboardView =>
+  manifest === 'gitlab-ci'
+    ? viewOf(manifest, 0, {}, { gitlab: { server: 'community' } })
+    : viewOf(manifest);
 
-describe('dashboard readers: Jenkins jobs', () => {
-  const view = getConnector('jenkins')?.dashboard?.[0]?.view;
-  if (view?.kind !== 'jobs') throw new Error('no Jenkins jobs card');
+describe('dashboard readers: Jenkins plugin jobs', () => {
+  const jobView = viewOf('jenkins', 0);
+  const folderView = viewOf('jenkins', 1);
+
+  it('reads one job from getJob, and a folder level from getJobs', () => {
+    // Recorded from the MCP Server plugin 0.222 on Jenkins 2.580.1.
+    const job = parseView(jobView, fixture('jenkins-plugin-getjob.json'), {
+      jobs: ['team-a/deploy-web'],
+    }) as JobsData;
+    expect(job.jobs).toEqual([
+      {
+        name: 'team-a/deploy-web',
+        state: 'other',
+        status: 'notbuilt',
+        url: 'http://127.0.0.1:18080/job/team-a/job/deploy-web/',
+      },
+    ]);
+    // A folder entry lists its jobs; the folder itself has no color and other jobs are not listed.
+    const folder = parseView(folderView, fixture('jenkins-plugin-getjobs.json'), {
+      jobs: ['team-a', 'other'],
+    }) as JobsData;
+    expect(folder.jobs.map((j) => j.name)).toEqual(['other', 'team-a']);
+    expect(
+      (
+        parseView(folderView, fixture('jenkins-plugin-getjobs.json'), {
+          jobs: ['team-a'],
+        }) as JobsData
+      ).jobs.map((j) => j.name),
+    ).toEqual(['team-a']);
+  });
+
+  it('shows nothing, not an error, when a job is asked for as a folder or the other way round', () => {
+    for (const view of [jobView, folderView]) {
+      expect(parseView(view, fixture('jenkins-plugin-none.json'), { jobs: ['x'] })).toMatchObject({
+        jobs: [],
+      });
+    }
+  });
+});
+
+describe('dashboard readers: Jenkins jobs (mcp-jenkins)', () => {
+  const view = viewOf('jenkins', 0, { server: 'community' });
+  if (view.kind !== 'jobs') throw new Error('no Jenkins jobs card');
 
   it('reads the real job list: colors to states, failed first', () => {
     // Recorded from mcp-jenkins 3.5.0 on Jenkins LTS: one passing and one failing job.
@@ -193,6 +249,21 @@ describe('dashboard readers', () => {
     );
     expect(data.runs[1]).toMatchObject({ id: '102', ref: 'feature/x', state: 'failed', url: null });
     expect(data.runs[0]?.url).toBe('https://gitlab.com/acme/api/-/pipelines/101');
+  });
+
+  it("reads GitLab pipelines from GitLab's built-in server", () => {
+    // Recorded from gitlab.com's MCP server (19.6.0-pre), project path changed.
+    const data = parseView(
+      viewOf('gitlab-ci'),
+      fixture('gitlab-builtin-pipelines.json'),
+    ) as RunsData;
+    expect(data.counts).toEqual({ passed: 1, failed: 1, running: 0, other: 0 });
+    expect(data.runs[0]).toMatchObject({
+      id: '2744461777',
+      ref: 'main',
+      state: 'passed',
+      url: 'https://gitlab.com/acme/api/-/pipelines/2744461777',
+    });
   });
 
   it('reads GitHub workflow runs: the conclusion, else the status', () => {

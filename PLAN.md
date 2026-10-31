@@ -169,9 +169,10 @@ Done when the configurator e2e tests cover each of these.
   AWS's managed AWS MCP Server; that choice waits until AWS comes back.
 - **Remote MCP servers:** an HTTP runtime with the token as a header, through the proxy and CA
   settings.
-- **GitLab:** GitLab's built-in MCP server, if its tools cover merge requests and pipelines;
-  else the current server stays, with the reason in `docs/connectors/gitlab.md`.
-- **Jenkins:** the Jenkins `mcp-server` plugin.
+- **GitLab:** GitLab's built-in MCP server (19.5 or newer) by default, for GitLab and GitLab
+  CI; `server: community` keeps `@zereight/mcp-gitlab` for older GitLab (Omar, 31 October 2026).
+- **Jenkins:** the Jenkins `mcp-server` plugin by default; `server: community` keeps
+  `mcp-jenkins` for a Jenkins without the plugin (Omar, 31 October 2026).
 - GitHub, Grafana, Kubernetes, and Prometheus already use the official or the only maintained
   server; Docker and Databases stay built in.
 
@@ -194,7 +195,7 @@ the connector docs record each decision.
 | B1 The pipeline that fits                   | Done                                      | #91 |
 | B2 Test in a sandbox, then destroy          | Done                                      | #92 |
 | B3 Configurator clean-up                    | Done                                      | #94 |
-| B4 Official MCP servers                     | In progress: AWS off, GitLab and Jenkins  |     |
+| B4 Official MCP servers                     | In review                                 |     |
 | Gate open: Omar picks the next roadmap item | Not started                               |     |
 
 ## Rules
