@@ -203,9 +203,7 @@ describe('switching the model provider', () => {
   it('lists the providers from their manifests, with whose key is already set', async () => {
     const { store } = await setup();
     const providers = await store.providers();
-    expect(providers.map((p) => p.id)).toEqual(
-      expect.arrayContaining(['anthropic', 'openai', 'azure-openai', 'bedrock', 'ollama']),
-    );
+    expect(providers.map((p) => p.id)).toEqual(['anthropic', 'openai', 'ollama']);
     const anthropic = providers.find((p) => p.id === 'anthropic');
     expect(anthropic?.secrets[0]).toMatchObject({ envVar: 'ANTHROPIC_API_KEY', set: true });
     expect(providers.find((p) => p.id === 'openai')?.secrets[0]?.set).toBe(false);

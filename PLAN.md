@@ -167,6 +167,10 @@ Done when the configurator e2e tests cover each of these.
   is listed as coming soon, like Azure and Google Cloud (Omar, 31 October 2026). The manifest
   stays in the code, unregistered. `awslabs.aws-api-mcp-server` turned out to be superseded by
   AWS's managed AWS MCP Server; that choice waits until AWS comes back.
+- **Cloud model providers: off for now.** Azure OpenAI and AWS Bedrock are refused in
+  `spec.model` and `spec.models` with a "coming soon" message, and left out of the configurator
+  and console (Omar, 31 October 2026). Their code stays, parked; Anthropic, OpenAI, and Ollama
+  remain.
 - **Remote MCP servers:** an HTTP runtime with the token as a header, through the proxy and CA
   settings.
 - **GitLab:** GitLab's built-in MCP server (19.5 or newer) by default, for GitLab and GitLab

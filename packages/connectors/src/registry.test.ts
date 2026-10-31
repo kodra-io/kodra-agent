@@ -41,13 +41,7 @@ describe('connector registry', () => {
     expect(comingSoon.sort()).toEqual(
       ['aws', 'azure', 'azure-devops', 'bitbucket', 'gcp', 'teams'].sort(),
     );
-    expect(modelProviders.map((p) => p.id)).toEqual([
-      'anthropic',
-      'openai',
-      'azure-openai',
-      'bedrock',
-      'ollama',
-    ]);
+    expect(modelProviders.map((p) => p.id)).toEqual(['anthropic', 'openai', 'ollama']);
     expect(modelProviders.every((p) => p.status === 'available')).toBe(true);
   });
 

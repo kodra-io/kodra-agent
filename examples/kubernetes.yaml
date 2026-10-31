@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=../schema/kodra-agent.schema.json
-# Kubernetes target on EKS: GitLab with GitLab CI, in-cluster access, Grafana, Bedrock.
+# Kubernetes target on EKS: GitLab with GitLab CI, in-cluster access, Grafana.
 apiVersion: kodra.io/v1alpha1
 kind: Agent
 metadata:
@@ -7,9 +7,9 @@ metadata:
 spec:
   target: kubernetes
   model:
-    provider: bedrock
+    provider: anthropic
     name: '<model-id>'
-    region: eu-central-1
+    apiKey: ${env:ANTHROPIC_API_KEY}
   connectors:
     gitlab:
       enabled: true

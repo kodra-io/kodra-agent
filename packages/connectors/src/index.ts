@@ -42,13 +42,12 @@ export const connectors: readonly Manifest[] = [
 ];
 
 /** Model providers, selected with spec.model.provider. */
-export const modelProviders: readonly Manifest[] = [
-  anthropic,
-  openai,
-  azureOpenai,
-  bedrock,
-  ollama,
-];
+// Azure OpenAI and Bedrock are parked (B4): cloud providers are off for now, expected as a
+// licensed add-on later. Their manifests stay, unregistered, in parkedModelProviders.
+export const modelProviders: readonly Manifest[] = [anthropic, openai, ollama];
+
+/** The parked model providers, for their own tests: no config can select them. */
+export const parkedModelProviders: readonly Manifest[] = [azureOpenai, bedrock];
 
 export function getConnector(id: string): Manifest | undefined {
   return connectors.find((c) => c.id === id);

@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getConnector, getModelProvider } from '@kodra-agent/connectors';
+import { getConnector, getModelProvider, parkedModelProviders } from '@kodra-agent/connectors';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AuditRecord } from './audit.ts';
@@ -21,7 +21,8 @@ afterEach(async () => {
 });
 
 function modelComponent(id: string, settings: Record<string, unknown> = {}): Component {
-  const manifest = getModelProvider(id) ?? getConnector(id);
+  const manifest =
+    getModelProvider(id) ?? getConnector(id) ?? parkedModelProviders.find((m) => m.id === id);
   if (!manifest) throw new Error(id);
   return { id, displayName: manifest.displayName, manifest, settings, secrets: [] };
 }
@@ -80,7 +81,7 @@ describe('listProviderModels', () => {
         error: 'HTTP 401',
       },
     );
-    // Bedrock has no list to read: the known models are offered.
+    // Bedrock (parked) has no list to read: the known models are offered.
     expect(await listProviderModels(modelComponent('bedrock'), {}, ctx)).toBeNull();
   });
 });

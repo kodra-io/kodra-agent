@@ -53,6 +53,8 @@ Reviewed manifest: `openai@cbc77e01200b`
 
 ### Azure OpenAI
 
+Coming soon: cloud model providers are off for now (B4), so no config can select it.
+
 - **Sends to:** your Azure OpenAI `endpoint` and `deployment`, over HTTPS.
 - **Secrets:** `apiKey`, sent as the `api-key` header.
 - **Data:** the model input above, processed in your Azure tenant and region.
@@ -60,6 +62,8 @@ Reviewed manifest: `openai@cbc77e01200b`
 Reviewed manifest: `azure-openai@c4bfe7cdd7c5`
 
 ### Amazon Bedrock
+
+Coming soon: cloud model providers are off for now (B4), so no config can select it.
 
 - **Sends to:** the Bedrock runtime endpoint in your `region`, over HTTPS.
 - **Secrets:** none in the config: the standard AWS credentials (an IAM role, or AWS keys in the

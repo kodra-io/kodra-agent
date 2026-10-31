@@ -47,7 +47,7 @@ how to fix what fails.
 | ---------- | --------------------------------------------------------------------------------- |
 | Connectors | Kubernetes, Prometheus, Grafana, GitHub, GitHub Actions, GitLab, GitLab CI, Slack |
 | Connectors | Jenkins, Databases, Docker                                                        |
-| Models     | Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Ollama                              |
+| Models     | Anthropic, OpenAI, Ollama (Azure OpenAI and AWS Bedrock are coming soon)          |
 | Flows      | Ship and onboard (with the Docker connector's build access), and sandbox tests    |
 
 ## Try it on a throwaway cluster

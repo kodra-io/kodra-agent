@@ -54,11 +54,6 @@ describe('model providers', () => {
     ['anthropic', 'apiKey: ${env:ANTHROPIC_API_KEY}'],
     ['anthropic', 'apiKey: ${env:ANTHROPIC_API_KEY}\n    baseUrl: https://gateway.internal'],
     ['openai', 'apiKey: ${env:OPENAI_API_KEY}'],
-    [
-      'azure-openai',
-      'apiKey: ${env:AZURE_OPENAI_API_KEY}\n    endpoint: https://r.openai.azure.com\n    deployment: gpt',
-    ],
-    ['bedrock', 'region: us-east-1'],
     ['ollama', 'baseUrl: http://localhost:11434'],
   ])('accepts %s', (provider, fields) => {
     const result = parseAgentConfig(
@@ -74,16 +69,16 @@ describe('model providers', () => {
       'provider: ollama\n    baseUrl: http://o:1\n    apiKey: ${env:K}',
       'unknown key apiKey',
     ],
+    // Cloud model providers are parked for now (B4).
     [
-      'bedrock with an apiKey',
-      'provider: bedrock\n    region: us-east-1\n    apiKey: ${env:K}',
-      'apiKey',
+      'bedrock, which is coming soon',
+      'provider: bedrock\n    region: us-east-1',
+      'bedrock is coming soon: cloud model providers are off for now',
     ],
-    ['bedrock with a bad region', 'provider: bedrock\n    region: europe', 'must be an AWS region'],
     [
-      'azure without endpoint',
-      'provider: azure-openai\n    apiKey: ${env:K}\n    deployment: d',
-      'endpoint: is required',
+      'azure-openai, which is coming soon',
+      'provider: azure-openai\n    apiKey: ${env:K}\n    endpoint: https://r.openai.azure.com\n    deployment: d',
+      'azure-openai is coming soon',
     ],
     ['an unknown provider', 'provider: mistral', 'provider must be one of anthropic, openai'],
     [

@@ -46,10 +46,10 @@ the environment, as `kodra-agent run` reads it.
 ```sh
 pnpm eval --provider ollama --model <id> --set baseUrl=http://127.0.0.1:11434
 ANTHROPIC_API_KEY=... pnpm eval --provider anthropic --model <id>
-pnpm eval --provider bedrock --model <id> --set region=eu-central-1 --only oomkilled,crashloop
+OPENAI_API_KEY=... pnpm eval --provider openai --model <id> --only oomkilled,crashloop
 ```
 
-- `--set key=value`: a model setting (`baseUrl`, `region`, `endpoint`, `deployment`).
+- `--set key=value`: a model setting, like `baseUrl`. Azure OpenAI and Bedrock are coming soon.
 - `--only a,b`: some scenarios, in that order.
 - `--keep`: keep the cluster `kodra-agent-eval` for the next run (else it is deleted).
 - `--out <dir>`: where reports go (default `evals/reports`).

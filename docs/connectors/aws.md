@@ -4,7 +4,8 @@
 > become a licensed, paid add-on. AWS is listed as coming soon, like Azure and Google Cloud, and
 > cannot be enabled. The manifest below is kept, unregistered, in
 > `packages/connectors/src/aws/manifest.ts`. EKS kubeconfigs for the Kubernetes connector
-> (`aws eks get-token`) and the Bedrock model provider are not affected.
+> (`aws eks get-token`) are not affected. The Bedrock and Azure OpenAI model providers are
+> coming soon too.
 >
 > When it comes back, B4 found that `awslabs.aws-api-mcp-server` (the server PLAN.md named) is
 > superseded by AWS's managed AWS MCP Server, reached through `mcp-proxy-for-aws`. Decide between

@@ -1,4 +1,9 @@
-import { connectors, modelProviders, parseAgentConfig } from '@kodra-agent/connectors';
+import {
+  connectors,
+  modelProviders,
+  parkedModelProviders,
+  parseAgentConfig,
+} from '@kodra-agent/connectors';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { components, type Component } from './config.ts';
 import { probeIds, probes, runProbe, type ProbeContext } from './probes.ts';
@@ -29,6 +34,13 @@ ${connectorsYaml}
   return components(result.config);
 }
 
+/** A parked model provider (B4): no config can select it, so it is built directly. */
+function parked(id: string, settings: Record<string, unknown>): Component {
+  const manifest = parkedModelProviders.find((m) => m.id === id);
+  if (!manifest) throw new Error(`no parked provider ${id}`);
+  return { id, displayName: manifest.displayName, manifest, settings, secrets: [] };
+}
+
 function byId(list: Component[], id: string): Component {
   const found = list.find((c) => c.id === id);
   if (!found) throw new Error(`no component ${id}`);
@@ -55,7 +67,7 @@ const ollama = (url: string) => `    provider: ollama\n    name: m\n    baseUrl:
 describe('probe coverage', () => {
   it('implements every probe id the manifests name', () => {
     const ids = new Set<string>();
-    for (const m of [...connectors, ...modelProviders]) {
+    for (const m of [...connectors, ...modelProviders, ...parkedModelProviders]) {
       for (const s of m.secrets) ids.add(s.probe);
       if (m.healthProbe) ids.add(m.healthProbe);
     }
@@ -225,13 +237,7 @@ describe('model providers', () => {
         json(s, 200, { data: [] });
       },
     });
-    const comp = byId(
-      componentsFor(
-        '    provider: azure-openai\n    name: m\n    apiKey: ${env:AZURE_OPENAI_API_KEY}\n    endpoint: http://127.0.0.1:1\n    deployment: d',
-      ),
-      'azure-openai',
-    );
-    comp.settings['endpoint'] = server.url;
+    const comp = parked('azure-openai', { endpoint: server.url, deployment: 'd' });
     expect(
       (await runProbe('azure-openai.list-models', ctxFor(comp, { apiKey: 'az' }))).status,
     ).toBe('pass');
@@ -312,10 +318,7 @@ describe('model providers', () => {
         );
       },
     });
-    const bedrock = byId(
-      componentsFor('    provider: bedrock\n    name: m\n    region: eu-central-1'),
-      'bedrock',
-    );
+    const bedrock = parked('bedrock', { region: 'eu-central-1' });
     const keys = { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'aws-test-secret-key' };
     // Bedrock uses the default credential chain; pin it to fake keys, never real local ones.
     vi.stubEnv('AWS_ACCESS_KEY_ID', 'AKIDEXAMPLE');

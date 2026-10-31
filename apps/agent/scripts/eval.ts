@@ -43,9 +43,7 @@ const fields = Object.fromEntries(
 const choice = { provider: values.provider ?? '', model: values.model ?? '', fields };
 const problem = modelProblem(choice, process.env);
 if (problem) {
-  term.err(
-    `pnpm eval --provider <anthropic|openai|azure-openai|bedrock|ollama> --model <id>: ${problem}.`,
-  );
+  term.err(`pnpm eval --provider <anthropic|openai|ollama> --model <id>: ${problem}.`);
   process.exit(2);
 }
 
