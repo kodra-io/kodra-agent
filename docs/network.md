@@ -107,5 +107,5 @@ either way. It allows:
 
 A standard NetworkPolicy cannot match hostnames. With Cilium, set `networkPolicy.cilium: true`
 for a CiliumNetworkPolicy that allows HTTPS only to the hostnames the config uses: the model
-provider, GitHub, GitLab, Slack (`slack.com`, `*.slack.com`), AWS (`*.amazonaws.com`), and any
+provider, GitHub, GitLab, Slack (`slack.com`, `*.slack.com`), AWS Bedrock (`*.amazonaws.com`), and any
 other connector URL outside the cluster.

@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=../schema/kodra-agent.schema.json
-# Kubernetes target on EKS: GitLab with GitLab CI, in-cluster access, Grafana, AWS, Bedrock.
+# Kubernetes target on EKS: GitLab with GitLab CI, in-cluster access, Grafana, Bedrock.
 apiVersion: kodra.io/v1alpha1
 kind: Agent
 metadata:
@@ -38,10 +38,6 @@ spec:
         url: http://grafana.monitoring:3000
       secrets:
         serviceAccountToken: ${env:GRAFANA_TOKEN}
-    aws:
-      enabled: true
-      config:
-        region: eu-central-1
     slack:
       enabled: true
       config:

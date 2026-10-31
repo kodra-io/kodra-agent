@@ -303,7 +303,7 @@ describe('model providers', () => {
     });
   });
 
-  it('Bedrock and AWS check credentials with STS GetCallerIdentity', async () => {
+  it('Bedrock checks credentials with STS GetCallerIdentity', async () => {
     server = await fakeServer({
       'POST /': (_q, s) => {
         s.writeHead(200, { 'content-type': 'text/xml' });
@@ -316,31 +316,17 @@ describe('model providers', () => {
       componentsFor('    provider: bedrock\n    name: m\n    region: eu-central-1'),
       'bedrock',
     );
-    const aws = byId(
-      componentsFor(
-        ollama('http://o:1'),
-        '    aws:\n      enabled: true\n      config: {region: eu-central-1}',
-      ),
-      'aws',
-    );
     const keys = { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'aws-test-secret-key' };
     // Bedrock uses the default credential chain; pin it to fake keys, never real local ones.
     vi.stubEnv('AWS_ACCESS_KEY_ID', 'AKIDEXAMPLE');
     vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'aws-test-secret-key');
     vi.stubEnv('AWS_PROFILE', '');
-    const probesToRun = [
-      ['bedrock.get-caller-identity', bedrock],
-      ['aws.get-caller-identity', aws],
-    ] as const;
-    for (const [id, comp] of probesToRun) {
-      const ctx = ctxFor(comp, keys, { endpoints: { sts: server.url } });
-      expect(await runProbe(id, ctx)).toEqual({
-        status: 'pass',
-        message: 'credentials work (account 123456789012)',
-      });
-    }
+    const ctx = ctxFor(bedrock, keys, { endpoints: { sts: server.url } });
+    expect(await runProbe('bedrock.get-caller-identity', ctx)).toEqual({
+      status: 'pass',
+      message: 'credentials work (account 123456789012)',
+    });
     expect(server.requests.map((r) => r.headers.authorization)).toEqual([
-      expect.stringContaining('Credential=AKIDEXAMPLE/'),
       expect.stringContaining('Credential=AKIDEXAMPLE/'),
     ]);
     vi.unstubAllEnvs();

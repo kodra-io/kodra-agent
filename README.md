@@ -43,12 +43,12 @@ how to fix what fails.
 
 ## What's available
 
-| What       | Available                                                                              |
-| ---------- | -------------------------------------------------------------------------------------- |
-| Connectors | Kubernetes, Prometheus, Grafana, GitHub, GitHub Actions, GitLab, GitLab CI, Slack, AWS |
-| Connectors | Jenkins, Databases, Docker                                                             |
-| Models     | Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Ollama                                   |
-| Flows      | Ship and onboard (with the Docker connector's build access), and sandbox tests         |
+| What       | Available                                                                         |
+| ---------- | --------------------------------------------------------------------------------- |
+| Connectors | Kubernetes, Prometheus, Grafana, GitHub, GitHub Actions, GitLab, GitLab CI, Slack |
+| Connectors | Jenkins, Databases, Docker                                                        |
+| Models     | Anthropic, OpenAI, Azure OpenAI, AWS Bedrock, Ollama                              |
+| Flows      | Ship and onboard (with the Docker connector's build access), and sandbox tests    |
 
 ## Try it on a throwaway cluster
 

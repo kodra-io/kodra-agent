@@ -6,9 +6,8 @@ import {
   type Manifest,
   type ParseResult,
 } from '@kodra-agent/schema';
-import aws from './aws/manifest.ts';
 import databases from './databases/manifest.ts';
-import { azure, azureDevops, bitbucket, gcp, teams } from './coming-soon.ts';
+import { aws, azure, azureDevops, bitbucket, gcp, teams } from './coming-soon.ts';
 import docker from './docker/manifest.ts';
 import githubActions from './github-actions/manifest.ts';
 import github from './github/manifest.ts';

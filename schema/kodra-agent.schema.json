@@ -706,63 +706,14 @@
               "properties": {
                 "enabled": {
                   "type": "boolean"
-                },
-                "access": {
-                  "default": "read-only",
-                  "type": "string",
-                  "enum": [
-                    "read-only"
-                  ]
-                },
-                "config": {
-                  "type": "object",
-                  "properties": {
-                    "region": {
-                      "type": "string",
-                      "minLength": 1,
-                      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-\\d$",
-                      "description": "AWS region."
-                    },
-                    "services": {
-                      "minItems": 1,
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "pattern": "^(eks|cloudwatch)$"
-                      },
-                      "description": "AWS services the agent can read: eks, cloudwatch. Each one adds tools the model reads on every question, so leave out what you do not need."
-                    }
-                  },
-                  "required": [
-                    "region"
-                  ],
-                  "additionalProperties": false
-                },
-                "secrets": {
-                  "type": "object",
-                  "properties": {
-                    "accessKeyId": {
-                      "type": "string",
-                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
-                      "description": "AWS access key id. Usually ${env:AWS_ACCESS_KEY_ID}."
-                    },
-                    "secretAccessKey": {
-                      "type": "string",
-                      "pattern": "^\\$\\{(env:[A-Z_][A-Z0-9_]*|file:/[^}]*)\\}$",
-                      "description": "AWS secret access key. Usually ${env:AWS_SECRET_ACCESS_KEY}."
-                    }
-                  },
-                  "additionalProperties": false
                 }
               },
               "required": [
-                "enabled",
-                "config"
+                "enabled"
               ],
               "additionalProperties": false,
               "title": "AWS",
-              "description": "Read EKS clusters and CloudWatch metrics, logs, and alarms. Read-only."
+              "description": "Read EKS clusters and CloudWatch metrics, logs, and alarms."
             },
             "databases": {
               "type": "object",

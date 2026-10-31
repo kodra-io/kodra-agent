@@ -211,6 +211,9 @@ Reviewed manifest: `grafana@c52161cc90f7`
 
 ### AWS
 
+Coming soon: the connector cannot be enabled for now ([why](../connectors/aws.md)). When it
+comes back, it works like this:
+
 - **Servers:** `awslabs.eks-mcp-server` and `awslabs.cloudwatch-mcp-server` from PyPI, each
   only when listed in `services` ([decision](../connectors/aws.md)).
 - **Sends to:** AWS APIs in your `region`, over HTTPS, signed with SigV4.
