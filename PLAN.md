@@ -187,20 +187,20 @@ the connector docs record each decision.
 
 ## Status
 
-| Step                                        | Status                                    | PR  |
-| ------------------------------------------- | ----------------------------------------- | --- |
-| L0 Reset                                    | Done                                      | #82 |
-| L1 Launch narrower                          | Done                                      | #87 |
-| L2 Close the red flags                      | Done                                      | #84 |
-| L3 Proof: scenarios, evals, and the demo    | Merged; the hosted run is still open      | #85 |
-| L4 Publish and release v0.4.0               | In progress: deploy and hallway test next | #86 |
-| L5 Partner zero: Kodra.io                   | Not started                               |     |
-| L6 Design partners                          | Not started                               |     |
-| B1 The pipeline that fits                   | Done                                      | #91 |
-| B2 Test in a sandbox, then destroy          | Done                                      | #92 |
-| B3 Configurator clean-up                    | Done                                      | #94 |
-| B4 Official MCP servers                     | In review                                 |     |
-| Gate open: Omar picks the next roadmap item | Not started                               |     |
+| Step                                        | Status                                    | PR   |
+| ------------------------------------------- | ----------------------------------------- | ---- |
+| L0 Reset                                    | Done                                      | #82  |
+| L1 Launch narrower                          | Done                                      | #87  |
+| L2 Close the red flags                      | Done                                      | #84  |
+| L3 Proof: scenarios, evals, and the demo    | Merged; the hosted run is still open      | #85  |
+| L4 Publish and release v0.4.0               | In progress: deploy and hallway test next | #86  |
+| L5 Partner zero: Kodra.io                   | Not started                               |      |
+| L6 Design partners                          | Not started                               |      |
+| B1 The pipeline that fits                   | Done                                      | #91  |
+| B2 Test in a sandbox, then destroy          | Done                                      | #92  |
+| B3 Configurator clean-up                    | Done                                      | #94  |
+| B4 Official MCP servers                     | Done                                      | #101 |
+| Gate open: Omar picks the next roadmap item | Not started                               |      |
 
 ## Rules
 
