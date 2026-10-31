@@ -363,7 +363,7 @@ const fixtures: Record<string, unknown> = {
     ],
   },
   status: {
-    version: '0.3.12',
+    version: '0.3.13',
     model: 'anthropic/claude-sonnet-5-5',
     target: 'compose',
     startedAt: '2026-10-09T08:00:00.000Z',
