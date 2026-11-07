@@ -398,6 +398,19 @@ export type EntryField =
 
 /** `spec.ship.ci` (B5): which CI tool ship writes a pipeline for. */
 export type ShipCi = 'auto' | 'github-actions' | 'gitlab-ci' | 'jenkins';
+/** spec.ship.deploy (B6): the deploy stage of the pipelines ship writes. */
+export interface ShipDeploy {
+  enabled: boolean;
+  target: 'kubernetes' | 'vm';
+  environment: string;
+  when: 'default-branch' | 'manual';
+  credentials: string;
+  namespace?: string | undefined;
+  host?: string | undefined;
+  user?: string | undefined;
+  sshPort?: number | undefined;
+  hostKey?: string | undefined;
+}
 
 export type OperatingSystem = 'linux' | 'macos' | 'windows';
 
@@ -492,7 +505,7 @@ export interface SettingsView {
     config: Record<string, string>;
     secrets: { key: string; label: string; set: boolean }[];
   }[];
-  ship: { baseImageMirrors: Record<string, string>; ci: ShipCi };
+  ship: { baseImageMirrors: Record<string, string>; ci: ShipCi; deploy: ShipDeploy };
   metrics: { enabled: boolean; port: number };
   tracing: { enabled: boolean; endpoint?: string };
   audit: { stdout: boolean };
@@ -550,7 +563,7 @@ export interface SettingsPatch {
     string,
     { provider: string; name: string; config?: Record<string, string> } | null
   >;
-  ship?: { baseImageMirrors?: Record<string, string>; ci?: ShipCi };
+  ship?: { baseImageMirrors?: Record<string, string>; ci?: ShipCi; deploy?: ShipDeploy };
   metrics?: { enabled?: boolean; port?: number };
   tracing?: { enabled?: boolean; endpoint?: string | null };
   audit?: { stdout?: boolean };
@@ -799,7 +812,7 @@ export interface OnboardRepo {
 
 export interface OnboardJobSummary {
   id: string;
-  kind: 'analyze' | 'pr' | 'sandbox';
+  kind: 'analyze' | 'pr' | 'sandbox' | 'release';
   repo: string;
   branch: string | null;
   by: string;
@@ -812,6 +825,9 @@ export interface OnboardJobSummary {
   prUrl: string | null;
   /** A sandbox test (B2): whether it passed, and until when it is kept (null: destroyed). */
   test?: { id: string; passed: boolean; keptUntil: string | null };
+  /** B6: the end-of-run report, and whether all is good (ready to merge, or healthy). */
+  summary?: string;
+  ok?: boolean;
 }
 
 export interface OnboardJob extends OnboardJobSummary {

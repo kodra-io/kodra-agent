@@ -8,6 +8,7 @@ import {
 } from './rollout.ts';
 import { bigCut, numberAt } from './scale-limit.ts';
 import type { WriteGate } from './write-gate.ts';
+import { workflowTools, type WorkflowRunner } from './workflow-tools.ts';
 import { NO_TRACER, taskKind, type AgentTracer, type TraceSpan } from './tracing.ts';
 import {
   dynamicTool,
@@ -55,6 +56,7 @@ Rules you must always follow:
 - Never try to read, print, or guess secrets, tokens, or passwords.
 - Never push to a default branch. Changes to repositories go through pull requests.
 - For a change with several steps (a branch, file edits, and a pull request), call propose_change once with all of them, so the approver reviews one change with a diff.
+- You never deploy to a cluster or VM yourself: the pipeline's deploy stage does, after a merge. When asked to deploy and the kodra_ tools are available, offer what you can do: test a branch in the sandbox (kodra_sandbox_test) before the merge, or check the release (kodra_watch_release) after it.
 - If a tool is blocked or a change is denied, explain that and suggest what a human can do instead.
 - Be concise. Say what you found, the evidence, and the fix you suggest.`;
 
@@ -113,6 +115,10 @@ export interface AgentDeps {
    * the model with), else null. A prompt that does not fit is refused instead of cut off.
    */
   contextWindow?: () => Promise<number | null>;
+  /** B6: the running agent's onboarding, sandbox, and release jobs, offered as chat tools. */
+  workflows?: WorkflowRunner;
+  /** False when this user may not start those jobs (a console viewer). */
+  workflowsAllowed?: boolean;
 }
 
 /**
@@ -321,6 +327,7 @@ function buildTools(
   if (deps.readOnly !== true && hostedTools.some((t) => t.risk !== 'read')) {
     tools[PROPOSE_CHANGE] = proposeChangeTool(deps, task, hostedTools, router);
   }
+  Object.assign(tools, workflowTools(deps, task));
   const last = hostedTools.at(-1)?.name;
   for (const hosted of hostedTools) {
     tools[hosted.name] = dynamicTool({

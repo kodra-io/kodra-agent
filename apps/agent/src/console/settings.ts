@@ -105,7 +105,12 @@ export interface SettingsPatch {
     string,
     { provider: string; name: string; config?: Record<string, string> } | null
   >;
-  ship?: { baseImageMirrors?: Record<string, string>; ci?: AgentConfig['spec']['ship']['ci'] };
+  ship?: {
+    baseImageMirrors?: Record<string, string>;
+    ci?: AgentConfig['spec']['ship']['ci'];
+    /** The whole deploy stage (B6), replaced as one; the schema checks it. */
+    deploy?: AgentConfig['spec']['ship']['deploy'];
+  };
   metrics?: { enabled?: boolean; port?: number };
   tracing?: { enabled?: boolean; endpoint?: string | null };
   audit?: { stdout?: boolean };
@@ -243,6 +248,15 @@ export function patchConfigText(text: string, patch: SettingsPatch): string {
     doc.setIn(['spec', 'ship', 'baseImageMirrors'], doc.createNode(patch.ship.baseImageMirrors));
   }
   set(['spec', 'ship', 'ci'], patch.ship?.ci);
+  if (patch.ship?.deploy !== undefined) {
+    // Unset fields are left out, so the file stays short.
+    const deploy = Object.fromEntries(
+      Object.entries(patch.ship.deploy).filter(
+        ([, v]) => v !== undefined && v !== null && v !== '',
+      ),
+    );
+    doc.setIn(['spec', 'ship', 'deploy'], doc.createNode(deploy));
+  }
   set(['spec', 'metrics', 'enabled'], patch.metrics?.enabled);
   set(['spec', 'metrics', 'port'], patch.metrics?.port);
   set(['spec', 'tracing', 'enabled'], patch.tracing?.enabled);
@@ -769,7 +783,11 @@ export class SettingsStore {
           })),
         };
       }),
-      ship: { baseImageMirrors: config.spec.ship.baseImageMirrors, ci: config.spec.ship.ci },
+      ship: {
+        baseImageMirrors: config.spec.ship.baseImageMirrors,
+        ci: config.spec.ship.ci,
+        deploy: config.spec.ship.deploy,
+      },
       metrics: config.spec.metrics,
       tracing: config.spec.tracing,
       audit: { stdout: config.spec.audit.stdout },

@@ -169,7 +169,7 @@ export function consoleApi(
     routes['onboard/job'] = ({ query }) =>
       onboard.get(query.get('id') ?? '') ?? new NotFound('no such onboarding');
     const startJob =
-      (kind: 'analyze' | 'pr' | 'sandbox'): ActionRoute =>
+      (kind: 'analyze' | 'pr' | 'sandbox' | 'release'): ActionRoute =>
       ({ user, body }) => {
         if (!user.canApprove) {
           return { status: 403, body: { error: 'only a console approver can onboard a repo' } };
@@ -192,6 +192,8 @@ export function consoleApi(
     // Sandbox tests (B2): the deploy waits for an approval; destroying is the agent's own
     // test only, so it needs no approval, but it is for approvers too.
     actions['onboard/sandbox'] = startJob('sandbox');
+    // B6: watch the default branch's pipeline and deploy, and check it is healthy.
+    actions['onboard/release'] = startJob('release');
     actions['sandbox/destroy'] = async ({ user, body }) => {
       if (!user.canApprove) {
         return { status: 403, body: { error: 'only a console approver can destroy a test' } };

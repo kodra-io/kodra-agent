@@ -1659,6 +1659,65 @@
                 "gitlab-ci",
                 "jenkins"
               ]
+            },
+            "deploy": {
+              "description": "The deploy stage of the pipelines ship writes.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "target": {
+                  "default": "kubernetes",
+                  "type": "string",
+                  "enum": [
+                    "kubernetes",
+                    "vm"
+                  ]
+                },
+                "environment": {
+                  "default": "staging",
+                  "type": "string",
+                  "pattern": "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
+                },
+                "when": {
+                  "default": "default-branch",
+                  "type": "string",
+                  "enum": [
+                    "default-branch",
+                    "manual"
+                  ]
+                },
+                "credentials": {
+                  "default": "KODRA_DEPLOY",
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.-]{1,100}$"
+                },
+                "namespace": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+                },
+                "host": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
+                },
+                "user": {
+                  "type": "string",
+                  "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+                },
+                "sshPort": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "hostKey": {
+                  "type": "string",
+                  "pattern": "^(\\S+ )?(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\\.com) [A-Za-z0-9+/=]+( .*)?$"
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

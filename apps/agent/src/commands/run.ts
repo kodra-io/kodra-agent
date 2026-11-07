@@ -1,6 +1,7 @@
 import { proxyOptions } from '../network.ts';
 import { doctorRows } from './doctor.ts';
 import { OnboardJobs } from '../console/onboard.ts';
+import type { WorkflowRunner } from '../workflow-tools.ts';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -166,7 +167,22 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
     const announce = async (text: string) => {
       if (api && channelId) await api.postMessage({ channel: channelId, text });
     };
-    const deps = (channel: ApprovalChannel) => ({ ...runtime.deps(channel), announce });
+    // B6: the onboarding jobs, as chat tools for the console and Slack, once the console has them.
+    let jobs: OnboardJobs | null = null;
+    const workflows: WorkflowRunner = {
+      repos: () => jobs?.repos() ?? [],
+      list: () => jobs?.list() ?? [],
+      get: (id) => jobs?.get(id) ?? null,
+      start: (kind, repo, branch, by) =>
+        jobs
+          ? jobs.start(kind, repo, branch, by)
+          : { status: 503, error: 'onboarding needs the console (spec.console.enabled)' },
+    };
+    const deps = (channel: ApprovalChannel) => ({
+      ...runtime.deps(channel),
+      announce,
+      workflows,
+    });
     if (slackInput) {
       const { botToken, appToken } = slackInput.secrets;
       if (!botToken || !appToken) {
@@ -390,6 +406,7 @@ export async function run(opts: RunOptions, ctx: Context): Promise<number> {
         path: join(dirname(runtime.config.spec.audit.path), 'onboarding.json'),
       });
       await onboard.load();
+      jobs = onboard;
       const api = consoleApi(
         runtime,
         { version: pkg.version, startedAt, slack: slack !== null, monitoring: monitor !== null },

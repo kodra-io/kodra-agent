@@ -1,6 +1,13 @@
 import { helmChart } from './chart.ts';
 import { type CiTest, githubWorkflow, gitlabCi, jenkinsfile } from './ci.ts';
 import { type CiChoice, ciName, hostCi, type SourceProvider } from './ci-system.ts';
+import {
+  deployFiles,
+  deploySection,
+  deployTarget,
+  type DeploySpec,
+  type DeployTarget,
+} from './deploy.ts';
 import type { Detection } from './detect.ts';
 import { dockerfile, dockerignore } from './dockerfile.ts';
 import { IMAGES, mirrorImage, pinnedImages } from './images.ts';
@@ -34,6 +41,8 @@ export interface PlanOptions {
   ci?: CiChoice;
   /** B5: Jenkins settings: where it pushes the image, and the credentials it logs in with. */
   jenkins?: { registry?: string | undefined; credentials?: string | undefined };
+  /** B6: the deploy stage (spec.ship.deploy). */
+  deploy?: DeploySpec;
 }
 
 export interface ShipFile {
@@ -56,6 +65,8 @@ export interface ShipPlan {
   ci: CiChoice;
   /** The Jenkins credentials the Jenkinsfile logs in with, if any. */
   jenkinsCredentials?: string;
+  /** B6: where the generated pipeline deploys, or why it has no deploy stage. */
+  deploy: { target: DeployTarget | null; reason: string | null };
 }
 
 /** Where CI pushes the image. Registries need lowercase names. */
@@ -135,13 +146,22 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
   }
 
   const test = ciTest(d);
-  const ci = { image, chartDir, defaultBranch: o.defaultBranch, test };
-  const runs = test ? `runs the tests (\`${test.run}\`), ` : '';
   const own = hostCi(o.provider);
   const choice: CiChoice = o.ci ?? {
     ci: own,
     reason: own ? 'The CI that comes with the repo host.' : 'A local folder: no pipeline.',
   };
+  const target = deployTarget(o.deploy, choice.ci, {
+    name: d.name,
+    port: d.port,
+    healthPath: d.healthPath,
+  });
+  let deploy: ShipPlan['deploy'] = target;
+  const ci = { image, chartDir, defaultBranch: o.defaultBranch, test, deploy: target.target };
+  const deployNote = target.target
+    ? ` Deploys to ${target.target.kind === 'kubernetes' ? `namespace \`${target.target.namespace}\`` : `\`${target.target.host}\``} from ${o.defaultBranch}${target.target.when === 'manual' ? ' after a person approves' : ''}.`
+    : '';
+  const runs = test ? `runs the tests (\`${test.run}\`), ` : '';
   const hasCi =
     choice.ci === 'github-actions'
       ? d.existing.githubCi
@@ -161,6 +181,7 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
           chartDir,
         })
       : undefined;
+  let wrotePipeline = false;
   if (pipeline?.mode === 'shared') {
     files.push({
       path: pipeline.path,
@@ -169,28 +190,44 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
     });
   } else if (choice.ci === 'github-actions') {
     if (d.existing.githubCi) kept.push('CI: a workflow already builds a container.');
-    else
+    else {
+      wrotePipeline = true;
       files.push({
         path: '.github/workflows/container.yml',
         content: githubWorkflow(ci),
-        reason: `GitHub Actions: ${runs}builds the image on every PR, pushes it to ${image} (\`pr-<sha>\` from PRs, \`<sha>\` and the chart's appVersion from ${o.defaultBranch}), and lints the chart.`,
+        reason: `GitHub Actions: ${runs}builds the image on every PR, pushes it to ${image} (\`pr-<sha>\` from PRs, \`<sha>\` and the chart's appVersion from ${o.defaultBranch}), and lints the chart.${deployNote}`,
       });
+    }
   } else if (choice.ci === 'gitlab-ci') {
     if (d.existing.gitlabCi) kept.push('CI: .gitlab-ci.yml exists, so it is left alone.');
-    else
+    else {
+      wrotePipeline = true;
       files.push({
         path: '.gitlab-ci.yml',
         content: gitlabCi(ci),
-        reason: `GitLab CI: ${runs}builds the image on every pipeline, pushes it to ${image} (\`pr-<sha>\` from other branches, \`<sha>\` and the chart's appVersion from the default branch), and lints the chart.`,
+        reason: `GitLab CI: ${runs}builds the image on every pipeline, pushes it to ${image} (\`pr-<sha>\` from other branches, \`<sha>\` and the chart's appVersion from the default branch), and lints the chart.${deployNote}`,
       });
+    }
   } else if (choice.ci === 'jenkins') {
     if (d.existing.jenkinsfile) kept.push('CI: the Jenkinsfile exists, so it is left alone.');
-    else
+    else {
+      wrotePipeline = true;
       files.push({
         path: 'Jenkinsfile',
         content: jenkinsfile({ ...ci, credentials: o.jenkins?.credentials }),
-        reason: `Jenkins: ${runs}builds the image, lints the chart, and pushes the image to ${image} (\`pr-<sha>\` from other branches and pull requests, \`<sha>\` and the chart's appVersion from ${o.defaultBranch}). Every step runs in Docker on the Jenkins agent.`,
+        reason: `Jenkins: ${runs}builds the image, lints the chart, and pushes the image to ${image} (\`pr-<sha>\` from other branches and pull requests, \`<sha>\` and the chart's appVersion from ${o.defaultBranch}). Every step runs in Docker on the Jenkins agent.${deployNote}`,
       });
+    }
+  }
+  if (target.target && wrotePipeline) {
+    files.push(...deployFiles(target.target, o.deploy?.hostKey));
+  } else if (target.target) {
+    // The team's own pipeline is kept: it is theirs to extend.
+    deploy = {
+      target: null,
+      reason:
+        'The existing pipeline is kept, so no deploy stage was added. Add one to it, or remove it and run onboard again.',
+    };
   }
   const mirrors = o.mirrors ?? {};
   return {
@@ -204,6 +241,7 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
     ...(choice.ci === 'jenkins' && o.jenkins?.credentials
       ? { jenkinsCredentials: o.jenkins.credentials }
       : {}),
+    deploy,
   };
 }
 
@@ -241,7 +279,9 @@ export function shipPrBody(i: PrBodyInput): string {
   for (const f of i.plan.files) byReason.set(f.reason, [...(byReason.get(f.reason) ?? []), f.path]);
   return [
     'Kodra AI Agent prepared this pull request to build, containerize, and package this service.',
-    'Nothing is deployed: review it, merge it, and your own CI takes it from there.',
+    i.plan.deploy.target
+      ? 'Nothing is deployed until it is merged: then your own pipeline deploys it, as described under Deploy.'
+      : 'Nothing is deployed: review it, merge it, and your own CI takes it from there.',
     '',
     ...(i.onboarding
       ? [
@@ -278,6 +318,11 @@ export function shipPrBody(i: PrBodyInput): string {
         ]
       : []),
     ...(i.plan.pipeline ? ['', ...pipelineSection(i.plan.pipeline)] : []),
+    ...(i.plan.deploy.target && i.plan.ci.ci
+      ? ['', ...deploySection(i.plan.deploy.target, i.plan.ci.ci, i.plan.chartDir, i.plan.image)]
+      : i.plan.deploy.reason
+        ? ['', '## Deploy', i.plan.deploy.reason]
+        : []),
     '',
     '## How it was verified',
     ...i.verification.map((v) => `- ${v}`),
@@ -291,6 +336,9 @@ export function shipPrBody(i: PrBodyInput): string {
       : []),
     '',
     '## Before you deploy',
+    ...(i.plan.deploy.target
+      ? []
+      : ['- This pipeline has no deploy stage. Set `spec.ship.deploy` in the agent to add one.']),
     `- The chart pulls \`${i.plan.image}\`, tagged with the chart's appVersion by default. For repeatable rollouts, deploy the commit SHA tag: \`--set image.tag=<sha>\`.`,
     ...(i.onboarding && i.onboarding.secrets.length > 0
       ? [

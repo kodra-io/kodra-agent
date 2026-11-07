@@ -29,7 +29,7 @@ import { boltSlack } from '../slack/api.ts';
 import { approveShipChange, refuseAll } from '../ship/approve.ts';
 import { spawnExec } from '../ship/exec.ts';
 import { proposeDockerfileFix } from '../ship/fix.ts';
-import { buildOnJenkins } from '../ship/jenkins.ts';
+import { followPullRequest, followReport } from '../ship/follow.ts';
 import { pipelineInputs } from '../ship/pipeline.ts';
 import {
   buildImage,
@@ -81,6 +81,9 @@ export interface ShipResult {
   risks?: number;
   gaps?: number;
   prUrl?: string;
+  /** B6: the end-of-run report, and whether the pull request is ready to merge. */
+  summary?: string;
+  ready?: boolean;
 }
 
 export interface Source {
@@ -322,7 +325,14 @@ export async function ship(
       ...(pipeline ? { pipeline } : {}),
       ci: ciChoice,
       jenkins: { registry: setting('registry'), credentials: setting('registryCredentials') },
+      deploy: runtime.config.spec.ship.deploy,
     });
+    if (plan.deploy.target) {
+      const t = plan.deploy.target;
+      ctx.term.out(
+        `Deploy: ${t.kind === 'kubernetes' ? `namespace ${t.namespace} with Helm` : `${t.host} over SSH`}, ${t.when === 'manual' ? 'after a person approves' : 'on every merge'} (environment ${t.environment}).`,
+      );
+    } else if (plan.deploy.reason) ctx.term.out(`Deploy: ${plan.deploy.reason}`);
     if (plan.pipeline) {
       ctx.term.out(
         plan.pipeline.mode === 'shared'
@@ -483,11 +493,69 @@ export async function ship(
       // Jenkins names a multibranch job after its branch, and the job guard refuses the %2F a
       // slash becomes, so a branch Jenkins builds has none.
       separator: plan.ci.ci === 'jenkins' ? '-' : '/',
+      maxFixes: opts.maxFixes,
+      ci: plan.ci.ci,
     });
-    if (opened.code === 0 && opened.head && plan.ci.ci === 'jenkins') {
-      await buildOnJenkins({ ctx, runtime, source, head: opened.head, task, hooks });
-    }
-    return opened.code;
+    if (opened.code !== 0 || !opened.head || !opened.push) return opened.code;
+    // B6: watch the CI to the end, fix what ship added, test in the sandbox, and report.
+    const follow = await followPullRequest({
+      ctx,
+      runtime,
+      configPath: opts.configPath,
+      source,
+      git,
+      repoDir,
+      head: opened.head,
+      task,
+      ci: plan.ci.ci,
+      generated: plan.files.map((f) => f.path),
+      maxFixes: opts.maxFixes,
+      deploy: plan.deploy.target,
+      hooks: {
+        ...(hooks.approvals ? { approvals: hooks.approvals } : {}),
+        ...(hooks.requestedBy ? { requestedBy: hooks.requestedBy } : {}),
+        ...(hooks.post ? { post: hooks.post } : {}),
+      },
+      push: opened.push,
+    });
+    const todo = [
+      ...(plan.pipeline?.mode === 'shared'
+        ? plan.pipeline.todo.map((t) => `Set ${t.name}: ${t.why}.`)
+        : []),
+      ...(analysis && envNames(analysis).secrets.length > 0
+        ? [
+            `Create a Secret with ${envNames(analysis).secrets.join(', ')} and set envFromSecret in the chart's values.`,
+          ]
+        : []),
+      ...(plan.deploy.target
+        ? [
+            plan.deploy.target.kind === 'kubernetes'
+              ? `Apply deploy/ci-deployer-rbac.yaml and store its kubeconfig in the CI system as ${plan.deploy.target.credentials} (see Deploy in the pull request).`
+              : `Store the VM's SSH key in the CI system as ${plan.deploy.target.credentials} (see Deploy in the pull request).`,
+          ]
+        : []),
+    ];
+    const final = followReport({
+      repo: source.repo,
+      prUrl: opened.url ?? null,
+      onboard: opts.onboard ?? false,
+      ...(analysis
+        ? {
+            risks: analysis.findings.filter((f) => f.level === 'risk').length,
+            gaps: analysis.findings.filter((f) => f.level === 'gap').length,
+          }
+        : {}),
+      follow,
+      deploy: plan.deploy.target,
+      todo,
+    });
+    ctx.term.out('');
+    ctx.term.out(final.text);
+    hooks.onResult?.({ summary: final.text, ready: final.ready });
+    if (hooks.post) await hooks.post(ctx.redactor.redact(final.text)).catch(() => undefined);
+    else await postToSlack(ctx, runtime, final.text, 'the report');
+    await audit(runtime.audit, task, final.ready ? 'ready to merge' : 'needs attention');
+    return follow.ci.outcome?.kind === 'failed' ? 1 : 0;
   } finally {
     await rm(work, { recursive: true, force: true }).catch(() => undefined);
     if (!hooks.runtime) await runtime.close();
@@ -571,12 +639,18 @@ interface PrInput {
   hooks: ShipHooks;
   /** Between `kodra-agent` and the rest of the branch name. */
   separator: '/' | '-';
+  /** How many fix commits the approval covers after the PR, for the approval text. */
+  maxFixes: number;
+  ci: string | null;
 }
 
 interface Opened {
   code: number;
   /** The pushed branch, once the pull request is open. */
   head?: string;
+  url?: string;
+  /** Pushes a new commit on the branch (a CI fix), checked by the policy engine and audited. */
+  push?: () => Promise<boolean>;
 }
 
 const TITLE = 'Add a Dockerfile, CI, and a Helm chart';
@@ -693,7 +767,7 @@ async function openPullRequest(i: PrInput): Promise<Opened> {
     tool: `git push + ${prTool.tool}`,
     risk: 'write',
     args: summary,
-    reason: `${i.onboard ? 'Onboard' : 'Ship'}: push the ${i.local ? 'verified ' : ''}Dockerfile, CI, Helm chart${i.onboard ? ', and onboarding report' : ''} to a new branch and open a pull request.${i.local ? '' : " The image was not built by the agent: the pull request's CI builds it."}`,
+    reason: `${i.onboard ? 'Onboard' : 'Ship'}: push the ${i.local ? 'verified ' : ''}Dockerfile, CI, Helm chart${i.onboard ? ', and onboarding report' : ''} to a new branch and open a pull request.${i.local ? '' : " The image was not built by the agent: the pull request's CI builds it."}${i.ci ? ` Then watch its CI${i.ci === 'jenkins' ? ' (starting the Jenkins build of this branch if Jenkins does not)' : ''}${i.maxFixes > 0 ? ` and push up to ${String(i.maxFixes)} fix commit${i.maxFixes === 1 ? '' : 's'} to the files it added, on this branch only` : ''}.` : ''}`,
     rules: rules.rules,
   });
   const base = { actor: 'ship', task, connector: source.provider, risk: 'write' } as const;
@@ -748,5 +822,22 @@ async function openPullRequest(i: PrInput): Promise<Opened> {
   );
   i.hooks.onResult?.(url ? { prUrl: url } : {});
   await audit(runtime.audit, task, `opened ${url ?? head}`);
-  return { code: 0, head };
+  const pushFix = async (): Promise<boolean> => {
+    // The same checks as the first push: the branch is never the default one.
+    if (decide(policyInputFor(branchTool, pushArgs, destructive)).kind === 'block') return false;
+    const pushed = await git.run(
+      ['push', 'origin', `refs/heads/${head}:refs/heads/${head}`],
+      repoDir,
+    );
+    await runtime.audit.append({
+      ...base,
+      event: 'tool.call',
+      tool: 'git push',
+      decision: 'approved',
+      detail: `${pushed.code === 0 ? 'ok' : 'error'}; branch ${head}; a CI fix covered by the pull request's approval`,
+    });
+    if (pushed.code !== 0) ctx.term.err(`git push failed: ${pushed.stderr.trim()}`);
+    return pushed.code === 0;
+  };
+  return { code: 0, head, push: pushFix, ...(url ? { url } : {}) };
 }
