@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
   analyzeRepo,
+  chooseCi,
+  CI_SYSTEMS,
   detectStack,
   onboardingReport,
   planShip,
@@ -14,14 +16,8 @@ import {
   type SourceProvider,
 } from '@kodra-agent/templates';
 import { resolvePolicy, type ChangeStep } from '@kodra-agent/schema';
-import { policyInputFor, recordOverride } from '../agent.ts';
-import {
-  cliApprovalChannel,
-  decisionAudit,
-  newApprovalRequest,
-  rulesFor,
-  type ApprovalChannel,
-} from '../approvals.ts';
+import { policyInputFor } from '../agent.ts';
+import { rulesFor, type ApprovalChannel } from '../approvals.ts';
 import type { AuditLog } from '../audit.ts';
 import type { Context } from '../context.ts';
 import type { HostedTool, ConnectorInput } from '../mcp/host.ts';
@@ -30,8 +26,10 @@ import { decide } from '../policy.ts';
 import { TOKEN_PATTERNS } from '../redactor.ts';
 import { startRuntime, type Runtime } from '../runtime.ts';
 import { boltSlack } from '../slack/api.ts';
+import { approveShipChange, refuseAll } from '../ship/approve.ts';
 import { spawnExec } from '../ship/exec.ts';
 import { proposeDockerfileFix } from '../ship/fix.ts';
+import { buildOnJenkins } from '../ship/jenkins.ts';
 import { pipelineInputs } from '../ship/pipeline.ts';
 import {
   buildImage,
@@ -128,11 +126,6 @@ async function exists(path: string): Promise<boolean> {
     return false;
   }
 }
-
-/** Without a terminal there is nobody to approve, so the push is refused. */
-const refuseAll: ApprovalChannel = {
-  request: () => Promise.resolve({ decision: 'denied', by: 'no-terminal' }),
-};
 
 /**
  * The ship flow (SPEC section 9): detect the stack, add what is missing from tested
@@ -281,10 +274,25 @@ export async function ship(
         : runtime.inputs.some((i) => i.component.id === 'gitlab')
           ? 'gitlab'
           : null);
+    // B5: the CI tool that builds the repo, from the CI connectors that are turned on.
+    const ciChoice = chooseCi({
+      setting: runtime.config.spec.ship.ci,
+      provider: ciProvider,
+      existing: d.existing,
+      connected: CI_SYSTEMS.filter((ci) => runtime.inputs.some((i) => i.component.id === ci)),
+    });
+    ctx.term.out(`CI: ${ciChoice.ci ?? 'none'}. ${ciChoice.reason}`);
+    const jenkins = runtime.inputs.find((i) => i.component.id === 'jenkins')?.component.settings;
+    const setting = (key: string) =>
+      typeof jenkins?.[key] === 'string' && jenkins[key] ? jenkins[key] : undefined;
     // B1: a standalone pipeline, or a caller of the shared one the other repos use.
     const hasCi = source?.provider === 'github' ? d.existing.githubCi : d.existing.gitlabCi;
     let pipeline: PlanOptions['pipeline'];
-    if (source && !hasCi) {
+    if (
+      source &&
+      !hasCi &&
+      ciChoice.ci === (source.provider === 'github' ? 'github-actions' : 'gitlab-ci')
+    ) {
       const { provider, input } = source;
       ctx.term.out('Reading how the other repos are built...');
       pipeline = await pipelineInputs(git, work, {
@@ -312,6 +320,8 @@ export async function ship(
       mirrors: runtime.config.spec.ship.baseImageMirrors,
       ...(analysis ? { env: envNames(analysis) } : {}),
       ...(pipeline ? { pipeline } : {}),
+      ci: ciChoice,
+      jenkins: { registry: setting('registry'), credentials: setting('registryCredentials') },
     });
     if (plan.pipeline) {
       ctx.term.out(
@@ -457,7 +467,7 @@ export async function ship(
           }
         : {}),
     });
-    return await openPullRequest({
+    const opened = await openPullRequest({
       ctx,
       runtime,
       source,
@@ -470,7 +480,14 @@ export async function ship(
       onboard: opts.onboard ?? false,
       local,
       hooks,
+      // Jenkins names a multibranch job after its branch, and the job guard refuses the %2F a
+      // slash becomes, so a branch Jenkins builds has none.
+      separator: plan.ci.ci === 'jenkins' ? '-' : '/',
     });
+    if (opened.code === 0 && opened.head && plan.ci.ci === 'jenkins') {
+      await buildOnJenkins({ ctx, runtime, source, head: opened.head, task, hooks });
+    }
+    return opened.code;
   } finally {
     await rm(work, { recursive: true, force: true }).catch(() => undefined);
     if (!hooks.runtime) await runtime.close();
@@ -552,6 +569,14 @@ interface PrInput {
   /** Whether the image was built and tested here. */
   local: boolean;
   hooks: ShipHooks;
+  /** Between `kodra-agent` and the rest of the branch name. */
+  separator: '/' | '-';
+}
+
+interface Opened {
+  code: number;
+  /** The pushed branch, once the pull request is open. */
+  head?: string;
 }
 
 const TITLE = 'Add a Dockerfile, CI, and a Helm chart';
@@ -562,7 +587,7 @@ const ONBOARD_TITLE = 'Onboard this service: Dockerfile, CI, Helm chart, and a r
  * engine decides each first, with the connector's own guards (repo allowlist, never the
  * default branch), so a blocked change is never offered for approval.
  */
-async function openPullRequest(i: PrInput): Promise<number> {
+async function openPullRequest(i: PrInput): Promise<Opened> {
   const { ctx, runtime, source, git, repoDir, task } = i;
   const github = source.provider === 'github';
   const display = github ? 'GitHub' : 'GitLab';
@@ -581,11 +606,11 @@ async function openPullRequest(i: PrInput): Promise<number> {
       `The ${display} connector needs read-write-approved access to open a pull request. Nothing was pushed.`,
     );
     await audit(runtime.audit, task, 'stopped: connector is read-only');
-    return 1;
+    return { code: 1 };
   }
 
   const title = i.onboard ? ONBOARD_TITLE : TITLE;
-  const head = `kodra-agent/${i.onboard ? 'onboard' : 'ship'}-${task.slice(5)}`;
+  const head = `kodra-agent${i.separator}${i.onboard ? 'onboard' : 'ship'}-${task.slice(5)}`;
   // `owner/repo` into ['owner', 'repo'], or a GitLab project path into one argument.
   const repoArgsFor = (names: readonly string[]): Record<string, string> => {
     if (names.length === 1) return { [names[0] ?? '']: source.repo };
@@ -615,7 +640,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
   });
   if (!rules.ok) {
     ctx.term.err(`Blocked by policy: ${rules.reason}. Nothing was pushed.`);
-    return 1;
+    return { code: 1 };
   }
   for (const [tool, args] of [
     [branchTool, pushArgs],
@@ -634,7 +659,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
         decision: 'blocked',
         detail: decision.reason,
       });
-      return 1;
+      return { code: 1 };
     }
   }
 
@@ -651,53 +676,34 @@ async function openPullRequest(i: PrInput): Promise<number> {
       ctx.term.err(
         `git ${args.find((a) => !a.startsWith('-') && !a.includes('=')) ?? ''} failed: ${result.stderr.trim()}`,
       );
-      return 1;
+      return { code: 1 };
     }
   }
 
   const summary = ctx.redactor.redact(
     JSON.stringify({ repo: source.repo, branch: head, base: i.baseBranch, title, files }),
   );
-  const req = newApprovalRequest(
-    {
-      connector: source.provider,
-      tool: `git push + ${prTool.tool}`,
-      risk: 'write',
-      args: summary,
-      reason: `${i.onboard ? 'Onboard' : 'Ship'}: push the ${i.local ? 'verified ' : ''}Dockerfile, CI, Helm chart${i.onboard ? ', and onboarding report' : ''} to a new branch and open a pull request.${i.local ? '' : " The image was not built by the agent: the pull request's CI builds it."}`,
-      requestedBy: i.hooks.requestedBy ?? 'ship',
-    },
-    rules.rules,
-  );
-  const base = { actor: 'ship', task, connector: source.provider, risk: 'write' } as const;
-  await runtime.audit.append({
-    ...base,
-    event: 'approval.request',
-    tool: req.tool,
-    detail: `${req.id}; args ${summary}`,
-  });
-  const approvals =
-    i.hooks.approvals ?? (ctx.prompter ? cliApprovalChannel(ctx.prompter, ctx.term) : refuseAll);
-  const outcome = await approvals.request(req);
-  await runtime.audit.append({
-    ...base,
-    event: 'approval.decision',
-    tool: req.tool,
-    ...decisionAudit(req, outcome, 'ship', undefined),
-  });
-  await recordOverride({ audit: runtime.audit, redactor: ctx.redactor }, req, outcome, {
-    actor: 'ship',
+  const outcome = await approveShipChange({
+    ctx,
+    runtime,
+    approvals: i.hooks.approvals,
+    requestedBy: i.hooks.requestedBy,
     task,
     connector: source.provider,
-    tool: req.tool,
+    tool: `git push + ${prTool.tool}`,
+    risk: 'write',
+    args: summary,
+    reason: `${i.onboard ? 'Onboard' : 'Ship'}: push the ${i.local ? 'verified ' : ''}Dockerfile, CI, Helm chart${i.onboard ? ', and onboarding report' : ''} to a new branch and open a pull request.${i.local ? '' : " The image was not built by the agent: the pull request's CI builds it."}`,
+    rules: rules.rules,
   });
+  const base = { actor: 'ship', task, connector: source.provider, risk: 'write' } as const;
   if (outcome.decision !== 'approved') {
     ctx.term.err(
       outcome.decision === 'expired'
         ? 'The approval expired. Nothing was pushed.'
         : `Not approved${ctx.prompter || i.hooks.approvals ? '' : ' (no terminal to ask on)'}. Nothing was pushed.`,
     );
-    return 1;
+    return { code: 1 };
   }
 
   ctx.term.out(`Pushing ${head}...`);
@@ -711,7 +717,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
   });
   if (push.code !== 0) {
     ctx.term.err(`git push failed: ${push.stderr.trim()}`);
-    return 1;
+    return { code: 1 };
   }
 
   ctx.term.out(`Opening the ${github ? 'pull request' : 'merge request'}...`);
@@ -734,7 +740,7 @@ async function openPullRequest(i: PrInput): Promise<number> {
   });
   if (failed) {
     ctx.term.err(`The branch ${head} is pushed, but opening the pull request failed: ${text}`);
-    return 1;
+    return { code: 1 };
   }
   const url = /https?:\/\/[^\s"'<>]+\/(?:pull|merge_requests)\/\d+/.exec(text)?.[0];
   ctx.term.out(
@@ -742,5 +748,5 @@ async function openPullRequest(i: PrInput): Promise<number> {
   );
   i.hooks.onResult?.(url ? { prUrl: url } : {});
   await audit(runtime.audit, task, `opened ${url ?? head}`);
-  return 0;
+  return { code: 0, head };
 }

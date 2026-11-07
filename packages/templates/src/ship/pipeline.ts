@@ -1,6 +1,6 @@
 import { parse, parseAllDocuments, stringify } from 'yaml';
 import type { Detection } from './detect.ts';
-import type { SourceProvider } from './plan.ts';
+import type { SourceProvider } from './ci-system.ts';
 
 /**
  * B1: the pipeline style. A repo either gets its own pipeline (standalone), or a thin caller

@@ -26,6 +26,7 @@ const SPRING: Detection = {
     chart: null,
     githubCi: false,
     gitlabCi: false,
+    jenkinsfile: false,
   },
   notes: ['Spring Boot with Maven.'],
 };

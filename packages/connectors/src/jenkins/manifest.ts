@@ -82,8 +82,9 @@ const plugin: Pick<Manifest, 'tools' | 'hiddenTools' | 'guards' | 'dashboard'> =
     ...Object.fromEntries(PLUGIN_JOB_READS.map((name) => [name, 'read'])),
     ...Object.fromEntries(PLUGIN_GLOBAL_READS.map((name) => [name, 'read'])),
     cancelBuild: 'write',
-    // Starting a build can deploy.
-    triggerBuild: 'destructive',
+    // B5: starting a build of a listed job is a write, approved like any other. Rebuilding
+    // replays an old build's parameters, which can deploy an old version.
+    triggerBuild: 'write',
     rebuildBuild: 'destructive',
   },
   // Hidden: running edited pipeline code (replayBuild) or a new pipeline (createPipeline),
@@ -140,7 +141,7 @@ export default defineManifest({
   category: 'cicd',
   status: 'available',
   description:
-    'Read Jenkins jobs, builds, and console logs. With write access, stop a build after approval.',
+    'Read Jenkins jobs, builds, and console logs. With write access, start or stop a build after approval.',
   accessLevels: ['read-only', 'read-write-approved'],
   requires: [],
   configFields: [
@@ -179,6 +180,26 @@ export default defineManifest({
       patternHint: 'a job or folder full name, like deploy-web or team-a/services',
       example: ['team-a/services', 'deploy-web'],
     },
+    {
+      kind: 'string',
+      key: 'registry',
+      required: false,
+      description:
+        'Where a Jenkinsfile written by ship pushes images, like registry.example.com/team. Empty: the registry of the repo host (GHCR or the GitLab registry).',
+      pattern: '^[a-z0-9][a-z0-9.:-]*(/[a-z0-9._-]+)*/?$',
+      patternHint: 'a registry host and optional path, lowercase, like registry.example.com/team',
+      example: 'registry.example.com/team',
+    },
+    {
+      kind: 'string',
+      key: 'registryCredentials',
+      required: false,
+      description:
+        'The ID of the Jenkins credentials (username and password) a Jenkinsfile written by ship pushes images with. Empty: it pushes without logging in. The agent never reads them.',
+      pattern: '^[A-Za-z0-9_.-]{1,100}$',
+      patternHint: 'a Jenkins credentials ID, like registry-push',
+      example: 'registry-push',
+    },
   ],
   secrets: [
     {
@@ -188,10 +209,13 @@ export default defineManifest({
       required: true,
       description: 'Jenkins API token.',
       howToCreate:
-        'Sign in to Jenkins as that user, open your profile, then Security, and add an API token. Give the user Read only on the jobs it should see (plus Cancel for write access).',
+        'Sign in to Jenkins as that user, open your profile, then Security, and add an API token. Give the user Read only on the jobs it should see (plus Build and Cancel for write access).',
       minimumScopes: {
         'read-only': ['Overall/Read', 'Job/Read on the listed jobs'],
-        'read-write-approved': ['Overall/Read', 'Job/Read and Job/Cancel on the listed jobs'],
+        'read-write-approved': [
+          'Overall/Read',
+          'Job/Read, Job/Build, and Job/Cancel on the listed jobs',
+        ],
       },
       probe: 'jenkins.who-am-i',
       steps: [
@@ -204,7 +228,7 @@ export default defineManifest({
           link: '{{url}}/user/{{username}}/security/',
         },
         {
-          text: 'Give {{username}} Overall/Read and Job/Read on {{jobs}} only (plus Job/Cancel for write access), then paste the token here.',
+          text: 'Give {{username}} Overall/Read and Job/Read on {{jobs}} only (plus Job/Build and Job/Cancel for write access), then paste the token here.',
         },
       ],
     },
@@ -229,8 +253,8 @@ export default defineManifest({
           ...Object.fromEntries(JOB_READS.map((name) => [name, 'read'])),
           ...Object.fromEntries(GLOBAL_READS.map((name) => [name, 'read'])),
           stop_build: 'write',
-          // Starting a build or answering a pipeline input can deploy.
-          build_item: 'destructive',
+          // B5: starting a build of a listed job is a write. Answering a pipeline input can deploy.
+          build_item: 'write',
           submit_input: 'destructive',
         },
         hiddenTools: [
@@ -296,7 +320,7 @@ export default defineManifest({
     'read-only': [readSummary],
     'read-write-approved': [
       readSummary,
-      'Stops a running build of a listed job after approval. Starting builds and answering pipeline inputs are destructive: blocked unless destructiveActions is require-approval.',
+      'Starts or stops a build of a listed job after approval. Rebuilding an old build and answering pipeline inputs are destructive: blocked unless destructiveActions is require-approval.',
     ],
   },
 });

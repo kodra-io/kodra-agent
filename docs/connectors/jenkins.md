@@ -38,11 +38,18 @@ listed folder): `getJob`, `getBuild`, `getBuildLog`, `searchBuildLog`, `getRepla
 `whoAmI`, `getStatus`, `findJobsWithScmUrl`. Give the agent a Jenkins user that can see only
 the jobs it should.
 
-**Write** (approval, listed jobs only): `cancelBuild`, by job and build number. `queueId` is
-refused: a queue item is not tied to a job, so the job list cannot limit it.
+**Write** (approval, listed jobs only): `triggerBuild` and `cancelBuild`, by job (and build
+number to cancel). `queueId` is refused: a queue item is not tied to a job, so the job list
+cannot limit it.
 
 **Destructive** (blocked unless `destructiveActions: require-approval`, then approval; listed
-jobs only): `triggerBuild` and `rebuildBuild`. Starting a build can deploy.
+jobs only): `rebuildBuild`, which replays an old build's parameters and can deploy an old
+version.
+
+Starting a build was destructive until B5 (Omar, 7 November 2026). It is a write now, so the
+agent can build what it ships: it still needs approval, only reaches the listed jobs, and
+needs Job/Build on them in Jenkins. A job that deploys should keep its own gate (an input
+step, or a parameter with no default).
 
 **Never exposed** (`hiddenTools`):
 
@@ -51,13 +58,36 @@ jobs only): `triggerBuild` and `rebuildBuild`. Starting a build can deploy.
 - `updateBuild`: renames builds and rewrites their descriptions.
 - `getSystemLog`, `getLogRecorders`: the controller's log can hold credentials.
 
+## Ship with Jenkins (B5)
+
+When Jenkins is the CI connector that is turned on (or `spec.ship.ci: jenkins`), `ship` and
+`onboard` write a `Jenkinsfile` instead of a GitHub or GitLab pipeline (see
+[ship.md](../ship.md#which-ci)). Two optional settings shape it:
+
+- `registry`: where it pushes the image, like `registry.example.com/team`. Without it, the
+  repo host's registry (GHCR or the GitLab registry).
+- `registryCredentials`: the ID of Jenkins credentials (username and password) to log in
+  with. The ID is written into the Jenkinsfile; the value stays in Jenkins and the agent never
+  reads it.
+
+After the pull request opens, the agent looks up the job for its branch with
+`findJobsWithScmUrl` (the repo's git URL and the branch), waits up to five minutes for a
+multibranch job to find the branch, and watches the build. If Jenkins has not started it,
+the agent asks once, then starts it with `triggerBuild`. A failed build is reported with the
+end of its log. The branch is `kodra-agent-ship-<id>` (no slash): a multibranch job is named
+after its branch, and the job guard refuses the `%2F` a slash would become. The agent never
+creates Jenkins jobs (`createPipeline` stays hidden), so with no job for the repo it says
+which job to create.
+
 ## Plugin: e2e test
 
 `docker/test/jenkins-mcp` builds a throwaway Jenkins (pinned image and plugin versions, a
-test-only user, a folder `team-a` with one job, and a job outside it). The real-server CI job
-runs `apps/agent/src/jenkins-plugin.e2e.test.ts` against it: every tool the plugin offers is
-classified or hidden, every classified tool still exists, and the agent reads `team-a` jobs
-through the host while `other` is blocked. Locally:
+test-only user, a folder `team-a` with a job and a job that runs a repo's Jenkinsfile, and a
+job outside it). The real-server CI job runs `apps/agent/src/jenkins-plugin.e2e.test.ts`
+against it: every tool the plugin offers is classified or hidden, every classified tool still
+exists, the agent reads `team-a` jobs through the host while `other` is blocked, finds a job
+by its git URL, starts and watches a build, and Jenkins validates the Jenkinsfile ship writes
+for each stack (multibranch, declarative pipeline, and credentials binding plugins). Locally:
 
 ```
 docker build -t kodra-jenkins-mcp docker/test/jenkins-mcp
@@ -96,9 +126,9 @@ From `listTools` on the real 3.5.0 server (35 tools; 28 with `--read-only`).
 
 **Read**, across the controller (what the token's user can see): `get_all_items`, `query_items`, `get_all_views`, `get_view`, `get_running_builds`, `get_all_queue_items`, `get_queue_item`, `get_all_nodes`, `get_node`, `get_all_plugins`, `get_plugin`, `get_plugin_dependency_graph`, `get_plugins_with_backup`, `get_plugins_with_problems`, `get_plugins_with_updates`.
 
-**Write** (approval, listed jobs only): `stop_build`.
+**Write** (approval, listed jobs only): `build_item` (starts a build, since B5) and `stop_build`.
 
-**Destructive** (blocked unless `destructiveActions: require-approval`, then approval; listed jobs only): `build_item` (starts a build, which can deploy) and `submit_input` (proceeds or aborts a pipeline input step).
+**Destructive** (blocked unless `destructiveActions: require-approval`, then approval; listed jobs only): `submit_input` (proceeds or aborts a pipeline input step).
 
 **Never exposed** (`hiddenTools`):
 

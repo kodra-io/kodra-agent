@@ -1,5 +1,6 @@
 import { helmChart } from './chart.ts';
-import { type CiTest, githubWorkflow, gitlabCi } from './ci.ts';
+import { type CiTest, githubWorkflow, gitlabCi, jenkinsfile } from './ci.ts';
+import { type CiChoice, ciName, hostCi, type SourceProvider } from './ci-system.ts';
 import type { Detection } from './detect.ts';
 import { dockerfile, dockerignore } from './dockerfile.ts';
 import { IMAGES, mirrorImage, pinnedImages } from './images.ts';
@@ -15,8 +16,6 @@ function withMirrors(text: string, mirrors: Readonly<Record<string, string>>): s
   return out.replaceAll('\u0000', '');
 }
 
-export type SourceProvider = 'github' | 'gitlab';
-
 export interface PlanOptions {
   /** Where the repo lives; null for a local folder (no CI is generated). */
   provider: SourceProvider | null;
@@ -31,6 +30,10 @@ export interface PlanOptions {
   env?: { settings: readonly string[]; secrets: readonly string[] };
   /** B1: what decides between a standalone pipeline and the team's shared one. */
   pipeline?: Pick<ChooseInput, 'mode' | 'template' | 'others' | 'spec' | 'secretPatterns'>;
+  /** B5: the CI tool that builds the repo (`chooseCi`); by default the host's own. */
+  ci?: CiChoice;
+  /** B5: Jenkins settings: where it pushes the image, and the credentials it logs in with. */
+  jenkins?: { registry?: string | undefined; credentials?: string | undefined };
 }
 
 export interface ShipFile {
@@ -49,10 +52,16 @@ export interface ShipPlan {
   generatedDockerfile: boolean;
   /** The pipeline style chosen, when CI was generated. */
   pipeline?: PipelineChoice;
+  /** The CI tool that builds the repo, and why. */
+  ci: CiChoice;
+  /** The Jenkins credentials the Jenkinsfile logs in with, if any. */
+  jenkinsCredentials?: string;
 }
 
 /** Where CI pushes the image. Registries need lowercase names. */
 export function imageRepository(o: PlanOptions, name: string): string {
+  const registry = o.jenkins?.registry?.replace(/\/+$/, '');
+  if (o.ci?.ci === 'jenkins' && registry) return `${registry.toLowerCase()}/${name}`;
   const repo = o.repo.toLowerCase();
   if (o.provider === 'github') return `ghcr.io/${repo}`;
   if (o.provider === 'gitlab') {
@@ -128,10 +137,20 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
   const test = ciTest(d);
   const ci = { image, chartDir, defaultBranch: o.defaultBranch, test };
   const runs = test ? `runs the tests (\`${test.run}\`), ` : '';
+  const own = hostCi(o.provider);
+  const choice: CiChoice = o.ci ?? {
+    ci: own,
+    reason: own ? 'The CI that comes with the repo host.' : 'A local folder: no pipeline.',
+  };
   const hasCi =
-    o.provider === 'github' ? d.existing.githubCi : o.provider === 'gitlab' && d.existing.gitlabCi;
+    choice.ci === 'github-actions'
+      ? d.existing.githubCi
+      : choice.ci === 'gitlab-ci'
+        ? d.existing.gitlabCi
+        : d.existing.jenkinsfile;
+  // B1's shared pipelines are GitHub workflows and GitLab templates.
   const pipeline =
-    o.provider && !hasCi && o.pipeline
+    o.provider && choice.ci === own && !hasCi && o.pipeline
       ? choosePipeline({
           ...o.pipeline,
           provider: o.provider,
@@ -148,7 +167,7 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
       content: pipeline.content,
       reason: `Calls the shared pipeline \`${pipeline.template}\`: ${pipeline.reason}`,
     });
-  } else if (o.provider === 'github') {
+  } else if (choice.ci === 'github-actions') {
     if (d.existing.githubCi) kept.push('CI: a workflow already builds a container.');
     else
       files.push({
@@ -156,13 +175,21 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
         content: githubWorkflow(ci),
         reason: `GitHub Actions: ${runs}builds the image on every PR, pushes it to ${image} (\`pr-<sha>\` from PRs, \`<sha>\` and the chart's appVersion from ${o.defaultBranch}), and lints the chart.`,
       });
-  } else if (o.provider === 'gitlab') {
+  } else if (choice.ci === 'gitlab-ci') {
     if (d.existing.gitlabCi) kept.push('CI: .gitlab-ci.yml exists, so it is left alone.');
     else
       files.push({
         path: '.gitlab-ci.yml',
         content: gitlabCi(ci),
         reason: `GitLab CI: ${runs}builds the image on every pipeline, pushes it to ${image} (\`pr-<sha>\` from other branches, \`<sha>\` and the chart's appVersion from the default branch), and lints the chart.`,
+      });
+  } else if (choice.ci === 'jenkins') {
+    if (d.existing.jenkinsfile) kept.push('CI: the Jenkinsfile exists, so it is left alone.');
+    else
+      files.push({
+        path: 'Jenkinsfile',
+        content: jenkinsfile({ ...ci, credentials: o.jenkins?.credentials }),
+        reason: `Jenkins: ${runs}builds the image, lints the chart, and pushes the image to ${image} (\`pr-<sha>\` from other branches and pull requests, \`<sha>\` and the chart's appVersion from ${o.defaultBranch}). Every step runs in Docker on the Jenkins agent.`,
       });
   }
   const mirrors = o.mirrors ?? {};
@@ -173,6 +200,10 @@ export function planShip(d: Detection, o: PlanOptions): ShipPlan {
     image,
     generatedDockerfile: !d.existing.dockerfile,
     ...(pipeline ? { pipeline } : {}),
+    ci: choice,
+    ...(choice.ci === 'jenkins' && o.jenkins?.credentials
+      ? { jenkinsCredentials: o.jenkins.credentials }
+      : {}),
   };
 }
 
@@ -234,6 +265,18 @@ export function shipPrBody(i: PrBodyInput): string {
       ([reason, paths]) => `- ${paths.map((p) => `\`${p}\``).join(', ')}: ${reason}`,
     ),
     ...(i.plan.kept.length > 0 ? ['', '## Left as is', ...i.plan.kept.map((k) => `- ${k}`)] : []),
+    ...(i.plan.ci.ci ? ['', '## CI', `${ciName(i.plan.ci.ci)}. ${i.plan.ci.reason}`] : []),
+    ...(i.plan.ci.ci === 'jenkins' && i.plan.files.some((f) => f.path === 'Jenkinsfile')
+      ? [
+          '',
+          'For the Jenkinsfile to run:',
+          '- A Jenkins job builds this repo, best a multibranch pipeline, so every branch and pull request is built.',
+          '- The Jenkins agent has Docker: the tests, the image, and the chart check all run in containers.',
+          i.plan.jenkinsCredentials
+            ? `- The Jenkins credentials \`${i.plan.jenkinsCredentials}\` (username and password) can push to \`${i.plan.image}\`.`
+            : `- The Jenkins agent can push to \`${i.plan.image}\` without logging in, or set the Jenkins connector's \`registryCredentials\`.`,
+        ]
+      : []),
     ...(i.plan.pipeline ? ['', ...pipelineSection(i.plan.pipeline)] : []),
     '',
     '## How it was verified',

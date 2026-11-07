@@ -27,6 +27,7 @@ import {
 } from '../test-helpers.ts';
 
 const TOKEN = 'ghp_shipCanaryToken0123456789abcdefABCD'; // gitleaks:allow
+const JENKINS_TOKEN = 'jenkins-ship-canary-11aa22bb33cc44dd55ee'; // gitleaks:allow
 const SAMPLES = new URL('../../../../examples/ship/', import.meta.url);
 const usage = {
   inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
@@ -178,6 +179,8 @@ async function setup(
     others?: Record<string, Record<string, string>>;
     /** Extra GitHub connector settings, as YAML flow entries. */
     githubConfig?: string;
+    /** A Jenkins connector at this address, with its YAML flow settings after the url (B5). */
+    jenkins?: { url: string; config?: string };
   } = {},
 ) {
   const dir = await tempDir();
@@ -205,6 +208,15 @@ async function setup(
         `      access: ${opts.access ?? 'read-write-approved'}`,
         `      config: {repos: [${['acme/node-api', ...Object.keys(opts.others ?? {})].join(', ')}]${opts.githubConfig ? `, ${opts.githubConfig}` : ''}}`,
         "      secrets: {token: '${env:GITHUB_TOKEN}'}",
+        ...(opts.jenkins
+          ? [
+              '    jenkins:',
+              '      enabled: true',
+              '      access: read-write-approved',
+              `      config: {url: '${opts.jenkins.url}', username: kodra, jobs: [team-a]${opts.jenkins.config ? `, ${opts.jenkins.config}` : ''}}`,
+              "      secrets: {token: '${env:JENKINS_API_TOKEN}'}",
+            ]
+          : []),
         ...(opts.slack
           ? [
               '    slack:',
@@ -226,7 +238,9 @@ async function setup(
       GITHUB_TOKEN: TOKEN,
       SLACK_BOT_TOKEN: 'xoxb-ship-test-bot',
       SLACK_APP_TOKEN: 'xapp-ship-test-app',
+      JENKINS_API_TOKEN: JENKINS_TOKEN,
     },
+    shipJenkins: { discoverMs: 2000, buildMs: 5000, pollMs: 20 },
     slackConnection: () => slack.connection(),
     endpoints: { github: github.url },
     launcher: fakeLauncher({ record }),
@@ -697,6 +711,176 @@ describe.skipIf(!process.env['KODRA_SHIP_E2E'])('kodra-agent ship on real Docker
       const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
       expect(pr?.args['base']).toBe('main');
       expect(await s.remoteFiles(pr?.args['head'] ?? '')).toContain('charts/node-api/Chart.yaml');
+    },
+  );
+});
+
+interface FakeJenkins {
+  url: string;
+  calls: { tool: string; args: Record<string, unknown>; auth?: string }[];
+}
+
+/**
+ * The official Jenkins MCP plugin, faked over Streamable HTTP: a multibranch job that has
+ * found the pull request's branch (when `found`), and its builds, `result` once started.
+ */
+async function fakeJenkins(opts: { found: boolean; result: string }): Promise<FakeJenkins> {
+  const calls: FakeJenkins['calls'] = [];
+  let started = false;
+  let polls = 0;
+  const answer = (result: unknown) => ({
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(
+          result === undefined
+            ? { message: 'Search completed, but no results were found.', status: 'COMPLETED' }
+            : { message: 'Data retrieved successfully.', result, status: 'COMPLETED' },
+        ),
+      },
+    ],
+  });
+  const tools: Record<string, (args: Record<string, unknown>) => unknown> = {
+    findJobsWithScmUrl: (a) =>
+      opts.found && String(a['branch']).startsWith('kodra-agent-')
+        ? [{ fullName: `team-a/node-api/${String(a['branch'])}` }, { fullName: 'other/node-api' }]
+        : undefined,
+    getJob: () => {
+      if (!started) return { lastBuild: null };
+      polls++;
+      const url = 'http://jenkins.example.com/job/team-a/job/node-api/1/';
+      return {
+        lastBuild: { number: 1, building: polls < 2, result: polls < 2 ? null : opts.result, url },
+      };
+    },
+    triggerBuild: () => {
+      started = true;
+      return { _class: 'hudson.model.Queue$WaitingItem', id: 1 };
+    },
+    getBuildLog: () => ({ lines: ['[ERROR] Tests run: 3, Failures: 1', 'Finished: FAILURE'] }),
+  };
+  const http = createServer((req, res) => {
+    if (req.url !== '/mcp-server/mcp') {
+      res.writeHead(404).end();
+      return;
+    }
+    const server = new McpServer({ name: 'jenkins', version: '0.222' });
+    for (const [name, run] of Object.entries(tools)) {
+      server.registerTool(name, { description: name, inputSchema: z.looseObject({}) }, (args) => {
+        calls.push({
+          tool: name,
+          args,
+          ...(req.headers.authorization ? { auth: req.headers.authorization } : {}),
+        });
+        return answer(run(args));
+      });
+    }
+    const transport = new StreamableHTTPServerTransport({});
+    res.on('close', () => {
+      void transport.close();
+      void server.close();
+    });
+    void server
+      .connect(transport as Parameters<typeof server.connect>[0])
+      .then(() => transport.handleRequest(req, res));
+  });
+  await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+  servers.push({
+    close: () =>
+      new Promise<void>((resolve) => {
+        http.close(() => {
+          resolve();
+        });
+        http.closeAllConnections();
+      }),
+  });
+  return { url: `http://127.0.0.1:${String((http.address() as AddressInfo).port)}`, calls };
+}
+
+describe('ship with Jenkins (B5)', () => {
+  it(
+    'writes a Jenkinsfile, then starts the build after a second approval and watches it',
+    { timeout: 60_000 },
+    async () => {
+      const jenkins = await fakeJenkins({ found: true, result: 'SUCCESS' });
+      const s = await setup({
+        sample: 'spring-maven',
+        answers: [true, true],
+        jenkins: {
+          url: jenkins.url,
+          config: 'registry: registry.example.com/team, registryCredentials: registry-push',
+        },
+      });
+      expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+      const out = s.t.output();
+      expect(out).toContain('CI: jenkins. Jenkins is the CI connector that is turned on.');
+      expect(s.prompter.asked).toEqual(['Approve this action?', 'Approve this action?']);
+
+      // A Jenkinsfile, not GitHub Actions, on a branch name Jenkins can use as a job name.
+      const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
+      const head = String(pr?.args['head']);
+      expect(head).toMatch(/^kodra-agent-ship-[a-f0-9]{8}$/);
+      const files = await s.remoteFiles(head);
+      expect(files).toContain('Jenkinsfile');
+      expect(files.some((f) => f.includes('workflows'))).toBe(false);
+      expect(pr?.args['body']).toContain('## CI\nJenkins.');
+      const jenkinsfile = (await git(['--git-dir', s.bare, 'show', `${head}:Jenkinsfile`])).stdout;
+      expect(jenkinsfile).toContain("IMAGE = 'registry.example.com/team/node-api'");
+      expect(jenkinsfile).toContain("credentialsId: 'registry-push'");
+
+      // Found by the repo's URL and the branch; only the listed job is used.
+      const find = jenkins.calls.find((c) => c.tool === 'findJobsWithScmUrl');
+      expect(find?.args).toEqual({ scmUrl: 'https://github.com/acme/node-api.git', branch: head });
+      const trigger = jenkins.calls.filter((c) => c.tool === 'triggerBuild');
+      expect(trigger.map((c) => c.args)).toEqual([{ jobFullName: `team-a/node-api/${head}` }]);
+      expect(trigger[0]?.auth).toBe(
+        `Basic ${Buffer.from(`kodra:${JENKINS_TOKEN}`).toString('base64')}`,
+      );
+      expect(out).toContain(
+        'Jenkins built the pull request: http://jenkins.example.com/job/team-a/job/node-api/1/',
+      );
+      const audit = await s.audit();
+      expect(audit).toContainEqual(
+        expect.objectContaining({ event: 'tool.call', tool: 'triggerBuild', decision: 'approved' }),
+      );
+      expect(audit).toContainEqual(
+        expect.objectContaining({ detail: `jenkins team-a/node-api/${head} #1: SUCCESS` }),
+      );
+      const everything = [out, await readFile(s.auditPath, 'utf8')].join('\n');
+      expect(everything).not.toContain(JENKINS_TOKEN);
+      expect(everything).not.toContain(TOKEN);
+    },
+  );
+
+  it('shows the end of the log when the build fails', { timeout: 60_000 }, async () => {
+    const jenkins = await fakeJenkins({ found: true, result: 'FAILURE' });
+    const s = await setup({ sample: 'spring-maven', answers: [true, true], jenkins: jenkins });
+    expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+    expect(s.t.output()).toMatch(
+      /Jenkins build team-a\/node-api\/kodra-agent-ship-\w+ #1 ended FAILURE/,
+    );
+    expect(s.t.output()).toContain('[ERROR] Tests run: 3, Failures: 1');
+  });
+
+  it('starts nothing without the second approval', { timeout: 60_000 }, async () => {
+    const jenkins = await fakeJenkins({ found: true, result: 'SUCCESS' });
+    const s = await setup({ sample: 'spring-maven', answers: [true, false], jenkins });
+    expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+    expect(jenkins.calls.some((c) => c.tool === 'triggerBuild')).toBe(false);
+    expect(s.t.output()).toContain('was not started');
+  });
+
+  it(
+    'says which job to create when no listed job builds the repo',
+    { timeout: 60_000 },
+    async () => {
+      const jenkins = await fakeJenkins({ found: false, result: 'SUCCESS' });
+      const s = await setup({ sample: 'spring-maven', jenkins });
+      expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+      expect(s.t.output()).toContain(
+        'No Jenkins job in team-a builds acme/node-api. Create a multibranch pipeline job for it there',
+      );
+      expect(s.prompter.asked).toEqual(['Approve this action?']);
     },
   );
 });

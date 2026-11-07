@@ -1,4 +1,4 @@
-import type { AccessLevel, ToolGuard } from '@kodra-agent/schema';
+import { allVariants, type AccessLevel, type ToolGuard } from '@kodra-agent/schema';
 import { getConnector } from '@kodra-agent/connectors';
 import { describe, expect, it } from 'vitest';
 import { decide, describeGuards, inList, touchedBy, type Decision, type Risk } from './policy.ts';
@@ -478,5 +478,34 @@ describe('GitLab CI and Jenkins on their official servers (B4)', () => {
       /^block: queueId is not allowed/,
     );
     expect(jenkins.hiddenTools).toEqual(expect.arrayContaining(['replayBuild', 'createPipeline']));
+  });
+
+  it('starts builds of listed jobs after approval; rebuilds stay destructive (B5)', () => {
+    const jenkins = getConnector('jenkins');
+    if (!jenkins) throw new Error('jenkins');
+    const run = (
+      tool: string,
+      args: Record<string, unknown>,
+      access: AccessLevel = 'read-write-approved',
+    ) =>
+      kind(
+        decide({
+          ...base,
+          risk: jenkins.tools[tool] ?? 'unclassified',
+          access,
+          guards: jenkins.guards?.[tool] ?? [],
+          args,
+          settings: { jobs: ['team-a'] },
+        }),
+      );
+    expect(run('triggerBuild', { jobFullName: 'team-a/demo-app/main' })).toBe('approve');
+    expect(run('triggerBuild', { jobFullName: 'team-b/payroll' })).toMatch(/^block: jobFullName/);
+    // A multibranch job's %2F could name a job outside the list.
+    expect(run('triggerBuild', { jobFullName: 'team-a%2F..%2Fother' })).toMatch(/^block/);
+    expect(run('triggerBuild', { jobFullName: 'team-a/x' }, 'read-only')).toMatch(/^block/);
+    expect(run('rebuildBuild', { jobFullName: 'team-a/x', buildNumber: 1 })).toMatch(/^block/);
+    const community = allVariants(jenkins).find((m) => m.tools['build_item']);
+    expect(community?.tools['build_item']).toBe('write');
+    expect(community?.tools['submit_input']).toBe('destructive');
   });
 });
