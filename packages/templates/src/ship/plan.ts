@@ -271,7 +271,7 @@ export function shipPrBody(i: PrBodyInput): string {
           '',
           'For the Jenkinsfile to run:',
           '- A Jenkins job builds this repo, best a multibranch pipeline, so every branch and pull request is built.',
-          '- The Jenkins agent has Docker: the tests, the image, and the chart check all run in containers.',
+          '- The Jenkins agent has Docker with buildx: the tests, the image, and the chart check all run in containers, and the image builds with BuildKit.',
           i.plan.jenkinsCredentials
             ? `- The Jenkins credentials \`${i.plan.jenkinsCredentials}\` (username and password) can push to \`${i.plan.image}\`.`
             : `- The Jenkins agent can push to \`${i.plan.image}\` without logging in, or set the Jenkins connector's \`registryCredentials\`.`,

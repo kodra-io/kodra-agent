@@ -89,7 +89,8 @@ The `Jenkinsfile` runs every step in Docker on the Jenkins agent, in the same pi
 as the other pipelines (`docker cp`, not a bind mount, so a remote Docker daemon works too).
 It pushes to the Jenkins connector's `registry` with its `registryCredentials`, and the pull
 request lists what Jenkins needs: a job for the repo (a multibranch pipeline builds every
-branch), Docker on the agent, and push access.
+branch), Docker with buildx on the agent (the Dockerfile caches dependencies with BuildKit),
+and push access.
 
 ## Pipeline style
 

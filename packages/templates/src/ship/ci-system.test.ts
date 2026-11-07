@@ -94,6 +94,8 @@ describe('jenkinsfile', () => {
     expect(f).toContain('alpine/helm:4.3.0 -c "helm lint charts/demo-app');
     expect(f).toContain('docker cp ./. "$cid:/src"');
     expect(f).toContain("IMAGE = 'registry.example.com/team/demo-app'");
+    // The generated Dockerfile's RUN --mount cache needs BuildKit, never the legacy builder.
+    expect(f).toContain("DOCKER_BUILDKIT = '1'");
     // Shell variables are left to the shell: Groovy never interpolates a ''' string.
     expect(f).toContain('branch="${BRANCH_NAME:-${GIT_BRANCH#origin/}}"');
     expect(f).not.toMatch(/\bsh "/);
