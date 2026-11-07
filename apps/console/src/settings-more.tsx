@@ -846,6 +846,55 @@ function ModelKey({
   );
 }
 
+/** Which CI tool ship writes a pipeline for (B5): auto picks the CI connector that is on. */
+export function ShipCiCard({
+  view,
+  patch,
+  canEdit,
+  onChange,
+}: {
+  view: SettingsView;
+  patch: SettingsPatch;
+  canEdit: boolean;
+  onChange: Change;
+}) {
+  const { t } = useI18n();
+  const ci = patch.ship?.ci ?? view.ship.ci;
+  return (
+    <Card title={t('more.shipCi.title')}>
+      <div role="radiogroup" aria-label={t('more.shipCi.title')} className="flex flex-col gap-2.5">
+        {SHIP_CI.map((c) => (
+          <label
+            key={c}
+            className={`flex cursor-pointer gap-3 rounded-lg border p-3.5 ${
+              ci === c ? 'border-2 border-primary bg-primary-tint' : 'border-line'
+            }`}
+          >
+            <input
+              type="radio"
+              name="ship-ci"
+              className="mt-1"
+              checked={ci === c}
+              disabled={!canEdit}
+              onChange={() => {
+                onChange({ ship: { ...patch.ship, ci: c } });
+              }}
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="font-semibold">{t(`more.shipCi.${c}`)}</span>
+              {c === 'auto' && (
+                <span className="text-sm text-ink-secondary">{t('more.shipCi.autoHint')}</span>
+              )}
+            </span>
+          </label>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+const SHIP_CI = ['auto', 'jenkins', 'github-actions', 'gitlab-ci'] as const;
+
 /** The proxy (its URLs are secrets), hosts that skip it, and base image mirrors (M12). */
 export function ProxyEditor({
   view,
@@ -883,7 +932,7 @@ export function ProxyEditor({
       : (view.network.noProxy ?? '');
   const mirrors = Object.entries(patch.ship?.baseImageMirrors ?? view.ship.baseImageMirrors);
   const setMirrors = (next: [string, string][]) => {
-    onChange({ ship: { baseImageMirrors: Object.fromEntries(next) } });
+    onChange({ ship: { ...patch.ship, baseImageMirrors: Object.fromEntries(next) } });
   };
   return (
     <>

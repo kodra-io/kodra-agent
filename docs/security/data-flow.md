@@ -165,14 +165,18 @@ Reviewed manifest: `gitlab-ci@92bc1aa18d8b`
   plugin, or passed to `mcp-jenkins` as an environment variable.
 - **Reads:** jobs, builds, console logs, test results, and SCM details of the configured `jobs`
   (or under a listed folder); the job list and queue items the token's user can see.
-- **Writes, after approval:** stopping a build of a listed job. Starting and rebuilding builds
-  (and, with `mcp-jenkins`, answering pipeline inputs) are destructive: blocked unless
+- **Writes, after approval:** starting or stopping a build of a listed job (B5). Rebuilding an
+  old build (and, with `mcp-jenkins`, answering pipeline inputs) is destructive: blocked unless
   `destructiveActions: require-approval`. Replaying or creating pipelines, Groovy scripts, the
   system log, and job or node config.xml are never exposed.
+- **Ship:** when Jenkins builds the repo, ship looks up the job for the pull request's branch
+  by the repo's git URL, and watches its build. `registry` and `registryCredentials` are
+  written into the Jenkinsfile; the credentials' value stays in Jenkins and the agent never
+  reads it.
 - **Console dashboard:** the listed jobs and their last result, read with the same read tools
   and shown only in the console. Never sent to the model, and not audited (nothing changes).
 
-Reviewed manifest: `jenkins@a77a9cef8a36`
+Reviewed manifest: `jenkins@dd07da4094ef`
 
 ### Docker
 

@@ -183,6 +183,25 @@ Done when the configurator e2e tests cover each of these.
 Done when every tool of each new server is classified, the real-server CI job runs them, and
 the connector docs record each decision.
 
+#### B5: Build with the connected CI tool
+
+Omar approved this on 7 November 2026: the agent should build with whatever CI tool is
+connected, not only the repo host's.
+
+- **Pick the CI from the connectors:** `spec.ship.ci`, else the repo's own CI, else the CI
+  connector that is turned on (Jenkins, GitHub Actions, GitLab CI), else the host's CI. The
+  pull request says which and why. The console sets it under Settings, Connectors.
+- **A Jenkinsfile** when Jenkins builds the repo: the same stages as the other pipelines, every
+  step in Docker on the Jenkins agent, pushing to the connector's `registry` with its
+  `registryCredentials` (an ID; the agent never reads the value).
+- **Starting a build** of a listed job is a write with approval (it was destructive);
+  rebuilding and answering pipeline inputs stay destructive. Jobs are never created.
+- **After the pull request,** the agent finds the job for its branch, waits for Jenkins to
+  build it or starts it after one approval, and reports the result with the end of the log.
+
+Done when ship and onboard write a Jenkinsfile that Jenkins validates, and a test on a real
+Jenkins finds, starts, and watches a build.
+
 ---
 
 ## Status
@@ -200,6 +219,7 @@ the connector docs record each decision.
 | B2 Test in a sandbox, then destroy          | Done                                      | #92  |
 | B3 Configurator clean-up                    | Done                                      | #94  |
 | B4 Official MCP servers                     | Done                                      | #101 |
+| B5 Build with the connected CI tool         | In review                                 |      |
 | Gate open: Omar picks the next roadmap item | Not started                               |      |
 
 ## Rules

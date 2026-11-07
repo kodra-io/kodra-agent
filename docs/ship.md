@@ -40,11 +40,12 @@ To read the repo and report on it first, run `kodra-agent onboard` instead: see
    - `Dockerfile`: multi-stage, base images pinned to exact versions (distroless by digest),
      and a numeric non-root user.
    - `.dockerignore`: keeps `.git`, dependencies, build output, and `.env` files out of the image.
-   - CI matching the source, in the style the team already uses (see [Pipeline style](#pipeline-style)):
-     a standalone GitHub Actions workflow or `.gitlab-ci.yml` that runs the tests, builds the
-     image, pushes `pr-<sha>` from pull requests and `<sha>` plus the chart's `appVersion` from
-     the default branch, and lints the chart (actions, images, and Helm pinned); or a thin
-     caller of the team's shared pipeline.
+   - CI for the connected CI tool (see [Which CI](#which-ci)), in the style the team already
+     uses (see [Pipeline style](#pipeline-style)): a standalone GitHub Actions workflow,
+     `.gitlab-ci.yml`, or `Jenkinsfile` that runs the tests, builds the image, pushes
+     `pr-<sha>` from pull requests and `<sha>` plus the chart's `appVersion` from the default
+     branch, and lints the chart (actions, images, and Helm pinned); or a thin caller of the
+     team's shared pipeline.
    - `charts/<name>`: deployment, service, startup, liveness, and readiness probes, resource
      requests and a memory limit, `runAsNonRoot`, a read-only root filesystem with a writable
      `/tmp`, no privilege escalation, all capabilities dropped, and no service account token.
@@ -64,9 +65,32 @@ To read the repo and report on it first, run `kodra-agent onboard` instead: see
    `kodra-agent/ship-<id>` branch and opening the pull request (or merge request). The
    description explains what was detected, what each file is for, and how it was verified.
    A human reviews and merges. Nothing is deployed.
+8. **Build** (Jenkins only). The agent finds the Jenkins job for the branch, waits for it to
+   build, or starts it after a second approval, and reports the result (see
+   [Jenkins](connectors/jenkins.md#ship-with-jenkins-b5)).
 
 Without a terminal there is nobody to approve, so nothing is pushed. Every step is in the
 audit log: the approval request and decision, the push, the PR call, and any model call.
+
+## Which CI
+
+The pipeline is written for the CI tool that builds the repo, picked in this order:
+
+1. **`spec.ship.ci`** (`jenkins`, `github-actions`, or `gitlab-ci`; the console has it under
+   Settings, Connectors). GitHub Actions only builds GitHub repos and GitLab CI only GitLab
+   ones; Jenkins builds either, and a local folder.
+2. **The CI the repo already has** (a workflow that builds a container, `.gitlab-ci.yml`, or a
+   `Jenkinsfile`): it is kept.
+3. **The CI connector that is turned on:** Jenkins, GitHub Actions, or GitLab CI. With several,
+   the repo host's own CI, and the pull request says to set `spec.ship.ci`.
+4. **Otherwise** the CI that comes with the repo host.
+
+The `Jenkinsfile` runs every step in Docker on the Jenkins agent, in the same pinned images
+as the other pipelines (`docker cp`, not a bind mount, so a remote Docker daemon works too).
+It pushes to the Jenkins connector's `registry` with its `registryCredentials`, and the pull
+request lists what Jenkins needs: a job for the repo (a multibranch pipeline builds every
+branch), Docker with buildx on the agent (the Dockerfile caches dependencies with BuildKit),
+and push access.
 
 ## Pipeline style
 
@@ -75,11 +99,12 @@ GitLab template included from a central project. The agent fits in instead of ad
 pipeline of its own:
 
 1. **The repo already has CI:** it is kept.
-2. **`pipeline: standalone`** on the GitHub or GitLab connector: a standalone pipeline.
-3. **`pipelineTemplate`** names the shared pipeline:
+2. **Jenkins builds the repo:** a standalone `Jenkinsfile`. Shared libraries are not read yet.
+3. **`pipeline: standalone`** on the GitHub or GitLab connector: a standalone pipeline.
+4. **`pipelineTemplate`** names the shared pipeline:
    `owner/repo/.github/workflows/build.yml@v1` on GitHub, `group/project:ci/build.yml@v1` on
    GitLab (several files: `a.yml,b.yml`). Pin it to a tag or commit.
-4. **Otherwise (`pipeline: auto`, the default),** the agent reads the CI files of the other
+5. **Otherwise (`pipeline: auto`, the default),** the agent reads the CI files of the other
    repos configured on the connector. When most of them call the same shared workflow or
    include the same template, this repo calls it too, at the ref they use. If not, it gets a
    standalone pipeline.

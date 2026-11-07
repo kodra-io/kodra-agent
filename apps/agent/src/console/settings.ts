@@ -105,7 +105,7 @@ export interface SettingsPatch {
     string,
     { provider: string; name: string; config?: Record<string, string> } | null
   >;
-  ship?: { baseImageMirrors?: Record<string, string> };
+  ship?: { baseImageMirrors?: Record<string, string>; ci?: AgentConfig['spec']['ship']['ci'] };
   metrics?: { enabled?: boolean; port?: number };
   tracing?: { enabled?: boolean; endpoint?: string | null };
   audit?: { stdout?: boolean };
@@ -242,6 +242,7 @@ export function patchConfigText(text: string, patch: SettingsPatch): string {
   if (patch.ship?.baseImageMirrors !== undefined) {
     doc.setIn(['spec', 'ship', 'baseImageMirrors'], doc.createNode(patch.ship.baseImageMirrors));
   }
+  set(['spec', 'ship', 'ci'], patch.ship?.ci);
   set(['spec', 'metrics', 'enabled'], patch.metrics?.enabled);
   set(['spec', 'metrics', 'port'], patch.metrics?.port);
   set(['spec', 'tracing', 'enabled'], patch.tracing?.enabled);
@@ -593,7 +594,7 @@ export interface SettingsView {
     config: Record<string, string>;
     secrets: { key: string; label: string; set: boolean }[];
   }[];
-  ship: { baseImageMirrors: Record<string, string> };
+  ship: AgentConfig['spec']['ship'];
   metrics: AgentConfig['spec']['metrics'];
   tracing: AgentConfig['spec']['tracing'];
   audit: { stdout: boolean };
@@ -768,7 +769,7 @@ export class SettingsStore {
           })),
         };
       }),
-      ship: { baseImageMirrors: config.spec.ship.baseImageMirrors },
+      ship: { baseImageMirrors: config.spec.ship.baseImageMirrors, ci: config.spec.ship.ci },
       metrics: config.spec.metrics,
       tracing: config.spec.tracing,
       audit: { stdout: config.spec.audit.stdout },

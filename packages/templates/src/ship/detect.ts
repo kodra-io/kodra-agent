@@ -17,6 +17,7 @@ export interface Existing {
   /** A GitHub Actions workflow that already builds a container. */
   githubCi: boolean;
   gitlabCi: boolean;
+  jenkinsfile: boolean;
 }
 
 export interface Detection {
@@ -68,6 +69,7 @@ function existing(files: RepoFiles): Existing {
       /docker|build-push-action|buildah|kaniko/i.test(files.read(p) ?? ''),
     ),
     gitlabCi: has(files, '.gitlab-ci.yml'),
+    jenkinsfile: has(files, 'Jenkinsfile'),
   };
 }
 

@@ -33,6 +33,7 @@ import {
   PrivacyEditor,
   ProfileRules,
   ProxyEditor,
+  ShipCiCard,
   WritesCard,
 } from './settings-more.tsx';
 import { SetupSteps } from './setup-steps.tsx';
@@ -352,7 +353,10 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
           className="min-w-0 flex-[999_1_460px]"
         >
           {view && tab === 'connectors' && !opened && (
-            <ConnectorList view={view} live={live.data ?? []} patch={patch} onOpen={setOpen} />
+            <>
+              <ConnectorList view={view} live={live.data ?? []} patch={patch} onOpen={setOpen} />
+              <ShipCiCard view={view} patch={patch} canEdit={canEdit} onChange={merge} />
+            </>
           )}
           {view && tab === 'connectors' && opened && (
             <ConnectorEditor

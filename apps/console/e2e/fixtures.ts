@@ -586,7 +586,7 @@ function settingsView(
     monitoring: { maxConcurrent: 2, maxPerHour: 10, cooldownMinutes: 60 },
     dataProtection: { redact: null, defaults: ['cards', 'ibans'], patterns: [] },
     models: [],
-    ship: { baseImageMirrors: {} },
+    ship: { baseImageMirrors: {}, ci: 'auto' },
     metrics: { enabled: true, port: 9464 },
     tracing: { enabled: false },
     audit: { stdout: false },

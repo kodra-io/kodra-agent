@@ -199,6 +199,7 @@ describe('detectStack', () => {
       'deploy/chart/Chart.yaml': 'name: x',
       '.github/workflows/ci.yml': 'steps:\n  - uses: docker/build-push-action@v6',
       '.gitlab-ci.yml': '',
+      Jenkinsfile: '',
     });
     expect(d.existing).toEqual({
       dockerfile: true,
@@ -206,6 +207,7 @@ describe('detectStack', () => {
       chart: 'deploy/chart',
       githubCi: true,
       gitlabCi: true,
+      jenkinsfile: true,
     });
   });
 
@@ -234,6 +236,7 @@ const NODE: Detection = {
     chart: null,
     githubCi: false,
     gitlabCi: false,
+    jenkinsfile: false,
   },
   notes: ['Node.js with npm.'],
 };
@@ -462,6 +465,7 @@ describe('planShip', () => {
           chart: 'deploy/chart',
           githubCi: true,
           gitlabCi: false,
+          jenkinsfile: false,
         },
       },
       { provider: 'github', repo: 'acme/api', defaultBranch: 'main' },

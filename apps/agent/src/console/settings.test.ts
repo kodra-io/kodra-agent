@@ -644,7 +644,7 @@ describe('everything else from the console (M30b)', () => {
       models: {
         local: { provider: 'ollama', name: 'llama3', config: { baseUrl: 'http://o:11434' } },
       },
-      ship: { baseImageMirrors: { 'docker.io': 'harbor.example.com/mirror' } },
+      ship: { baseImageMirrors: { 'docker.io': 'harbor.example.com/mirror' }, ci: 'jenkins' },
       metrics: { enabled: false },
       tracing: { enabled: true, endpoint: 'http://otel:4318/v1/traces' },
       audit: { stdout: true },
@@ -663,6 +663,7 @@ describe('everything else from the console (M30b)', () => {
     expect(spec.dataProtection.redact).toEqual(['cards']);
     expect(spec.models['local']).toMatchObject({ provider: 'ollama', name: 'llama3' });
     expect(spec.ship.baseImageMirrors).toEqual({ 'docker.io': 'harbor.example.com/mirror' });
+    expect(spec.ship.ci).toBe('jenkins');
     expect(spec.metrics.enabled).toBe(false);
     expect(spec.tracing).toMatchObject({ enabled: true });
     expect(spec.audit.stdout).toBe(true);

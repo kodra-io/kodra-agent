@@ -544,6 +544,18 @@
                         "pattern": "^[^\\s/][^\\n]{0,199}$"
                       },
                       "description": "Jobs the agent may work with, by full name. A folder covers every job under it."
+                    },
+                    "registry": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[a-z0-9][a-z0-9.:-]*(\\/[a-z0-9._-]+)*\\/?$",
+                      "description": "Where a Jenkinsfile written by ship pushes images, like registry.example.com/team. Empty: the registry of the repo host (GHCR or the GitLab registry)."
+                    },
+                    "registryCredentials": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_.-]{1,100}$",
+                      "description": "The ID of the Jenkins credentials (username and password) a Jenkinsfile written by ship pushes images with. Empty: it pushes without logging in. The agent never reads them."
                     }
                   },
                   "required": [
@@ -575,7 +587,7 @@
               ],
               "additionalProperties": false,
               "title": "Jenkins",
-              "description": "Read Jenkins jobs, builds, and console logs. With write access, stop a build after approval."
+              "description": "Read Jenkins jobs, builds, and console logs. With write access, start or stop a build after approval."
             },
             "azure-devops": {
               "type": "object",
@@ -1637,6 +1649,16 @@
                 "type": "string",
                 "pattern": "^[a-z0-9.-]+(:\\d+)?(\\/[a-z0-9._-]+)*$"
               }
+            },
+            "ci": {
+              "default": "auto",
+              "type": "string",
+              "enum": [
+                "auto",
+                "github-actions",
+                "gitlab-ci",
+                "jenkins"
+              ]
             }
           },
           "additionalProperties": false

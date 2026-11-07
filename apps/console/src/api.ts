@@ -396,6 +396,9 @@ export type EntryField =
       envVar: string;
     };
 
+/** `spec.ship.ci` (B5): which CI tool ship writes a pipeline for. */
+export type ShipCi = 'auto' | 'github-actions' | 'gitlab-ci' | 'jenkins';
+
 export type OperatingSystem = 'linux' | 'macos' | 'windows';
 
 /** How to get a value: a sentence, maybe a link, maybe a command per system (M28). */
@@ -489,7 +492,7 @@ export interface SettingsView {
     config: Record<string, string>;
     secrets: { key: string; label: string; set: boolean }[];
   }[];
-  ship: { baseImageMirrors: Record<string, string> };
+  ship: { baseImageMirrors: Record<string, string>; ci: ShipCi };
   metrics: { enabled: boolean; port: number };
   tracing: { enabled: boolean; endpoint?: string };
   audit: { stdout: boolean };
@@ -547,7 +550,7 @@ export interface SettingsPatch {
     string,
     { provider: string; name: string; config?: Record<string, string> } | null
   >;
-  ship?: { baseImageMirrors?: Record<string, string> };
+  ship?: { baseImageMirrors?: Record<string, string>; ci?: ShipCi };
   metrics?: { enabled?: boolean; port?: number };
   tracing?: { enabled?: boolean; endpoint?: string | null };
   audit?: { stdout?: boolean };

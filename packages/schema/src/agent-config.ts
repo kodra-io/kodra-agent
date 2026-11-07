@@ -444,6 +444,12 @@ const shipSchema = z
   .strictObject({
     /** Base images from a registry come from its mirror instead, keeping the pinned tag or digest. */
     baseImageMirrors: z.record(registryHost, mirrorPath).default({}),
+    /** The CI tool ship writes a pipeline for: auto picks the CI connector that is turned on (B5). */
+    ci: z
+      .enum(['auto', 'github-actions', 'gitlab-ci', 'jenkins'], {
+        error: 'must be auto, github-actions, gitlab-ci, or jenkins',
+      })
+      .default('auto'),
   })
   .prefault({})
   .meta({ description: 'Settings for the ship flow.' });
@@ -727,7 +733,10 @@ export interface AgentConfig {
         | undefined;
       caBundleFile?: string | undefined;
     };
-    ship: { baseImageMirrors: Record<string, string> };
+    ship: {
+      baseImageMirrors: Record<string, string>;
+      ci: 'auto' | 'github-actions' | 'gitlab-ci' | 'jenkins';
+    };
     console: {
       enabled: boolean;
       port: number;
