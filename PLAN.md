@@ -284,7 +284,7 @@ reaches it, and doctor shows the sign-in.
 | B4 Official MCP servers                     | Done                                      | #101 |
 | B5 Build with the connected CI tool         | In review                                 | #108 |
 | B6 From onboarding to a healthy deploy      | In review                                 | #109 |
-| B7 Claude Code as the model                 | In review                                 |      |
+| B7 Claude Code as the model                 | In review                                 | #110 |
 | Gate open: Omar picks the next roadmap item | Not started                               |      |
 
 ## Rules
