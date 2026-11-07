@@ -63,6 +63,7 @@ pnpm --filter @kodra-agent/agent cli onboard <repo|dir> --config <file>   # repo
 pnpm --filter @kodra-agent/agent cli check --config <file>   # run the read-only checks once and print the digest (--post to Slack)
 pnpm --filter @kodra-agent/agent cli sandbox deploy <repo> --config <file>   # test a branch in the sandbox, then destroy it (list, destroy, sweep)
 pnpm --filter @kodra-agent/agent cli release <repo> --config <file>   # after a merge: watch the pipeline and deploy, check it is healthy, report
+pnpm --filter @kodra-agent/agent cli claude-code status   # B7: the claude-code model's sign-in (login, logout); KODRA_CLAUDE_CODE_E2E=1 runs its real test
 ```
 
 - pnpm enforces a minimum release age: a just-published version fails install. Pin the

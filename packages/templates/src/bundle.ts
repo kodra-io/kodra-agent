@@ -130,7 +130,14 @@ function checksSection(draft: AgentDraft): string[] {
 export function quickstartCommands(draft: AgentDraft): string[] {
   const name = agentName(draft);
   if (draft.target === 'compose') {
-    return ['docker compose run --rm kodra-agent init', 'docker compose up -d'];
+    return [
+      'docker compose run --rm kodra-agent init',
+      // B7: Anthropic's own sign-in, stored on the agent's volume (the agent never reads it).
+      ...(draft.model.provider === 'claude-code'
+        ? ['docker compose run --rm kodra-agent claude-code login']
+        : []),
+      'docker compose up -d',
+    ];
   }
   const hasRbac = draft.connectors['kubernetes']?.enabled === true;
   return [

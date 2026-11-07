@@ -34,6 +34,7 @@ const ollama = `  model:
 describe('examples', () => {
   it('has the documented examples, one per profile among them', () => {
     expect(examples.sort()).toEqual([
+      'claude-code.yaml',
       'compose-basic.yaml',
       'kubernetes.yaml',
       'ollama-local.yaml',
@@ -55,6 +56,9 @@ describe('model providers', () => {
     ['anthropic', 'apiKey: ${env:ANTHROPIC_API_KEY}\n    baseUrl: https://gateway.internal'],
     ['openai', 'apiKey: ${env:OPENAI_API_KEY}'],
     ['ollama', 'baseUrl: http://localhost:11434'],
+    // B7: a Claude sign-in, no key; a setup-token is optional.
+    ['claude-code', ''],
+    ['claude-code', 'oauthToken: ${env:CLAUDE_CODE_OAUTH_TOKEN}'],
   ])('accepts %s', (provider, fields) => {
     const result = parseAgentConfig(
       config(`  model:\n    provider: ${provider}\n    name: some-model\n    ${fields}\n`),
@@ -79,6 +83,11 @@ describe('model providers', () => {
       'azure-openai, which is coming soon',
       'provider: azure-openai\n    apiKey: ${env:K}\n    endpoint: https://r.openai.azure.com\n    deployment: d',
       'azure-openai is coming soon',
+    ],
+    [
+      'claude-code with an apiKey',
+      'provider: claude-code\n    apiKey: ${env:K}',
+      'unknown key apiKey',
     ],
     ['an unknown provider', 'provider: mistral', 'provider must be one of anthropic, openai'],
     [

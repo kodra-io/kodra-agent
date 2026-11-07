@@ -7,6 +7,7 @@ import { databaseEntries } from './databases/server.ts';
 import { BROAD_HINT, kubernetesScopeProblems, secretNamespaces } from './credential-scope.ts';
 import type { KubernetesFactory } from './kubernetes.ts';
 import { ollamaContext, SMALL_CONTEXT } from './model-context.ts';
+import { claudeAuthStatus, claudeCodeSetup } from './claude-code.ts';
 
 export type ProbeStatus = 'pass' | 'fail' | 'skip';
 
@@ -281,6 +282,18 @@ export const probes: Record<string, Probe> = {
     return pass(
       `Ollama answers; ${name} runs with ${loaded.toLocaleString('en-US')} tokens of context`,
     );
+  },
+
+  'claude-code.auth-status': async (ctx) => {
+    const setup = claudeCodeSetup(process.env, ctx.secrets['oauthToken']);
+    const status = await claudeAuthStatus(setup, undefined, ctx.timeoutMs);
+    if (!status.loggedIn) {
+      return fail(
+        status.reason,
+        'Sign in on the agent with: kodra-agent claude-code login (it installs the pinned Claude Code first).',
+      );
+    }
+    return pass(`signed in (${status.method}, plan: ${status.plan})`);
   },
 
   'jenkins.who-am-i': async (ctx) => {

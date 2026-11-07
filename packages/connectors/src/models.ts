@@ -224,6 +224,46 @@ export const bedrock = defineManifest({
   },
 });
 
+export const claudeCode = defineManifest({
+  id: 'claude-code',
+  displayName: 'Claude Code',
+  category: 'model',
+  status: 'available',
+  description: 'Claude through your own Claude subscription, signed in to Claude Code. No API key.',
+  accessLevels: [],
+  requires: [],
+  configFields: [],
+  secrets: [
+    {
+      key: 'oauthToken',
+      envVar: 'CLAUDE_CODE_OAUTH_TOKEN',
+      defaultRef: 'env',
+      required: false,
+      description:
+        'Optional. A long-lived token from `claude setup-token`. Without it, sign in once with `kodra-agent claude-code login`.',
+      howToCreate: 'Run `claude setup-token` where Claude Code is installed and signed in.',
+      minimumScopes: {},
+      probe: 'claude-code.auth-status',
+      steps: [
+        {
+          text: 'Leave this empty and sign in once on the running agent: kodra-agent claude-code login. Or run `claude setup-token` on your computer and put the token in .env as CLAUDE_CODE_OAUTH_TOKEN.',
+          link: 'https://code.claude.com/docs/en/authentication',
+        },
+      ],
+    },
+  ],
+  healthProbe: 'claude-code.auth-status',
+  tools: {},
+  runtime: null,
+  permissionsSummary: {
+    always: [
+      "Runs the official Claude Code binary with all of its own tools off: it can only call the agent's tools, through the same approvals.",
+      "Uses your own Claude sign-in, through Anthropic's own login. The agent never reads it. Your plan's usage limits apply.",
+      redactNote,
+    ],
+  },
+});
+
 export const ollama = defineManifest({
   id: 'ollama',
   displayName: 'Ollama',

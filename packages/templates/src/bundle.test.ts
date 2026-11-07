@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse, parseAllDocuments } from 'yaml';
 import { digestDestination, generateBundle, quickstartCommands } from './bundle.ts';
+import type { AgentDraft } from './draft.ts';
 import { composeDraft, kubernetesDraft, withConnector } from './test-drafts.ts';
 
 const file = (bundle: ReturnType<typeof generateBundle>, path: string) =>
@@ -330,6 +331,30 @@ describe('kubernetes bundle', () => {
       .files.map((f) => f.content)
       .join('\n');
     expect(all).not.toContain('docker.sock:/var/run/docker.sock');
+  });
+
+  it('signs Claude Code in before the first start, and the config needs no key (B7)', () => {
+    const draft: AgentDraft = {
+      ...composeDraft(),
+      model: { provider: 'claude-code', name: 'sonnet', fields: {} },
+    };
+    expect(quickstartCommands(draft)).toEqual([
+      'docker compose run --rm kodra-agent init',
+      'docker compose run --rm kodra-agent claude-code login',
+      'docker compose up -d',
+    ]);
+    const bundle = generateBundle(draft);
+    const config = parse(file(bundle, 'kodra-agent.yaml')) as { spec: { model: unknown } };
+    // The optional token is a reference; unset, the agent uses the sign-in on its volume.
+    expect(config.spec.model).toEqual({
+      provider: 'claude-code',
+      name: 'sonnet',
+      oauthToken: '${env:CLAUDE_CODE_OAUTH_TOKEN}',
+    });
+    expect(file(bundle, '.env.example')).toContain('CLAUDE_CODE_OAUTH_TOKEN=');
+    expect(quickstartCommands(composeDraft())).not.toContain(
+      'docker compose run --rm kodra-agent claude-code login',
+    );
   });
 
   it('skips rbac.yaml without the Kubernetes connector', () => {

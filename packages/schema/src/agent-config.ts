@@ -129,8 +129,18 @@ export const modelSchema = z.discriminatedUnion(
       },
       'key',
     ),
+    // B7: the user's own Claude sign-in through the Claude Code binary; no API key. A token
+    // from `claude setup-token` is optional: without it, `kodra-agent claude-code login`.
+    unknownKeys(
+      {
+        provider: z.literal('claude-code'),
+        name: modelName,
+        oauthToken: secretRefSchema.optional(),
+      },
+      'key',
+    ),
   ],
-  { error: 'provider must be one of anthropic, openai, ollama' },
+  { error: 'provider must be one of anthropic, openai, ollama, claude-code' },
 );
 export type ModelConfig = z.infer<typeof modelSchema>;
 export type ModelProvider = ModelConfig['provider'];

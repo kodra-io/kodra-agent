@@ -28,6 +28,7 @@ import { lookupDefaultBranches } from './default-branches.ts';
 import { forgeFileReader } from './forge-files.ts';
 import { parseEnvFile } from './env-file.ts';
 import { fileLogger } from './io.ts';
+import { installClaudeCode } from './claude-code.ts';
 import { createModel } from './llm.ts';
 import { ollamaContext } from './model-context.ts';
 import { ConnectorHost, type ConnectorFailure, type ConnectorInput } from './mcp/host.ts';
@@ -255,7 +256,32 @@ export async function startRuntime(
     metrics.setConnectorUp(input.component.id, !down.has(input.component.id));
   for (const failure of skipped) metrics.setConnectorUp(failure.connector, false);
 
-  const model = (ctx.modelFactory ?? createModel)(config.spec.model, modelSecrets);
+  // B7: Claude Code inherits the agent's network settings, and its pinned build is downloaded
+  // on the first start (to the volume) when a model uses it.
+  const modelEnv = { ...ctx.env, ...network.childEnv };
+  const makeModel =
+    ctx.modelFactory ??
+    ((m: typeof config.spec.model, s: Readonly<Record<string, string>>) =>
+      createModel(m, s, modelEnv));
+  const claudeDir = ctx.env['KODRA_CLAUDE_CODE_DIR'];
+  const usesClaudeCode = [config.spec.model, ...Object.values(config.spec.models)].some(
+    (m) => m.provider === 'claude-code',
+  );
+  if (usesClaudeCode && claudeDir && !ctx.modelFactory && !ctx.env['KODRA_CLAUDE_BIN']) {
+    try {
+      await installClaudeCode(claudeDir, {
+        fetch: ctx.fetch,
+        log: (line) => {
+          ctx.term.err(line);
+        },
+      });
+    } catch (error) {
+      ctx.term.err(
+        `Claude Code is not available: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  const model = makeModel(config.spec.model, modelSecrets);
   const control = new AgentControl(config.spec.audit.path, audit);
   await control.load();
   const modelLabel = `${config.spec.model.provider}/${config.spec.model.name}`;
@@ -264,7 +290,7 @@ export async function startRuntime(
     const secrets = namedSecrets.get(name);
     if (!secrets) continue;
     models[name] = {
-      model: (ctx.modelFactory ?? createModel)(named, secrets),
+      model: makeModel(named, secrets),
       label: `${named.provider}/${named.name}`,
     };
   }

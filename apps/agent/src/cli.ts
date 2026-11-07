@@ -3,6 +3,7 @@ import { SCHEMA_API_VERSION } from '@kodra-agent/schema';
 import pkg from '../package.json' with { type: 'json' };
 import { auditVerify } from './commands/audit.ts';
 import { chat } from './commands/chat.ts';
+import { claudeCode } from './commands/claude-code.ts';
 import { check } from './commands/check.ts';
 import { demo } from './commands/demo.ts';
 import { doctor } from './commands/doctor.ts';
@@ -27,6 +28,7 @@ const COMMANDS = [
   ['release <repo>', "Watch the default branch's pipeline and deploy, check it is healthy, report"],
   ['sandbox deploy <repo>', 'Test a branch in the sandbox namespace, then destroy it'],
   ['sandbox list|destroy|sweep', 'Show the sandbox tests that are up, or remove them'],
+  ['claude-code login|status|logout', "Sign the agent's Claude Code in with your Claude plan"],
   ['audit verify', "Check that the audit log's records were not edited, deleted, or reordered"],
   ['demo', 'Find three broken workloads on a throwaway kind cluster, with your model key'],
 ] as const;
@@ -170,6 +172,8 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
         { configPath: config, post: values.post ?? false, json: values.json ?? false },
         ctx,
       );
+    case 'claude-code':
+      return claudeCode({ action: positionals[1] }, ctx);
     case 'audit':
       if (positionals[1] !== 'verify') {
         ctx.term.err('Usage: kodra-agent audit verify [--json]');
