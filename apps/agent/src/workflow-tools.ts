@@ -134,7 +134,7 @@ export function workflowTools(deps: AgentDeps, task: string): Record<string, Too
     }),
     kodra_sandbox_test: dynamicTool({
       description:
-        "[kodra, starts a job] Deploy a branch's image and chart to the sandbox namespace (after approval), smoke-test it, report, and destroy it.",
+        "[kodra, starts a job] Deploy a branch's image and chart to the sandbox namespace (after approval), smoke-test it, report, and destroy it. Use it when someone asks to deploy or try a branch on the cluster before it is merged.",
       inputSchema: jsonSchema({
         type: 'object',
         properties: {
