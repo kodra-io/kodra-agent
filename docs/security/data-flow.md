@@ -81,6 +81,20 @@ Reviewed manifest: `bedrock@d78644cb7f87`
 
 Reviewed manifest: `ollama@3fb5b050c773`
 
+### Claude Code
+
+- **Sends to:** Anthropic, through the official Claude Code binary the agent runs
+  ([decision](../connectors/claude-code.md)). The binary's telemetry, error reports, and
+  auto-updates are off (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`).
+- **Secrets:** the user's Claude sign-in, made with Anthropic's own login and stored in Claude
+  Code's config directory on the agent's volume; the agent never reads it. Or an optional
+  `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, registered with the redactor. Claude
+  Code inherits only the network settings, never the agent's other secrets.
+- **Data:** the model input above. Claude Code's own tools are off, so it reads nothing on the
+  agent's machine: it only calls the agent's tools, over a local MCP server for one turn.
+
+Reviewed manifest: `claude-code@b2485185410a`
+
 ## Connectors
 
 ### GitHub

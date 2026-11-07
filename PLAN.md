@@ -241,6 +241,30 @@ Done when ship and onboard write a deploy stage that each CI system accepts (Jen
 it on a real Jenkins), a failing CI run is fixed on the branch within the limit in a test, and
 the demo repo goes from onboarding to a healthy deploy on kind with Jenkins.
 
+#### B7: Claude Code as the model
+
+Omar approved this on 7 November 2026: use the user's own Claude plan through Claude Code
+instead of an API key. Anthropic allows an end user to sign in to the unmodified Claude Code
+binary with their own subscription where a product runs it
+([decision](docs/connectors/claude-code.md)).
+
+- **`spec.model.provider: claude-code`**, with a model name (`sonnet`, `opus`, `haiku`, `fable`,
+  or an id) and an optional `oauthToken` (`claude setup-token`). The configurator, the console's
+  provider switch, and doctor render it from its manifest.
+- **The unmodified binary, pinned** (2.1.311), downloaded on first start to the agent's volume
+  and checked against its SHA-256. Not in the image (preinstalling needs Commercial Terms).
+- **Sign-in with Anthropic's own flow:** `kodra-agent claude-code login` (and `status`,
+  `logout`); the agent never reads the credentials.
+- **Claude Code's own tools off** (`--tools ""`); the turn's tools are served to it over a local
+  MCP server with a bearer token, so policy, approvals, redaction, and audit apply unchanged. A
+  run that reports any other tool is stopped.
+
+Still parked: Codex (it cannot turn off its shell tool, golden rule 1).
+
+Done when a turn with Claude Code calls only the agent's tools through the policy engine (unit
+tests with a fake binary, and a real signed-in run), a blocked tool stays blocked, no secret
+reaches it, and doctor shows the sign-in.
+
 ---
 
 ## Status
@@ -259,7 +283,8 @@ the demo repo goes from onboarding to a healthy deploy on kind with Jenkins.
 | B3 Configurator clean-up                    | Done                                      | #94  |
 | B4 Official MCP servers                     | Done                                      | #101 |
 | B5 Build with the connected CI tool         | In review                                 | #108 |
-| B6 From onboarding to a healthy deploy      | In review                                 |      |
+| B6 From onboarding to a healthy deploy      | In review                                 | #109 |
+| B7 Claude Code as the model                 | In review                                 |      |
 | Gate open: Omar picks the next roadmap item | Not started                               |      |
 
 ## Rules

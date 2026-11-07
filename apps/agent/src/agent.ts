@@ -33,6 +33,13 @@ import {
   type ApprovalRequest,
 } from './approvals.ts';
 import { clip, PROPOSE_CHANGE, proposeChangeTool } from './changes.ts';
+import {
+  isClaudeCode,
+  promptText,
+  runClaudeCode,
+  sdkUsage,
+  type ClaudeCodeModel,
+} from './claude-code.ts';
 import type { AuditLog } from './audit.ts';
 import type { Terminal } from './io.ts';
 import type { ConnectorHost, HostedTool } from './mcp/host.ts';
@@ -872,6 +879,8 @@ export async function runTurn(
    * pieces); errors are captured, never printed (streamText logs them by default).
    */
   const callModel = async (options: ModelCallOptions): Promise<ModelCallResult> => {
+    const model = current().model;
+    if (isClaudeCode(model)) return callClaudeCode(model, options);
     const common = {
       model: current().model,
       // Before each step: the pinned model, once a tool result pinned the conversation.
@@ -931,6 +940,51 @@ export async function runTurn(
     } catch (error) {
       throw streamError ?? error;
     }
+  };
+
+  /**
+   * B7: one Claude Code run. Its own tools are off; this turn's tools are served to it over a
+   * local MCP server, so each call still runs the policy check, approval, and audit above. It
+   * counts steps itself (--max-turns); the token budget and a model pin stop it after a step.
+   */
+  const callClaudeCode = async (
+    model: ClaudeCodeModel,
+    options: ModelCallOptions,
+  ): Promise<ModelCallResult> => {
+    stepLabel = current().label;
+    const summary = options.toolChoice === 'none';
+    openStep(summary);
+    const r = await runClaudeCode({
+      setup: model.setup,
+      model: model.modelId,
+      systemPrompt: SYSTEM_PROMPT,
+      prompt: promptText(options.messages),
+      maxTurns: summary ? 1 : limits.maxSteps,
+      ...(summary ? {} : { tools: options.tools }),
+      timeoutMs: options.timeout,
+      ...(options.abortSignal ? { signal: options.abortSignal } : {}),
+      ...(model.spawn ? { spawn: model.spawn } : {}),
+      ...(deps.stream === true
+        ? {
+            onText: (text: string) => {
+              const redactor = new StreamingRedactor(deps.redactor);
+              emitText(redactor.push(`${released ? '\n\n' : ''}${text}`) + redactor.end());
+            },
+          }
+        : {}),
+      onStep: async (tokens) => {
+        if (!options.onStep) return false;
+        await options.onStep({ usage: sdkUsage(tokens), finishReason: 'step' });
+        openStep(false);
+        return pinStop !== null || weightedTokens(usage) > limits.tokenBudget;
+      },
+    });
+    return {
+      text: r.text,
+      finishReason: r.finishReason,
+      responseMessages: r.text ? [{ role: 'assistant', content: r.text }] : [],
+      usage: sdkUsage(r.usage),
+    };
   };
 
   await deps.audit.append({

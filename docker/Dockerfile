@@ -71,10 +71,12 @@ COPY --from=mcp /opt/kodra-mcp /opt/kodra-mcp
 COPY --from=mcp /opt/kodra-kind/kind /usr/local/bin/kind
 COPY --from=build /app /app
 COPY --from=console /app/apps/console/dist /app/apps/console/dist
-# Caches go to /tmp, so the root filesystem can be read-only.
+# Caches go to /tmp, so the root filesystem can be read-only. KODRA_CLAUDE_CODE_DIR (B7): with
+# the claude-code model, the pinned Claude Code and its sign-in live on the volume.
 ENV NODE_ENV=production \
     HOME=/tmp \
     KODRA_MCP_DIR=/opt/kodra-mcp \
+    KODRA_CLAUDE_CODE_DIR=/var/lib/kodra-agent/claude-code \
     KODRA_AGENT_CONFIG=/etc/kodra-agent/kodra-agent.yaml \
     XDG_CACHE_HOME=/tmp/.cache \
     DOCKER_CONFIG=/tmp/.docker \

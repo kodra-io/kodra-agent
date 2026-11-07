@@ -1,4 +1,6 @@
+import { spawn as nodeSpawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { WriteGate } from './write-gate.ts';
 import { resolvePolicy, type EffectivePolicy } from '@kodra-agent/schema';
 import { join } from 'node:path';
@@ -16,6 +18,7 @@ import {
 } from './agent.ts';
 import type { ApprovalChannel, ApprovalOutcome, ApprovalRequest } from './approvals.ts';
 import { AuditLog } from './audit.ts';
+import { ClaudeCodeModel, claudeCodeSetup, type ClaudeSpawn } from './claude-code.ts';
 import { jsonLogger, memoryTerminal } from './io.ts';
 import { ConnectorHost } from './mcp/host.ts';
 import { REDACTED, Redactor } from './redactor.ts';
@@ -976,5 +979,89 @@ describe('the model context window', () => {
     const roomy = await setup({ responses: [answer('All good.')] });
     roomy.deps.contextWindow = () => Promise.resolve(262_144);
     expect((await runTurn(roomy.deps, [], 'hello', 'chat')).text).toBe('All good.');
+  });
+});
+
+describe('Claude Code as the model (B7)', () => {
+  const FAKE_CLAUDE = fileURLToPath(new URL('./test-fixtures/fake-claude.ts', import.meta.url));
+  /** The fake claude, and everything it printed (what it saw from the tools). */
+  function fakeClaude() {
+    const seen: string[] = [];
+    const run: ClaudeSpawn = (_binary, args, opts) => {
+      const child = nodeSpawn(
+        process.execPath,
+        [
+          '--experimental-strip-types',
+          '--disable-warning=ExperimentalWarning',
+          FAKE_CLAUDE,
+          ...args,
+        ],
+        { env: { ...opts.env, PATH: process.env['PATH'] ?? '' }, cwd: opts.cwd },
+      );
+      child.stdout.on('data', (chunk: Buffer) => seen.push(chunk.toString('utf8')));
+      return child;
+    };
+    return { run, seen: () => seen.join('') };
+  }
+  const useClaude = (deps: AgentDeps, run: ClaudeSpawn) => {
+    deps.model = new ClaudeCodeModel('sonnet', claudeCodeSetup({}, undefined), run);
+    deps.modelLabel = 'claude-code/sonnet';
+  };
+
+  it('runs a read tool through the policy and audit, and gets its output as untrusted data', async () => {
+    const { deps, audit } = await setup({ responses: [] });
+    const claude = fakeClaude();
+    useClaude(deps, claude.run);
+    const result = await runTurn(
+      deps,
+      [],
+      'CALL fakek8s__pods_log {"namespace":"api","name":"web-1"}',
+      'cc-read',
+    );
+    expect(result.text).toContain('logs for api/web-1');
+    expect(claude.seen()).toContain('<tool_output source=');
+    const records = await audit();
+    expect(records.some((r) => r.event === 'tool.call' && r.tool === 'pods_log')).toBe(true);
+    // Two messages, then the rest of the result's totals.
+    expect(records.filter((r) => r.event === 'model.call').length).toBe(3);
+    expect(result.usage.output).toBe(100);
+  });
+
+  it('keeps a blocked call blocked, and a denied change unrun', async () => {
+    const blocked = await setup({ responses: [] });
+    useClaude(blocked.deps, fakeClaude().run);
+    const out = await runTurn(
+      blocked.deps,
+      [],
+      'CALL fakek8s__pods_log {"namespace":"kube-system","name":"x"}',
+      'cc-block',
+    );
+    expect(out.text).not.toContain('logs for kube-system');
+    expect(out.text.toLowerCase()).toContain('blocked');
+
+    const denied = await setup({
+      responses: [],
+      access: 'read-write-approved',
+      approval: { decision: 'denied', by: '@omar' },
+    });
+    useClaude(denied.deps, fakeClaude().run);
+    const r = await runTurn(
+      denied.deps,
+      [],
+      `CALL fakek8s__resources_scale {"namespace":"api","name":"web","scale":3,"${REASON_ARG}":"test"}`,
+      'cc-deny',
+    );
+    expect(denied.channel.requests).toHaveLength(1);
+    expect(r.text).not.toContain('scaled api/web');
+  });
+
+  it('never shows Claude Code a secret from a tool', async () => {
+    const { deps } = await setup({ responses: [], secrets: { token: 'claude-canary-token-5521' } });
+    const claude = fakeClaude();
+    useClaude(deps, claude.run);
+    await runTurn(deps, [], 'CALL fakek8s__pods_log {"namespace":"api","name":"x"}', 'cc-canary');
+    expect(claude.seen()).toContain('leaked from env');
+    expect(claude.seen()).not.toContain('claude-canary-token-5521');
+    expect(claude.seen()).toContain(REDACTED);
   });
 });

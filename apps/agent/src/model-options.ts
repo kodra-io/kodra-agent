@@ -1,5 +1,6 @@
 import type { ModelPrice } from '@kodra-agent/schema';
 import { generateText, type LanguageModel } from 'ai';
+import { CLAUDE_CODE_MODELS } from './claude-code.ts';
 import type { Component } from './config.ts';
 import { costOf } from './console/data.ts';
 import type { AuditRecord } from './audit.ts';
@@ -95,6 +96,9 @@ export async function listProviderModels(
       };
       break;
     }
+    case 'claude-code':
+      // Claude Code takes aliases; the signed-in plan decides which it may use.
+      return { ids: [...CLAUDE_CODE_MODELS] };
     default:
       // Bedrock: model access is per account and region; the known models are offered.
       return null;

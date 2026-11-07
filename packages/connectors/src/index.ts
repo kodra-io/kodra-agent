@@ -16,7 +16,7 @@ import gitlab from './gitlab/manifest.ts';
 import grafana from './grafana/manifest.ts';
 import jenkins from './jenkins/manifest.ts';
 import kubernetes from './kubernetes/manifest.ts';
-import { anthropic, azureOpenai, bedrock, ollama, openai } from './models.ts';
+import { anthropic, azureOpenai, bedrock, claudeCode, ollama, openai } from './models.ts';
 import prometheus from './prometheus/manifest.ts';
 import slack from './slack/manifest.ts';
 
@@ -44,7 +44,7 @@ export const connectors: readonly Manifest[] = [
 /** Model providers, selected with spec.model.provider. */
 // Azure OpenAI and Bedrock are parked (B4): cloud providers are off for now, expected as a
 // licensed add-on later. Their manifests stay, unregistered, in parkedModelProviders.
-export const modelProviders: readonly Manifest[] = [anthropic, openai, ollama];
+export const modelProviders: readonly Manifest[] = [anthropic, openai, ollama, claudeCode];
 
 /** The parked model providers, for their own tests: no config can select them. */
 export const parkedModelProviders: readonly Manifest[] = [azureOpenai, bedrock];

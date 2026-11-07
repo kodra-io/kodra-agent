@@ -6,17 +6,20 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { ModelConfig } from '@kodra-agent/schema';
 import type { LanguageModel } from 'ai';
+import { ClaudeCodeModel, claudeCodeSetup } from './claude-code.ts';
 
 /** Base URLs in kodra-agent.yaml are API roots without a version, like the probes use. */
 const v1 = (base: string) => `${base.replace(/\/+$/, '')}/v1`;
 
 /**
  * One model interface over every provider (Vercel AI SDK). Secret values come in already
- * resolved and registered with the redactor; this module never reads the environment.
+ * resolved and registered with the redactor. `env` only says where Claude Code lives (B7) and
+ * which network settings it inherits.
  */
 export function createModel(
   model: ModelConfig,
   secrets: Readonly<Record<string, string>>,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): LanguageModel {
   switch (model.provider) {
     case 'anthropic':
@@ -49,6 +52,8 @@ export function createModel(
         baseURL: v1(model.baseUrl),
         includeUsage: true,
       })(model.name);
+    case 'claude-code':
+      return new ClaudeCodeModel(model.name, claudeCodeSetup(env, secrets['oauthToken']));
   }
 }
 

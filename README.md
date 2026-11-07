@@ -16,7 +16,8 @@ chart in a pull request) waits for your approval too.
 
 ## Get started
 
-You need Docker, a model key (or a local model through Ollama), and access to what the agent
+You need Docker, a model key (or a local model through Ollama, or your own Claude plan through
+Claude Code), and access to what the agent
 should read, like a kubeconfig or a GitHub token.
 
 1. **Create your agent** at [build.kodra.io/agent](https://build.kodra.io/agent): pick who it
@@ -43,12 +44,12 @@ how to fix what fails.
 
 ## What's available
 
-| What       | Available                                                                         |
-| ---------- | --------------------------------------------------------------------------------- |
-| Connectors | Kubernetes, Prometheus, Grafana, GitHub, GitHub Actions, GitLab, GitLab CI, Slack |
-| Connectors | Jenkins, Databases, Docker                                                        |
-| Models     | Anthropic, OpenAI, Ollama (Azure OpenAI and AWS Bedrock are coming soon)          |
-| Flows      | Ship and onboard (with the Docker connector's build access), and sandbox tests    |
+| What       | Available                                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------------------------- |
+| Connectors | Kubernetes, Prometheus, Grafana, GitHub, GitHub Actions, GitLab, GitLab CI, Slack                           |
+| Connectors | Jenkins, Databases, Docker                                                                                  |
+| Models     | Anthropic, OpenAI, Ollama, Claude Code with your Claude plan (Azure OpenAI and AWS Bedrock are coming soon) |
+| Flows      | Ship and onboard (with the Docker connector's build access), and sandbox tests                              |
 
 ## Try it on a throwaway cluster
 

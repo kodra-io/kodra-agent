@@ -36,7 +36,7 @@ const PROFILES = ['starter', 'team', 'strict'] as const;
 const DETECTORS = ['cards', 'ibans', 'emails', 'phones'] as const;
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 // Azure OpenAI and Bedrock are parked (B4): cloud providers are off for now.
-const PROVIDERS = ['anthropic', 'openai', 'ollama'] as const;
+const PROVIDERS = ['anthropic', 'openai', 'ollama', 'claude-code'] as const;
 
 const small = 'h-9 rounded-lg border border-line-strong bg-surface px-2.5 text-sm';
 const remove =

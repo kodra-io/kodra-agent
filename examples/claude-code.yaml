@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../schema/kodra-agent.schema.json
+# Claude through your own Claude subscription: no API key. Sign in once on the agent with
+# `docker compose run --rm kodra-agent claude-code login` (Anthropic's own login; the agent
+# never reads it), or put a token from `claude setup-token` in .env as CLAUDE_CODE_OAUTH_TOKEN.
+# Your plan's usage limits apply (docs/connectors/claude-code.md).
+apiVersion: kodra.io/v1alpha1
+kind: Agent
+metadata:
+  name: claude-code-agent
+spec:
+  target: compose
+  model:
+    provider: claude-code
+    name: sonnet # or opus, haiku, fable, or a full model id
+    oauthToken: ${env:CLAUDE_CODE_OAUTH_TOKEN} # optional
+  connectors:
+    kubernetes:
+      enabled: true
+      config:
+        namespaces: ['default']
+      secrets:
+        kubeconfig: ${file:/secrets/kubeconfig}
+  policy:
+    approvals:
+      approvers: ['U0123ABCD']
