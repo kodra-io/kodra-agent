@@ -57,7 +57,7 @@ export function ReposPage({ onSignedOut, me, go }: PageProps) {
   }, [running, reload]);
 
   const chosen = data?.repos.find((r) => r.repo === repo) ?? data?.repos[0];
-  const start = (kind: 'analyze' | 'pr' | 'sandbox') => {
+  const start = (kind: 'analyze' | 'pr' | 'sandbox' | 'release') => {
     if (!chosen) return;
     setProblem(null);
     post<{ id: string }>(`onboard/${kind}`, {
@@ -209,6 +209,22 @@ export function ReposPage({ onSignedOut, me, go }: PageProps) {
               </div>
             )}
           </div>
+          <div className="mt-2 flex flex-col gap-3 border-t border-line pt-4">
+            <h3 className="font-semibold">{t('repos.release')}</h3>
+            <p className="text-sm text-ink-secondary">{t('repos.releaseHow')}</p>
+            <div>
+              <button
+                type="button"
+                className={secondary}
+                disabled={!me.canApprove || running}
+                onClick={() => {
+                  start('release');
+                }}
+              >
+                {t('repos.watchRelease')}
+              </button>
+            </div>
+          </div>
         </section>
       )}
       {sandbox && sandbox.tests.length > 0 && (
@@ -323,7 +339,7 @@ function JobRow({
           {t('repos.prLink')}
         </a>
       )}
-      {job.kind !== 'analyze' && job.state === 'running' && (
+      {(job.kind === 'pr' || job.kind === 'sandbox') && job.state === 'running' && (
         <p className="mt-2 text-sm">
           {t(job.kind === 'sandbox' ? 'repos.waitingTest' : 'repos.waiting')}{' '}
           <button type="button" className="font-semibold underline" onClick={onApprovals}>
@@ -333,6 +349,13 @@ function JobRow({
       )}
       {open && detail && (
         <div className="mt-3 flex flex-col gap-3">
+          {detail.summary && (
+            <div
+              className={`rounded-lg border p-3 text-sm ${detail.ok ? 'border-line bg-surface' : 'border-bad-text bg-surface'}`}
+            >
+              <MarkdownText text={detail.summary} />
+            </div>
+          )}
           {detail.report && (
             <div className="rounded-lg border border-line bg-surface p-3 text-sm">
               <MarkdownText text={detail.report} />

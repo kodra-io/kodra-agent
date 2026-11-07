@@ -17,6 +17,8 @@ export const IMAGES = {
   dockerCli: 'docker:29.8.2-cli',
   dockerDind: 'docker:29.8.2-dind',
   helm: 'alpine/helm:4.3.0',
+  /** The deploy stage's SSH client for VM targets (B6). */
+  ssh: 'alpine/git:v2.52.0',
 } as const;
 
 /** Helm for generated GitHub Actions workflows, checksum-verified like the agent's own CI. */

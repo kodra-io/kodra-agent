@@ -70,6 +70,14 @@ do yet (deploy, monitoring, vulnerability scans, a runbook).
 A repo the ship flow cannot handle yet (another stack, pnpm, a monorepo) gets the report
 and the Slack post, and nothing else.
 
+## 3. Follow through (B6)
+
+After the pull request opens, onboarding keeps going: it watches the pull request's CI, fixes
+a failure in the files it added (or says where the problem is when it is in the application),
+tests the passing build in the sandbox, and posts a report: ready to merge, or what a person
+must do. After the merge, `kodra-agent release <repo>` checks that the deploy is healthy. See
+[the ship flow](ship.md#steps) and [the deploy stage](ship.md#deploy-stage).
+
 ## What it does not do
 
 - Fix a committed credential. Rewriting git history is destructive, and only a person can

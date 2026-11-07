@@ -724,9 +724,14 @@ interface FakeJenkins {
  * The official Jenkins MCP plugin, faked over Streamable HTTP: a multibranch job that has
  * found the pull request's branch (when `found`), and its builds, `result` once started.
  */
-async function fakeJenkins(opts: { found: boolean; result: string }): Promise<FakeJenkins> {
+async function fakeJenkins(opts: {
+  found: boolean;
+  /** The result of each build in turn; the last one repeats. */
+  result: string | string[];
+}): Promise<FakeJenkins> {
   const calls: FakeJenkins['calls'] = [];
-  let started = false;
+  const results = Array.isArray(opts.result) ? opts.result : [opts.result];
+  let builds = 0;
   let polls = 0;
   const answer = (result: unknown) => ({
     content: [
@@ -746,18 +751,22 @@ async function fakeJenkins(opts: { found: boolean; result: string }): Promise<Fa
         ? [{ fullName: `team-a/node-api/${String(a['branch'])}` }, { fullName: 'other/node-api' }]
         : undefined,
     getJob: () => {
-      if (!started) return { lastBuild: null };
+      if (builds === 0) return { lastBuild: null };
       polls++;
-      const url = 'http://jenkins.example.com/job/team-a/job/node-api/1/';
+      const url = `http://jenkins.example.com/job/team-a/job/node-api/${String(builds)}/`;
+      const result = results[Math.min(builds, results.length) - 1] ?? 'SUCCESS';
       return {
-        lastBuild: { number: 1, building: polls < 2, result: polls < 2 ? null : opts.result, url },
+        lastBuild: { number: builds, building: polls < 2, result: polls < 2 ? null : result, url },
       };
     },
     triggerBuild: () => {
-      started = true;
-      return { _class: 'hudson.model.Queue$WaitingItem', id: 1 };
+      builds++;
+      polls = 0;
+      return { _class: 'hudson.model.Queue$WaitingItem', id: builds };
     },
-    getBuildLog: () => ({ lines: ['[ERROR] Tests run: 3, Failures: 1', 'Finished: FAILURE'] }),
+    getBuildLog: () => ({
+      lines: ['[ERROR] Tests run: 3, Failures: 1', 'Finished: FAILURE'],
+    }),
   };
   const http = createServer((req, res) => {
     if (req.url !== '/mcp-server/mcp') {
@@ -797,15 +806,15 @@ async function fakeJenkins(opts: { found: boolean; result: string }): Promise<Fa
   return { url: `http://127.0.0.1:${String((http.address() as AddressInfo).port)}`, calls };
 }
 
-describe('ship with Jenkins (B5)', () => {
+describe('ship with Jenkins (B5, B6)', () => {
   it(
-    'writes a Jenkinsfile, then starts the build after a second approval and watches it',
+    'writes a Jenkinsfile, starts the build under the one approval, watches it, and reports',
     { timeout: 60_000 },
     async () => {
       const jenkins = await fakeJenkins({ found: true, result: 'SUCCESS' });
       const s = await setup({
         sample: 'spring-maven',
-        answers: [true, true],
+        answers: [true],
         jenkins: {
           url: jenkins.url,
           config: 'registry: registry.example.com/team, registryCredentials: registry-push',
@@ -814,7 +823,8 @@ describe('ship with Jenkins (B5)', () => {
       expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
       const out = s.t.output();
       expect(out).toContain('CI: jenkins. Jenkins is the CI connector that is turned on.');
-      expect(s.prompter.asked).toEqual(['Approve this action?', 'Approve this action?']);
+      // One approval covers the branch, the PR, and starting the branch's build.
+      expect(s.prompter.asked).toEqual(['Approve this action?']);
 
       // A Jenkinsfile, not GitHub Actions, on a branch name Jenkins can use as a job name.
       const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
@@ -837,14 +847,17 @@ describe('ship with Jenkins (B5)', () => {
         `Basic ${Buffer.from(`kodra:${JENKINS_TOKEN}`).toString('base64')}`,
       );
       expect(out).toContain(
-        'Jenkins built the pull request: http://jenkins.example.com/job/team-a/job/node-api/1/',
+        'Jenkins passed: http://jenkins.example.com/job/team-a/job/node-api/1/',
       );
+      expect(out).toContain('*Shipping acme/node-api: ready to merge*');
       const audit = await s.audit();
       expect(audit).toContainEqual(
         expect.objectContaining({ event: 'tool.call', tool: 'triggerBuild', decision: 'approved' }),
       );
       expect(audit).toContainEqual(
-        expect.objectContaining({ detail: `jenkins team-a/node-api/${head} #1: SUCCESS` }),
+        expect.objectContaining({
+          detail: 'ci jenkins: passed http://jenkins.example.com/job/team-a/job/node-api/1/',
+        }),
       );
       const everything = [out, await readFile(s.auditPath, 'utf8')].join('\n');
       expect(everything).not.toContain(JENKINS_TOKEN);
@@ -852,22 +865,98 @@ describe('ship with Jenkins (B5)', () => {
     },
   );
 
-  it('shows the end of the log when the build fails', { timeout: 60_000 }, async () => {
-    const jenkins = await fakeJenkins({ found: true, result: 'FAILURE' });
-    const s = await setup({ sample: 'spring-maven', answers: [true, true], jenkins: jenkins });
-    expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
-    expect(s.t.output()).toMatch(
-      /Jenkins build team-a\/node-api\/kodra-agent-ship-\w+ #1 ended FAILURE/,
-    );
-    expect(s.t.output()).toContain('[ERROR] Tests run: 3, Failures: 1');
-  });
+  it(
+    'fixes a file it added when the build fails, and builds again (B6)',
+    { timeout: 60_000 },
+    async () => {
+      const jenkins = await fakeJenkins({ found: true, result: ['FAILURE', 'SUCCESS'] });
+      const fixed = [
+        'File: Dockerfile',
+        '```',
+        'FROM maven:3.9.16-eclipse-temurin-21 AS build',
+        'WORKDIR /app',
+        'COPY . .',
+        'RUN mvn -B -DskipTests package',
+        'FROM eclipse-temurin:21.0.12.1_1-jre-alpine-3.24',
+        'COPY --from=build /app/target/app.jar /app/app.jar',
+        'USER 10001',
+        'CMD ["java", "-jar", "/app/app.jar"]',
+        '```',
+        'Change: built without the cache mount the Jenkins agent does not support.',
+      ].join('\n');
+      const s = await setup({
+        sample: 'spring-maven',
+        answers: [true],
+        modelAnswers: [fixed],
+        jenkins,
+      });
+      expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+      const out = s.t.output();
+      expect(out).toMatch(/Jenkins run 1 ended FAILURE/);
+      expect(out).toContain('Fix 1: Dockerfile: built without the cache mount');
+      expect(out).toContain(
+        'Jenkins passed: http://jenkins.example.com/job/team-a/job/node-api/2/',
+      );
+      expect(out).toContain('passed after 1 fix');
+      expect(s.prompter.asked).toEqual(['Approve this action?']);
+      expect(jenkins.calls.filter((c) => c.tool === 'triggerBuild')).toHaveLength(2);
+      const pr = (await s.recorded()).find((c) => c.tool === 'create_pull_request');
+      const head = String(pr?.args['head']);
+      const dockerfile = (await git(['--git-dir', s.bare, 'show', `${head}:Dockerfile`])).stdout;
+      expect(dockerfile).toContain('USER 10001');
+      const log = (await git(['--git-dir', s.bare, 'log', '--format=%s', head])).stdout;
+      expect(log).toContain('Fix Dockerfile after the CI failure');
+      expect(await s.remoteBranches()).toContain('main');
+      expect(await s.audit()).toContainEqual(
+        expect.objectContaining({
+          tool: 'git push',
+          detail: expect.stringContaining('a CI fix covered by the pull request') as unknown,
+        }),
+      );
+    },
+  );
 
-  it('starts nothing without the second approval', { timeout: 60_000 }, async () => {
+  it(
+    'says where the problem is when it is in the application, and changes nothing',
+    { timeout: 60_000 },
+    async () => {
+      const jenkins = await fakeJenkins({ found: true, result: 'FAILURE' });
+      const s = await setup({
+        sample: 'spring-maven',
+        answers: [true],
+        modelAnswers: [
+          'Cause: OrderServiceTest fails: the application returns 3 orders, the test expects 2.\nFix: Fix the test or the code in OrderService.',
+        ],
+        jenkins,
+      });
+      expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(1);
+      const out = s.t.output();
+      expect(out).toContain('[ERROR] Tests run: 3, Failures: 1');
+      expect(out).toContain('Cause: OrderServiceTest fails');
+      expect(out).toContain('needs a person');
+      expect(jenkins.calls.filter((c) => c.tool === 'triggerBuild')).toHaveLength(1);
+    },
+  );
+
+  it(
+    'shows the end of the log when the build fails and the model has no fix',
+    { timeout: 60_000 },
+    async () => {
+      const jenkins = await fakeJenkins({ found: true, result: 'FAILURE' });
+      const s = await setup({ sample: 'spring-maven', answers: [true], jenkins });
+      expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(1);
+      expect(s.t.output()).toMatch(/Jenkins run 1 ended FAILURE/);
+      expect(s.t.output()).toContain('[ERROR] Tests run: 3, Failures: 1');
+      expect(s.t.output()).toContain('No fix: the model call failed');
+    },
+  );
+
+  it('pushes and starts nothing when the approval is denied', { timeout: 60_000 }, async () => {
     const jenkins = await fakeJenkins({ found: true, result: 'SUCCESS' });
-    const s = await setup({ sample: 'spring-maven', answers: [true, false], jenkins });
-    expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(0);
+    const s = await setup({ sample: 'spring-maven', answers: [false], jenkins });
+    expect(await main(['ship', 'acme/node-api', '--config', s.path], s.t.ctx)).toBe(1);
     expect(jenkins.calls.some((c) => c.tool === 'triggerBuild')).toBe(false);
-    expect(s.t.output()).toContain('was not started');
+    expect(s.t.output()).toContain('Not approved. Nothing was pushed.');
   });
 
   it(

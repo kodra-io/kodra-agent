@@ -8,6 +8,7 @@ import {
 } from './rollout.ts';
 import { bigCut, numberAt } from './scale-limit.ts';
 import type { WriteGate } from './write-gate.ts';
+import { workflowTools, type WorkflowRunner } from './workflow-tools.ts';
 import { NO_TRACER, taskKind, type AgentTracer, type TraceSpan } from './tracing.ts';
 import {
   dynamicTool,
@@ -113,6 +114,10 @@ export interface AgentDeps {
    * the model with), else null. A prompt that does not fit is refused instead of cut off.
    */
   contextWindow?: () => Promise<number | null>;
+  /** B6: the running agent's onboarding, sandbox, and release jobs, offered as chat tools. */
+  workflows?: WorkflowRunner;
+  /** False when this user may not start those jobs (a console viewer). */
+  workflowsAllowed?: boolean;
 }
 
 /**
@@ -321,6 +326,7 @@ function buildTools(
   if (deps.readOnly !== true && hostedTools.some((t) => t.risk !== 'read')) {
     tools[PROPOSE_CHANGE] = proposeChangeTool(deps, task, hostedTools, router);
   }
+  Object.assign(tools, workflowTools(deps, task));
   const last = hostedTools.at(-1)?.name;
   for (const hosted of hostedTools) {
     tools[hosted.name] = dynamicTool({

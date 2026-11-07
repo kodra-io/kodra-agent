@@ -44,8 +44,9 @@ To read the repo and report on it first, run `kodra-agent onboard` instead: see
      uses (see [Pipeline style](#pipeline-style)): a standalone GitHub Actions workflow,
      `.gitlab-ci.yml`, or `Jenkinsfile` that runs the tests, builds the image, pushes
      `pr-<sha>` from pull requests and `<sha>` plus the chart's `appVersion` from the default
-     branch, and lints the chart (actions, images, and Helm pinned); or a thin caller of the
-     team's shared pipeline.
+     branch, lints the chart (actions, images, and Helm pinned), and, when
+     [the deploy stage](#deploy-stage) is on, deploys from the default branch; or a thin
+     caller of the team's shared pipeline.
    - `charts/<name>`: deployment, service, startup, liveness, and readiness probes, resource
      requests and a memory limit, `runAsNonRoot`, a read-only root filesystem with a writable
      `/tmp`, no privilege escalation, all capabilities dropped, and no service account token.
@@ -64,10 +65,27 @@ To read the repo and report on it first, run `kodra-agent onboard` instead: see
    branch is never the default branch. One approval in the terminal then covers pushing a new
    `kodra-agent/ship-<id>` branch and opening the pull request (or merge request). The
    description explains what was detected, what each file is for, and how it was verified.
-   A human reviews and merges. Nothing is deployed.
-8. **Build** (Jenkins only). The agent finds the Jenkins job for the branch, waits for it to
-   build, or starts it after a second approval, and reports the result (see
-   [Jenkins](connectors/jenkins.md#ship-with-jenkins-b5)).
+   A human reviews and merges. Nothing is deployed before the merge.
+8. **Watch the CI.** The agent watches the pull request's run through the CI connector
+   (Jenkins, GitHub Actions, or GitLab CI). For Jenkins it finds the job for the branch and
+   starts it if Jenkins does not (see [Jenkins](connectors/jenkins.md#ship-with-jenkins-b5)).
+9. **Fix or explain a failure.** The model reads the end of the log, marked as untrusted
+   data. If the cause is in a file ship added, it proposes the corrected file; it is checked
+   (pinned images, non-root, no new credentials, no disabled checks) and pushed as a new
+   commit on the same branch, then the CI runs again, up to `--max-fixes` times. If the cause
+   is in the application, its tests, or the CI system's setup, nothing is changed: the agent
+   says where the problem is and what a person should do.
+10. **Test in the sandbox** when the run passes and a sandbox is set up
+    ([sandbox](sandbox.md), its own approval).
+11. **Report:** ready to merge, or what is left for a person, with the links, in the
+    terminal, the console, and Slack.
+
+The approval in step 7 covers the branch, the pull request, starting its Jenkins build, and
+the fix commits of step 9 on that branch only, and its text says so. Each one is still checked
+by the policy engine and written to the audit log.
+
+After the merge, `kodra-agent release <repo>` watches the default branch's run and its deploy
+(see [After the merge](#after-the-merge)).
 
 Without a terminal there is nobody to approve, so nothing is pushed. Every step is in the
 audit log: the approval request and decision, the push, the PR call, and any model call.
@@ -91,6 +109,81 @@ It pushes to the Jenkins connector's `registry` with its `registryCredentials`, 
 request lists what Jenkins needs: a job for the repo (a multibranch pipeline builds every
 branch), Docker with buildx on the agent (the Dockerfile caches dependencies with BuildKit),
 and push access.
+
+## Deploy stage
+
+Off by default. Turn it on in the console (Settings, Connectors, Deploy stage) or in
+`kodra-agent.yaml`:
+
+```yaml
+spec:
+  ship:
+    deploy:
+      enabled: true
+      target: kubernetes # or vm
+      environment: staging # a GitHub or GitLab environment; from spec.environments, its rules apply
+      when: default-branch # or manual: a person approves each deploy in the CI system
+      credentials: KUBECONFIG_STAGING # the CI secret's name; the agent never reads it
+      namespace: staging # kubernetes
+      # vm:
+      # host: app1.example.com
+      # user: deploy
+      # sshPort: 22
+      # hostKey: ssh-ed25519 AAAA... # from: ssh-keyscan -t ed25519 app1.example.com
+```
+
+- **When:** only on the default branch, after the tests, the image, and the chart check pass,
+  one deploy at a time. `manual` uses the CI system's own gate: a Jenkins `input` step, the
+  GitHub environment's required reviewers, or a manual GitLab job. A production environment
+  (`spec.environments[].production`) must use `manual`.
+- **Kubernetes:** `helm upgrade --install <app> <chart> --set image.tag=<sha>
+--rollback-on-failure --wait --timeout 5m` in the pinned Helm image. The pull request adds
+  `deploy/ci-deployer-rbac.yaml`: a ServiceAccount, Role, and RoleBinding that can deploy to
+  that namespace only, for a cluster admin to apply once. Its kubeconfig goes in the CI system
+  under the `credentials` name (a Jenkins Secret file credential, a GitHub Actions secret, or
+  a GitLab variable of type File).
+- **VM:** `deploy/vm-deploy.sh` runs on the VM over SSH, with the host key pinned in
+  `deploy/known_hosts` (never `StrictHostKeyChecking=no`). It pulls the image, replaces the
+  container, waits up to 90 seconds for its health endpoint, and puts the previous image back
+  if it never gets healthy. The app's settings and secrets go in `/etc/<app>.env` on the VM.
+- **Jenkins and Docker networks:** when the cluster's API server is reached through a Docker
+  network (kind, for example), set `DOCKER_NETWORK` on the Jenkins agent; the helper
+  containers join it.
+- An existing pipeline is kept, so it gets no deploy stage; the pull request says so.
+
+## After the merge
+
+`kodra-agent release <repo>` (or Watch the release on the console's Repos page, or asking in
+chat) reads the default branch's commit, watches its CI run (the deploy stage runs in it),
+then checks the deployment with the agent's own read access:
+
+- **Kubernetes:** the Deployment runs the commit's image and every replica is ready and
+  updated, or the rollout is stuck.
+- **VM:** the app's health endpoint answers from the agent's network.
+
+When the run fails or the deployment is not healthy, the agent investigates with read-only
+tools, as it does for an alert (pods, events, logs, the end of the CI log), and reports what it
+found and the fix it suggests. It never deploys or rolls back by itself: Helm's
+`--rollback-on-failure` and the VM script already put back a failed rollout, and anything more
+is a change a person approves.
+
+## From chat
+
+In the console chat or Slack, ask for it in plain words ("onboard kodra-io/agent-demo-app",
+"test the dev branch in the sandbox", "is the release of acme/orders healthy?"). The model
+uses these tools, which start the same background jobs as the Repos page:
+
+| Tool                  | What it does                                             |
+| --------------------- | -------------------------------------------------------- |
+| `kodra_repos`         | The repos it can onboard, and recent jobs                |
+| `kodra_onboard`       | The whole flow above; `reportOnly` for the analysis only |
+| `kodra_sandbox_test`  | A sandbox test of a branch                               |
+| `kodra_watch_release` | The release check after a merge                          |
+| `kodra_job`           | A job's state, report, and the end of its log            |
+
+Only console approvers can start them. Starting one changes nothing: every push, build start,
+and deploy inside it waits for an approval in the console or Slack. The result is posted to
+Slack and shown on the Repos page.
 
 ## Pipeline style
 
@@ -129,9 +222,10 @@ pipeline: the pull request's CI does.
 ## Limits for now
 
 - One service per repo. pnpm, Yarn, Bun, Poetry-only, and Django projects are not supported yet.
-- The chart's image tag defaults to its `appVersion`; CI tags images with the commit SHA, so
-  deploy with `--set image.tag=<sha>`.
-- Watching the rollout after a deploy (SPEC section 9, step 6) is not part of this flow yet.
+- The chart's image tag defaults to its `appVersion`; the deploy stage sets the commit SHA.
+- One deploy target per repo. No GitOps mode, image scan, SBOM, or signing yet (parked in
+  `docs/roadmap.md`).
+- Releases are judged by the rollout and the health endpoint, not by metrics yet.
 
 ## Sample repos
 

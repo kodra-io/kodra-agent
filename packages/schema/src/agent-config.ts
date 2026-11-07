@@ -439,6 +439,57 @@ const mirrorPath = z
     'must be a registry and path, like harbor.example.com/dockerhub-proxy',
   );
 
+/**
+ * The deploy stage ship adds to the pipelines it writes (B6). The pipeline deploys with
+ * credentials from the CI system's own secret store, named here; the agent never holds them.
+ */
+const shipDeploySchema = z
+  .strictObject({
+    enabled: z.boolean().default(false),
+    target: z
+      .enum(['kubernetes', 'vm'], { error: 'must be kubernetes or vm' })
+      .default('kubernetes'),
+    /** Shown in the CI system; a name from spec.environments takes its production rule. */
+    environment: z
+      .string()
+      .regex(
+        /^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$/,
+        'must be lowercase letters, digits, and hyphens, at most 32 characters',
+      )
+      .default('staging'),
+    when: z
+      .enum(['default-branch', 'manual'], { error: 'must be default-branch or manual' })
+      .default('default-branch'),
+    /** The CI secret's name: a kubeconfig (kubernetes) or an SSH private key (vm). */
+    credentials: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]{1,100}$/, 'must be a CI credentials ID or secret name')
+      .default('KODRA_DEPLOY'),
+    namespace: namespaceName.optional(),
+    host: z
+      .string()
+      .regex(
+        /^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/,
+        'must be a host name or an IPv4 address',
+      )
+      .optional(),
+    user: z
+      .string()
+      .regex(/^[a-z_][a-z0-9_-]{0,31}$/, 'must be a Linux user name')
+      .optional(),
+    sshPort: z.int().min(1).max(65535).optional(),
+    /** The VM's public host key, `ssh-ed25519 AAAA...` (ssh-keyscan), pinned in the repo. */
+    hostKey: z
+      .string()
+      .regex(
+        /^(\S+ )?(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]+( .*)?$/,
+        'must be a public host key, like ssh-ed25519 AAAA... (from ssh-keyscan)',
+      )
+      .optional(),
+  })
+  .prefault({})
+  .meta({ description: 'The deploy stage of the pipelines ship writes.' });
+
 /** The ship flow (M6): where generated Dockerfiles and CI pull their base images from. */
 const shipSchema = z
   .strictObject({
@@ -450,6 +501,7 @@ const shipSchema = z
         error: 'must be auto, github-actions, gitlab-ci, or jenkins',
       })
       .default('auto'),
+    deploy: shipDeploySchema,
   })
   .prefault({})
   .meta({ description: 'Settings for the ship flow.' });
@@ -658,6 +710,49 @@ export function buildAgentConfigSchema(connectors: readonly Manifest[]) {
             'tracing needs an OTLP/HTTP endpoint, like http://otel-collector:4318/v1/traces.',
         });
       }
+      const deploy = config.spec.ship.deploy;
+      if (deploy.enabled) {
+        const path = ['spec', 'ship', 'deploy'];
+        if (deploy.target === 'kubernetes' && !deploy.namespace) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...path, 'namespace'],
+            message: 'a Kubernetes deploy needs its namespace.',
+          });
+        }
+        if (deploy.target === 'vm') {
+          for (const key of ['host', 'user', 'hostKey'] as const) {
+            if (!deploy[key]) {
+              ctx.addIssue({
+                code: 'custom',
+                path: [...path, key],
+                message: `a VM deploy needs its ${key === 'hostKey' ? 'host key (ssh-keyscan -t ed25519 <host>)' : key}.`,
+              });
+            }
+          }
+        }
+        const env = config.spec.environments.find((e) => e.name === deploy.environment);
+        if (env?.production && deploy.when !== 'manual') {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...path, 'when'],
+            message: `${env.name} is a production environment: its deploys must be manual.`,
+          });
+        }
+        if (
+          env &&
+          deploy.target === 'kubernetes' &&
+          deploy.namespace &&
+          env.namespaces.length > 0 &&
+          !env.namespaces.includes(deploy.namespace)
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...path, 'namespace'],
+            message: `${deploy.namespace} is not one of the ${env.name} environment's namespaces.`,
+          });
+        }
+      }
       config.spec.environments.forEach((env, i) => {
         if (env.model && !(env.model in config.spec.models)) {
           ctx.addIssue({
@@ -692,6 +787,20 @@ export function toAgentJsonSchema(schema: AgentConfigSchema): Record<string, unk
     description: `Kodra AI Agent configuration, ${SCHEMA_API_VERSION}.`,
     ...Object.fromEntries(Object.entries(json).filter(([key]) => key !== '$schema')),
   };
+}
+
+/** spec.ship.deploy (B6). */
+export interface ShipDeployConfig {
+  enabled: boolean;
+  target: 'kubernetes' | 'vm';
+  environment: string;
+  when: 'default-branch' | 'manual';
+  credentials: string;
+  namespace?: string | undefined;
+  host?: string | undefined;
+  user?: string | undefined;
+  sshPort?: number | undefined;
+  hostKey?: string | undefined;
 }
 
 /** Parsed config. Connector entries are typed loosely because they come from manifests. */
@@ -736,6 +845,7 @@ export interface AgentConfig {
     ship: {
       baseImageMirrors: Record<string, string>;
       ci: 'auto' | 'github-actions' | 'gitlab-ci' | 'jenkins';
+      deploy: ShipDeployConfig;
     };
     console: {
       enabled: boolean;

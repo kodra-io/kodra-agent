@@ -547,3 +547,62 @@ ${entries}`);
     expect(text).toContain('tunnelUser: is required with tunnelHost');
   });
 });
+
+describe('spec.ship.deploy (B6)', () => {
+  const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl';
+  const deploy = (fields: Record<string, string>, extra = '') =>
+    parseAgentConfig(
+      config(
+        `${ollama}${extra}  ship:\n    deploy:\n${Object.entries(fields)
+          .map(([k, v]) => `      ${k}: ${v}\n`)
+          .join('')}`,
+      ),
+    );
+  const prod =
+    '  environments:\n    - name: prod\n      production: true\n      namespaces: [shop]\n';
+
+  it('is off by default, and accepts a Kubernetes or a VM target', () => {
+    const plain = parseAgentConfig(config(ollama));
+    if (!plain.ok) throw new Error('invalid');
+    expect(plain.config.spec.ship.deploy).toMatchObject({ enabled: false, target: 'kubernetes' });
+    const kube = deploy({ enabled: 'true', namespace: 'shop', credentials: 'kube-shop' });
+    expect(kube.ok && kube.config.spec.ship.deploy).toMatchObject({
+      environment: 'staging',
+      when: 'default-branch',
+      namespace: 'shop',
+    });
+    const vm = deploy({
+      enabled: 'true',
+      target: 'vm',
+      host: '10.0.0.5',
+      user: 'deploy',
+      hostKey: KEY,
+    });
+    expect(vm.ok).toBe(true);
+  });
+
+  it('says what a target is missing, and keeps production deploys manual', () => {
+    expect(messages(deploy({ enabled: 'true' })).join('\n')).toContain(
+      'a Kubernetes deploy needs its namespace',
+    );
+    const vm = messages(deploy({ enabled: 'true', target: 'vm', host: 'h' })).join('\n');
+    expect(vm).toContain('a VM deploy needs its user');
+    expect(vm).toContain('ssh-keyscan');
+    expect(messages(deploy({ enabled: 'true', hostKey: 'not-a-key' })).join('\n')).toContain(
+      'must be a public host key',
+    );
+    expect(
+      messages(deploy({ enabled: 'true', environment: 'prod', namespace: 'shop' }, prod)).join(
+        '\n',
+      ),
+    ).toContain('prod is a production environment: its deploys must be manual');
+    expect(
+      deploy({ enabled: 'true', environment: 'prod', namespace: 'shop', when: 'manual' }, prod).ok,
+    ).toBe(true);
+    expect(
+      messages(
+        deploy({ enabled: 'true', environment: 'prod', namespace: 'other', when: 'manual' }, prod),
+      ).join('\n'),
+    ).toContain("other is not one of the prod environment's namespaces");
+  });
+});

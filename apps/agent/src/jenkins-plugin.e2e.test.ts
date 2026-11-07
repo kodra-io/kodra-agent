@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { getConnector } from '@kodra-agent/connectors';
-import { IMAGES, jenkinsfile } from '@kodra-agent/templates';
+import { deployTarget, IMAGES, jenkinsfile } from '@kodra-agent/templates';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Component } from './config.ts';
 import { jsonLogger } from './io.ts';
@@ -174,6 +174,7 @@ describe.skipIf(!url)('Jenkins MCP Server plugin', () => {
       chartDir: 'charts/app',
       defaultBranch: 'main',
     };
+    const app = { name: 'app', port: 8080, healthPath: '/actuator/health' };
     for (const file of [
       jenkinsfile({ ...ci, test: { image: IMAGES.maven[21], run: 'mvn -B test' } }),
       jenkinsfile({
@@ -182,6 +183,43 @@ describe.skipIf(!url)('Jenkins MCP Server plugin', () => {
         credentials: 'registry-push',
       }),
       jenkinsfile({ ...ci, test: null }),
+      // B6: the deploy stage, to Kubernetes on every merge and to a VM after an input step.
+      jenkinsfile({
+        ...ci,
+        test: null,
+        deploy: deployTarget(
+          {
+            enabled: true,
+            target: 'kubernetes',
+            environment: 'demo',
+            when: 'default-branch',
+            credentials: 'kube-demo',
+            namespace: 'demo',
+          },
+          'jenkins',
+          app,
+        ).target,
+      }),
+      jenkinsfile({
+        ...ci,
+        test: null,
+        credentials: 'registry-push',
+        deploy: deployTarget(
+          {
+            enabled: true,
+            target: 'vm',
+            environment: 'prod',
+            when: 'manual',
+            credentials: 'vm-key',
+            host: 'app1.example.com',
+            user: 'deploy',
+            hostKey:
+              'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl',
+          },
+          'jenkins',
+          app,
+        ).target,
+      }),
     ]) {
       const res = await fetch(`${url ?? ''}/pipeline-model-converter/validate`, {
         method: 'POST',

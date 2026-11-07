@@ -73,8 +73,15 @@ When Jenkins is the CI connector that is turned on (or `spec.ship.ci: jenkins`),
 After the pull request opens, the agent looks up the job for its branch with
 `findJobsWithScmUrl` (the repo's git URL and the branch), waits up to five minutes for a
 multibranch job to find the branch, and watches the build. If Jenkins has not started it,
-the agent asks once, then starts it with `triggerBuild`. A failed build is reported with the
-end of its log. The branch is `kodra-agent-ship-<id>` (no slash): a multibranch job is named
+the agent starts it with `triggerBuild`, under the pull request's approval (B6; it asked a
+second time in B5). A failed build is reported with the end of its log, and the model either
+fixes a file ship added (a new commit, then a new build) or says where the problem is.
+
+With the deploy stage on (B6, [ship.md](../ship.md#deploy-stage)), the `Jenkinsfile` has a
+`Deploy` stage for the default branch. It binds the `credentials` ID as a Secret file
+(kubeconfig) or an SSH Username with private key, copies it into a pinned helper container,
+and, when `manual`, waits at an `input` step. Set `DOCKER_NETWORK` on the agent when the
+cluster or VM is reached through a Docker network. The branch is `kodra-agent-ship-<id>` (no slash): a multibranch job is named
 after its branch, and the job guard refuses the `%2F` a slash would become. The agent never
 creates Jenkins jobs (`createPipeline` stays hidden), so with no job for the repo it says
 which job to create.

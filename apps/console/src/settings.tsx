@@ -34,6 +34,7 @@ import {
   ProfileRules,
   ProxyEditor,
   ShipCiCard,
+  ShipDeployCard,
   WritesCard,
 } from './settings-more.tsx';
 import { SetupSteps } from './setup-steps.tsx';
@@ -356,6 +357,7 @@ export function SettingsPage({ onSignedOut, me }: PageProps) {
             <>
               <ConnectorList view={view} live={live.data ?? []} patch={patch} onOpen={setOpen} />
               <ShipCiCard view={view} patch={patch} canEdit={canEdit} onChange={merge} />
+              <ShipDeployCard view={view} patch={patch} canEdit={canEdit} onChange={merge} />
             </>
           )}
           {view && tab === 'connectors' && opened && (

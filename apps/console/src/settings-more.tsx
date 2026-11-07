@@ -895,6 +895,154 @@ export function ShipCiCard({
 
 const SHIP_CI = ['auto', 'jenkins', 'github-actions', 'gitlab-ci'] as const;
 
+/**
+ * The deploy stage ship adds to the pipelines it writes (B6). The pipeline deploys with a
+ * credential stored in the CI system, named here: the agent never holds it.
+ */
+export function ShipDeployCard({
+  view,
+  patch,
+  canEdit,
+  onChange,
+}: {
+  view: SettingsView;
+  patch: SettingsPatch;
+  canEdit: boolean;
+  onChange: Change;
+}) {
+  const { t } = useI18n();
+  const d = patch.ship?.deploy ?? view.ship.deploy;
+  const set = (next: Partial<typeof d>) => {
+    onChange({ ship: { ...patch.ship, deploy: { ...d, ...next } } });
+  };
+  const text = (key: 'environment' | 'credentials' | 'namespace' | 'host' | 'user' | 'hostKey') =>
+    d[key] ?? '';
+  return (
+    <Card title={t('more.deploy.title')}>
+      <p className="text-sm text-ink-secondary">{t('more.deploy.intro')}</p>
+      <Toggle
+        label={t('more.deploy.enabled')}
+        hint={t('more.deploy.enabledHint')}
+        checked={d.enabled}
+        disabled={!canEdit}
+        onChange={(v) => {
+          set({ enabled: v });
+        }}
+      />
+      {d.enabled && (
+        <>
+          <div
+            role="radiogroup"
+            aria-label={t('more.deploy.target')}
+            className="flex flex-wrap gap-2.5"
+          >
+            {(['kubernetes', 'vm'] as const).map((target) => (
+              <label
+                key={target}
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3.5 py-2.5 ${
+                  d.target === target ? 'border-2 border-primary bg-primary-tint' : 'border-line'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="deploy-target"
+                  checked={d.target === target}
+                  disabled={!canEdit}
+                  onChange={() => {
+                    set({ target });
+                  }}
+                />
+                <span className="font-semibold">{t(`more.deploy.${target}`)}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Field
+              label={t('more.deploy.environment')}
+              value={text('environment')}
+              placeholder="staging"
+              disabled={!canEdit}
+              onChange={(v) => {
+                set({ environment: v });
+              }}
+            />
+            {d.target === 'kubernetes' ? (
+              <Field
+                label={t('more.deploy.namespace')}
+                value={text('namespace')}
+                placeholder="demo"
+                disabled={!canEdit}
+                onChange={(v) => {
+                  set({ namespace: v || undefined });
+                }}
+              />
+            ) : (
+              <>
+                <Field
+                  label={t('more.deploy.host')}
+                  value={text('host')}
+                  placeholder="10.0.0.5"
+                  disabled={!canEdit}
+                  onChange={(v) => {
+                    set({ host: v || undefined });
+                  }}
+                />
+                <Field
+                  label={t('more.deploy.user')}
+                  value={text('user')}
+                  placeholder="deploy"
+                  disabled={!canEdit}
+                  onChange={(v) => {
+                    set({ user: v || undefined });
+                  }}
+                />
+              </>
+            )}
+          </div>
+          {d.target === 'vm' && (
+            <Field
+              wide
+              label={t('more.deploy.hostKey')}
+              value={text('hostKey')}
+              placeholder="ssh-ed25519 AAAA..."
+              disabled={!canEdit}
+              onChange={(v) => {
+                set({ hostKey: v || undefined });
+              }}
+            />
+          )}
+          <Field
+            wide
+            label={t('more.deploy.credentials')}
+            value={text('credentials')}
+            placeholder="KODRA_DEPLOY"
+            disabled={!canEdit}
+            onChange={(v) => {
+              set({ credentials: v });
+            }}
+          />
+          <p className="text-sm text-ink-secondary">
+            {t(
+              d.target === 'kubernetes'
+                ? 'more.deploy.credentialsKube'
+                : 'more.deploy.credentialsVm',
+            )}
+          </p>
+          <Toggle
+            label={t('more.deploy.manual')}
+            hint={t('more.deploy.manualHint')}
+            checked={d.when === 'manual'}
+            disabled={!canEdit}
+            onChange={(v) => {
+              set({ when: v ? 'manual' : 'default-branch' });
+            }}
+          />
+        </>
+      )}
+    </Card>
+  );
+}
+
 /** The proxy (its URLs are secrets), hosts that skip it, and base image mirrors (M12). */
 export function ProxyEditor({
   view,

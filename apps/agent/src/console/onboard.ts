@@ -5,6 +5,7 @@ import { ship, type ShipHooks, type ShipResult } from '../commands/ship.ts';
 import type { Context } from '../context.ts';
 import { writePrivateFile } from '../env-file.ts';
 import type { Runtime } from '../runtime.ts';
+import { watchRelease } from '../ship/release.ts';
 import {
   MAX_KEEP_MS,
   sandboxDeploy,
@@ -22,8 +23,11 @@ import type { SandboxTest } from '../sandbox/state.ts';
  * progress only: redacted, never a secret), so they can be opened again after a restart.
  */
 
-/** `sandbox` deploys a branch to the sandbox, tests it, and destroys it (B2). */
-export type JobKind = 'analyze' | 'pr' | 'sandbox';
+/**
+ * `sandbox` deploys a branch to the sandbox, tests it, and destroys it (B2). `release`
+ * watches the default branch's pipeline and deploy, and checks it is healthy (B6).
+ */
+export type JobKind = 'analyze' | 'pr' | 'sandbox' | 'release';
 export type JobState = 'running' | 'done' | 'failed';
 
 export interface OnboardJob {
@@ -44,6 +48,9 @@ export interface OnboardJob {
   prUrl: string | null;
   /** A sandbox test: whether it passed, and until when it is kept (null: destroyed). */
   test?: { id: string; passed: boolean; keptUntil: string | null };
+  /** B6: the end-of-run report, and whether all is good (ready to merge, or healthy). */
+  summary?: string;
+  ok?: boolean;
 }
 
 /** A configured GitHub repo or GitLab project the console can onboard. */
@@ -192,7 +199,13 @@ export class OnboardJobs {
       prUrl: null,
     };
     this.jobs = [job, ...this.jobs].slice(0, MAX_JOBS);
-    this.running = (kind === 'sandbox' ? this.test(job, keepMs) : this.run(job)).finally(() => {
+    const work =
+      kind === 'sandbox'
+        ? this.test(job, keepMs)
+        : kind === 'release'
+          ? this.release(job)
+          : this.run(job);
+    this.running = work.finally(() => {
       this.running = null;
     });
     void this.save();
@@ -247,6 +260,30 @@ export class OnboardJobs {
     await this.finish(job, code);
   }
 
+  private async release(job: OnboardJob): Promise<void> {
+    const ctx = this.deps.ctx;
+    const line = this.logger(job);
+    let code = 1;
+    try {
+      code = await watchRelease(
+        { configPath: this.deps.configPath, repo: job.repo },
+        { ...ctx, term: { out: line, err: line }, prompter: null },
+        {
+          runtime: this.deps.runtime,
+          ...(this.deps.post ? { post: this.deps.post } : {}),
+          onResult: (r) => {
+            job.summary = ctx.redactor.redact(r.summary);
+            job.ok = r.healthy;
+            void this.save();
+          },
+        },
+      );
+    } catch (error) {
+      line(`Failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await this.finish(job, code);
+  }
+
   private async run(job: OnboardJob): Promise<void> {
     const ctx = this.deps.ctx;
     const redactor = ctx.redactor;
@@ -264,6 +301,8 @@ export class OnboardJobs {
         if (r.risks !== undefined) job.risks = r.risks;
         if (r.gaps !== undefined) job.gaps = r.gaps;
         if (r.prUrl !== undefined) job.prUrl = r.prUrl;
+        if (r.summary !== undefined) job.summary = redactor.redact(r.summary);
+        if (r.ready !== undefined) job.ok = r.ready;
         void this.save();
       },
     };
@@ -274,7 +313,8 @@ export class OnboardJobs {
           configPath: this.deps.configPath,
           target: job.repo,
           branch: job.branch ?? undefined,
-          maxFixes: 0,
+          // B6: the model may fix what ship added when the pull request's CI fails.
+          maxFixes: 2,
           onboard: true,
         },
         // No terminal here: the job's own log, and approvals through the console and Slack.

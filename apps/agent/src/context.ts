@@ -9,7 +9,7 @@ import type { KubernetesFactory } from './kubernetes.ts';
 import type { HostOptions } from './mcp/host.ts';
 import type { ProbeContext } from './probes.ts';
 import type { Exec } from './ship/exec.ts';
-import type { JenkinsTimings } from './ship/jenkins.ts';
+import type { CiTimings } from './ship/ci-watch.ts';
 import type { SandboxClusterFactory } from './sandbox/cluster.ts';
 import type { SlackConnection } from './slack/api.ts';
 import type { Redactor } from './redactor.ts';
@@ -61,7 +61,9 @@ export interface Context {
   /** How long `ship` waits for the container to answer. */
   shipSmokeTimeoutMs?: number;
   /** How long `ship` waits for Jenkins to find the branch and build it, and how often it looks. */
-  shipJenkins?: Partial<JenkinsTimings>;
+  shipJenkins?: Partial<CiTimings>;
+  /** How ship watches CI runs and releases (B6); tests make it quick. */
+  shipCi?: Partial<CiTimings>;
   /** The clock the check schedules use (tests). */
   checksNow?: () => Date;
   /** The agent's own container id (null on a host); detected when not set. */

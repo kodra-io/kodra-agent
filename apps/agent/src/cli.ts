@@ -9,6 +9,7 @@ import { doctor } from './commands/doctor.ts';
 import { init } from './commands/init.ts';
 import { run } from './commands/run.ts';
 import { sandbox } from './commands/sandbox.ts';
+import { watchRelease } from './ship/release.ts';
 import { ship } from './commands/ship.ts';
 import { configPath } from './config.ts';
 import type { Context } from './context.ts';
@@ -23,6 +24,7 @@ const COMMANDS = [
   ['chat', 'Chat with the agent in this terminal, with approvals asked here'],
   ['ship <repo|dir>', 'Add a Dockerfile, CI, and Helm chart, verify them, and open a PR'],
   ['onboard <repo|dir>', 'Report what a repo needs and its risks, then ship it with that report'],
+  ['release <repo>', "Watch the default branch's pipeline and deploy, check it is healthy, report"],
   ['sandbox deploy <repo>', 'Test a branch in the sandbox namespace, then destroy it'],
   ['sandbox list|destroy|sweep', 'Show the sandbox tests that are up, or remove them'],
   ['audit verify', "Check that the audit log's records were not edited, deleted, or reordered"],
@@ -56,6 +58,10 @@ export function helpText(): string {
     '',
     'check options:',
     '  --post                         Post the digest to Slack and save it as the latest',
+    '',
+    'ship and onboard options:',
+    '  --branch <name>                The branch to start from (default: the default branch)',
+    "  --max-fixes <n>                Fixes the model may make: the Dockerfile here, then the PR's CI (default 2)",
     '',
     'sandbox deploy options:',
     '  --branch <name>                The branch to test (default: the default branch)',
@@ -205,6 +211,14 @@ export async function main(argv: readonly string[], ctx: Context): Promise<numbe
         },
         ctx,
       );
+    }
+    case 'release': {
+      const repo = positionals[1];
+      if (repo === undefined) {
+        ctx.term.err('Usage: kodra-agent release <owner/repo | group/project>');
+        return 2;
+      }
+      return watchRelease({ configPath: config, repo }, ctx);
     }
     default:
       ctx.term.err(`Unknown command '${command}'. Run 'kodra-agent --help'.`);

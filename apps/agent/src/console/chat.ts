@@ -215,6 +215,8 @@ export class ConsoleChat {
       const deps: AgentDeps = {
         ...this.opts.deps(this.opts.approvals),
         actor: user.name,
+        // B6: only approvers start onboarding, sandbox tests, and release checks.
+        workflowsAllowed: user.canApprove,
         stream: true,
         signal: stop.signal,
         events: (event) => {

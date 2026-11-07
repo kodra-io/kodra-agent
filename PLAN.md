@@ -202,6 +202,45 @@ connected, not only the repo host's.
 Done when ship and onboard write a Jenkinsfile that Jenkins validates, and a test on a real
 Jenkins finds, starts, and watches a build.
 
+#### B6: From onboarding to a healthy deploy
+
+Omar approved this on 7 November 2026: the agent should take a repo from onboarding to a
+healthy deploy and report back, like a DevOps engineer, from the CLI, the console, and chat.
+It takes the agreed parts of M23 (deploy stage), M25 (watch and fix in CI), and M9c (watch the
+release) and keeps the rest parked.
+
+- **A deploy stage** in the pipelines ship writes (`spec.ship.deploy`, off by default, set in
+  the console under Settings, Connectors): after the tests, the image, and the chart check pass
+  on the default branch, the pipeline deploys. Kubernetes: `helm upgrade --install` with the
+  commit's image tag, waiting for the rollout and rolling back on failure. A VM: a script over
+  SSH with a pinned host key that replaces the container, checks its health, and puts the
+  previous image back on failure. `manual` uses the CI system's own gate (a Jenkins input
+  step, GitHub environment reviewers, a manual GitLab job); production environments must use
+  it. The pipeline holds the credentials in the CI system, by name; the agent never does. The
+  PR includes a namespaced ServiceAccount and Role for the Kubernetes deployer.
+- **Watch the pull request's CI** for every CI tool (Jenkins, GitHub Actions, GitLab CI). When
+  it fails, the model reads the end of the log (untrusted) and either fixes a file ship added
+  (up to `--max-fixes` commits, on that branch only) or says the cause is in the application,
+  which it never changes. The PR's one approval covers the branch, the PR, starting its Jenkins
+  build, and those fix commits, and says so.
+- **Then** the sandbox test (B2, its own approval) and a report: ready to merge, or what a
+  person must do, posted to the terminal, the console, and Slack.
+- **After the merge,** `kodra-agent release <repo>` (or the console, or chat) watches the
+  default branch's run, checks the deployment with the agent's read access (the Deployment's
+  image and ready replicas, or the VM's health endpoint), investigates read-only when
+  something fails, and reports. It never deploys or rolls back by itself.
+- **Chat:** `kodra_onboard`, `kodra_sandbox_test`, `kodra_watch_release`, `kodra_job`, and
+  `kodra_repos` start and read the same background jobs as the console's Repos page.
+  Approvers only; every change inside still waits for an approval.
+
+Still parked: scan, SBOM, and signing (M21); more registries and build engines (M22); GitOps
+mode and OIDC federation for deploys (M23); Azure Pipelines (M24); more than one deploy target
+per repo; Kubernetes fixes by the agent (M9b); judging releases by metrics (M9c).
+
+Done when ship and onboard write a deploy stage that each CI system accepts (Jenkins validates
+it on a real Jenkins), a failing CI run is fixed on the branch within the limit in a test, and
+the demo repo goes from onboarding to a healthy deploy on kind with Jenkins.
+
 ---
 
 ## Status
@@ -219,7 +258,8 @@ Jenkins finds, starts, and watches a build.
 | B2 Test in a sandbox, then destroy          | Done                                      | #92  |
 | B3 Configurator clean-up                    | Done                                      | #94  |
 | B4 Official MCP servers                     | Done                                      | #101 |
-| B5 Build with the connected CI tool         | In review                                 |      |
+| B5 Build with the connected CI tool         | In review                                 | #108 |
+| B6 From onboarding to a healthy deploy      | In review                                 |      |
 | Gate open: Omar picks the next roadmap item | Not started                               |      |
 
 ## Rules
