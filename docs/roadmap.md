@@ -609,6 +609,11 @@ New ideas found while the gate is closed. Each one waits here until Omar picks i
   placeholder for `KODRA_CONSOLE_ADMIN_HASH`, so a team that creates the agent's Secret by hand
   or with External Secrets has to run `init --target kubernetes` once to get a password set. A
   command that asks for the password and prints only its hash would close that gap.
+- **Use a Claude Code or Codex sign-in as the model** (Omar, 7 November 2026). Run `claude -p` or
+  `codex exec` headless instead of calling a model API with a key. To keep the golden rules, the
+  CLI's own tools must be off: it may only call the agent's tools, served to it over MCP, so
+  every call still goes through the policy engine, approvals, and the redactor. Check first
+  whether each vendor's terms allow a subscription sign-in to drive a self-hosted product.
 - **Stop a turn that repeats the same tool call** (found in B5's demo). A small local model
   read the same file again and again until the step limit. The agent could notice an identical
   call with an identical answer and tell the model it already has that result.
