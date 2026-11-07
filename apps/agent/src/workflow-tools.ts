@@ -98,7 +98,7 @@ export function workflowTools(deps: AgentDeps, task: string): Record<string, Too
 
   const repoArg = {
     repo: { type: 'string', description: 'owner/repo or group/project, from kodra_repos.' },
-  };
+  } as const;
   return {
     kodra_repos: dynamicTool({
       description:
